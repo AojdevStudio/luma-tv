@@ -85,9 +85,10 @@ restore)
         disabled=""; original=""
         for pkg in $KNOWN; do installed "$pkg" && tv pm list packages -d "$pkg" | grep -qx "package:$pkg" && disabled="$disabled $pkg"; done
     fi
-    for pkg in $disabled; do echo "Switching $pkg back on."; tv pm enable --user 0 "$pkg" >/dev/null || true; done
+    for pkg in $disabled; do echo "Switching $pkg back on."; tv pm enable --user 0 "$pkg" >/dev/null || die "could not enable $pkg; restore journal kept"; done
     if [ -n "$original" ] && [ "$original" != "$LUMA" ] && [[ "$original" =~ ^[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+$ ]]; then
-        tv cmd package set-home-activity --user 0 "$original" >/dev/null || true
+        tv cmd package set-home-activity --user 0 "$original" >/dev/null || die "could not restore $original; restore journal kept"
+        [ "$(home_now)" = "$original" ] || die "the TV did not select $original; restore journal kept"
     fi
     rm -f "$state"
     show_home

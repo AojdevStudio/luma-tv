@@ -40,6 +40,8 @@ elif command[:1] == ["shell"]:
     elif shell == ["pm", "enable", "--user", "0", "com.google.android.tvlauncher"]:
         device["stock_enabled"] = True
     elif shell[:5] == ["cmd", "package", "set-home-activity", "--user", "0"]:
+        if device.get("reject_home") == shell[5]:
+            sys.exit("Android rejected HOME selection")
         device["home"] = shell[5]
     elif shell == ["dumpsys", "power"]:
         print("mWakefulness=Asleep")
@@ -99,6 +101,19 @@ class LauncherRestoreTest(unittest.TestCase):
         self.run_action("restore")
         self.assertTrue(json.loads(self.device_file.read_text())["stock_enabled"])
         self.assertFalse(self.journal.exists())
+
+    def test_failed_restore_keeps_journal_and_reports_failure(self):
+        self.run_action("install")
+        self.run_action("home")
+        saved = self.journal.read_bytes()
+        device = json.loads(self.device_file.read_text())
+        device["reject_home"] = self.original
+        self.device_file.write_text(json.dumps(device))
+        result = subprocess.run(["bash", "luma.sh", "-s", "test-tv", "restore"],
+                                cwd=self.root, env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.journal.read_bytes(), saved)
+        self.assertEqual(json.loads(self.device_file.read_text())["home"], "dev.luma.tv/.MainActivity")
 
     def test_empty_home_stops_install_without_journal(self):
         self.device_file.write_text(json.dumps({"home": "", "installed": False}))
