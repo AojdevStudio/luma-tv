@@ -32,6 +32,7 @@ remember_home() {
     if [ ! -s "$state" ]; then
         original="$(home_now)"
         [ -n "$original" ] || die "could not read the TV's home screen"
+        [ "$original" != "$LUMA" ] || return 0
         printf 'original=%s\n' "$original" > "$state"
     fi
 }
@@ -44,7 +45,7 @@ build)
 install)
     pick_device
     [ -f dist/luma-tv.apk ] || bash build.sh
-    [ "$(home_now)" = "$LUMA" ] || remember_home "$(state_file)"
+    remember_home "$(state_file)"
     adb -s "$DEVICE" install --no-incremental -r dist/luma-tv.apk ;;
 home)
     pick_device
@@ -60,7 +61,7 @@ home)
         *" $pkg "*)
             echo "Switching off $pkg, which the TV puts above any other home screen."
             tv pm disable-user --user 0 "$pkg" >/dev/null
-            echo "disabled=$pkg" >> "$state"
+            grep -qxF "disabled=$pkg" "$state" || printf 'disabled=%s\n' "$pkg" >> "$state"
             tv cmd package set-home-activity --user 0 "$LUMA" >/dev/null ;;
         *) die "the TV still opens $current at Home, and luma.sh does not switch off unknown apps. Nothing else was changed; ./luma.sh restore undoes this." ;;
         esac
@@ -85,7 +86,7 @@ restore)
         disabled=""; original=""
         for pkg in $KNOWN; do installed "$pkg" && tv pm list packages -d "$pkg" | grep -qx "package:$pkg" && disabled="$disabled $pkg"; done
     fi
-    for pkg in $disabled; do echo "Switching $pkg back on."; tv pm enable --user 0 "$pkg" >/dev/null || die "could not enable $pkg; restore journal kept"; done
+    for pkg in $disabled; do echo "Switching $pkg back on."; tv pm enable --user 0 "$pkg" >/dev/null || die "could not enable $pkg; restore stopped"; done
     if [ -n "$original" ] && [ "$original" != "$LUMA" ] && [[ "$original" =~ ^[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+$ ]]; then
         tv cmd package set-home-activity --user 0 "$original" >/dev/null || die "could not restore $original; restore journal kept"
         [ "$(home_now)" = "$original" ] || die "the TV did not select $original; restore journal kept"
