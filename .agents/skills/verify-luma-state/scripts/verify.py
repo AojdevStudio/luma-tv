@@ -454,15 +454,14 @@ def replace_once(source: str, old: str, new: str) -> str:
 def self_check(source: str, output: Path) -> dict[str, object]:
     """Differential mutation checks, on actual source copies, never product edits.
 
-    The control is explicitly a scratch repair, not a claim about this repo.
+    The control is a scratch copy of the exact checked product source.
     Each witness enumerates every outcome at each step of the stated sequence.
     The target property must pass on the control and fail on its single mutant.
-    This prevents the already-red upstream source from making a mutation test
-    pass vacuously. These are tooling checks, separate from fixed-point proof.
+    This prevents a broken control from making a mutation test pass vacuously.
+    These are tooling checks, separate from fixed-point proof.
     """
-    guard = '        [ "$original" != "$LUMA" ] || die "offline control: Luma original"\n'
-    control = replace_once(source, '        original="$(home_now)"\n',
-                           '        original="$(home_now)"\n' + guard)
+    guard = '        [ "$original" != "$LUMA" ] || return 0\n'
+    control = source
     (output / "scratch-control.patch").write_text("".join(difflib.unified_diff(
         source.splitlines(keepends=True), control.splitlines(keepends=True),
         fromfile="checked-luma.sh", tofile="scratch-control-luma.sh")))
@@ -597,7 +596,7 @@ def main() -> int:
                     lines.extend(f"  {index + 1}. {word}" for index, word in enumerate(words))
                 event = counterexample["first_boundary"]
                 if isinstance(event, dict):
-                    lines.append(f"  Evidence. Source line {event['source_line']}. {event['command']}.")
+                    lines.append(f"  Evidence. Source line {event['source_line']}. Caller lines {event.get('caller_lines', [])}. {event['command']}.")
         lines.append(f"Mutation self-check. {mutation_result['status']}.")
         (output / "summary.txt").write_text("\n".join(lines) + "\n")
         print("\n".join(lines), flush=True)

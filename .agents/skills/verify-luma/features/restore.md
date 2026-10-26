@@ -17,7 +17,7 @@ Restore selects the launcher recorded before Luma and keeps Luma installed for a
 
 Preconditions: the current request expressly authorizes live restore. The journal names CleanYourTV and CleanYourTV remains enabled.
 
-- Inspect the journal through the helper's snapshot. Preserve its copy in the evidence directory.
+- The safe, install and restore actions capture the journal in their evidence snapshots. Doctor does not capture it. Preserve the snapshot before any authorized restore.
 - With authorization, run `python3 .agents/skills/verify-luma/scripts/verify.py restore --allow-launcher-change --evidence "$HOME/Backups/luma-verification/restore-$(date -u +%Y%m%dT%H%M%SZ)"`.
 - Require HOME to equal the journal's original after the command, with CleanYourTV enabled. Luma stays installed.
 - If a command fails, require a nonzero result and retain the saved evidence and live journal. Do not retry blindly.

@@ -45,13 +45,13 @@ A counterexample lists the shortest sequence by operator-action count. It is not
 
 Read [model/domain.json](model/domain.json) before interpreting a proof. The domain has stock, Luma, chooser, and empty HOME values, one stock launcher, and every declared adaptive Android write outcome. There is one operator. Reads and local file operations succeed. Crashes, power loss, other writers, additional stock launchers, and physical remote behavior are excluded.
 
-The search has no successful depth cutoff. A counterexample refutes a property immediately. A passing property requires the worklist to empty. An enumeration cap is an error. Journal bytes remain part of state identity, so an endlessly growing journal prevents a complete fixed-point proof.
+The search has no successful depth cutoff. A counterexample refutes a property immediately. A passing property requires the worklist to empty. An enumeration cap is an error. It means no counterexample was found up to the explored distance, not a pass. Journal bytes remain part of state identity, so an endlessly growing journal prevents a complete fixed-point proof.
 
 The full shell invocation is not modeled as one atomic write. The observer records internal command boundaries. It cannot observe individual filesystem bytes or admit concurrent invocations.
 
 ## Keep source and coverage synchronized
 
-[model/coverage.json](model/coverage.json) is the source of truth for the checked source SHA, function spans, and property lines. Its sync commit is `700ffcca4675e9be9aad1802e3aba57e1fbc3566`, the restore-fix branch before this skills change.
+[model/coverage.json](model/coverage.json) is the source of truth for the checked source SHA, function spans, and property lines. Its sync commit is `14b526d2104c47c0ead57ee54a6b851e6aa9e8c8`, the restore-fix branch before this skills change.
 
 When the source hash changes, inspect the new code, fake Android semantics, finite domain, and mutation anchors. Update that record only after the correspondence is confirmed. Then rerun the command. Move the sync commit only after the review. Do not update a hash merely to silence the guard, remove outcomes, cap away a counterexample, or weaken a property to obtain PASS.
 

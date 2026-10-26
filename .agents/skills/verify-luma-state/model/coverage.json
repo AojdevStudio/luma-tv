@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source": "luma.sh",
-  "source_sha256": "4019f1a9d116637d0af1e02a3ad70e448e2739acc6320dff7644aa8b169300cf",
-  "sync_commit": "700ffcca4675e9be9aad1802e3aba57e1fbc3566",
+  "source_sha256": "a1ab06bd3180b451cb752da472cd81e6a85620445a436f371148d00bf3ac9252",
+  "sync_commit": "14b526d2104c47c0ead57ee54a6b851e6aa9e8c8",
   "instrumentation": "Unchanged luma.sh copied into a private fixture. A Bash wrapper loads the observer and sources luma.sh with its own path as $0 and the normal arguments. DEBUG and EXIT traps record the actual source. No journal function or shell branch is mocked. Only the adb executable is replaced.",
   "source_spans": {
     "tv_transport": [
@@ -17,57 +17,59 @@
       29,
       29
     ],
-    "installed_query": [
-      38,
+    "remember_home": [
+      30,
       38
     ],
-    "asleep_home_display": [
+    "installed_query": [
       39,
       39
     ],
-    "remember_home": [
-      30,
-      37
+    "asleep_home_display": [
+      40,
+      40
     ],
     "install": [
-      44,
-      48
+      45,
+      49
     ],
     "home": [
-      49,
-      70
+      50,
+      71
     ],
     "restore": [
-      79,
-      95
+      80,
+      96
     ]
   },
   "property_source_lines": {
     "no_luma_original": [
       30,
       35,
-      53
+      36,
+      48,
+      54
     ],
     "no_empty_original": [
       33,
       34,
-      35
+      36
     ],
     "restore_returns_original": [
-      90,
       91,
-      93
+      92,
+      94
     ],
     "restore_failure_not_success": [
-      88,
-      90,
+      89,
       91,
-      93
+      92,
+      94
     ],
     "baseline_immutable": [
       32,
-      35,
-      93
+      36,
+      94
     ]
   },
   "update_rule": "After any source change, inspect the actual source, Android boundary semantics, domain, and mutation anchors. Update the SHA and source lines only after that review. Rerun the fixed-point checker and differential mutation self-check. Move sync_commit only after checking source correspondence. Do not replace a failing invariant with a weaker one."
