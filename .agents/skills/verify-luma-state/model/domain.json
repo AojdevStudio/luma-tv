@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "semantics": "Breadth-first exploration of every adaptive Android outcome until a counterexample is established or a finite fixed point is reached. Only a complete fixed point proves a passing property.",
+  "home_domain": {
+    "S": "com.google.android.tvlauncher/.Home",
+    "L": "dev.luma.tv/.MainActivity",
+    "C": "android/.ResolverActivity",
+    "E": ""
+  },
+  "actions": [
+    "home",
+    "install",
+    "restore"
+  ],
+  "android_outcomes": {
+    "install": [
+      "preserve",
+      "stock",
+      "chooser",
+      "luma",
+      "empty",
+      "fail"
+    ],
+    "set_home": [
+      "accept",
+      "keep",
+      "fail"
+    ],
+    "enable": [
+      "accept",
+      "fail"
+    ],
+    "disable": [
+      "accept",
+      "fail"
+    ]
+  },
+  "outcome_meanings": {
+    "accept": "Return zero and apply the requested write. Setting an unavailable launcher instead returns one without changing Home.",
+    "keep": "Return zero without changing Home, representing an Android Home override.",
+    "fail": "Return one without applying the write.",
+    "install": "A successful install sets Luma installed and preserves or resets Home to each declared component or empty. Stock reset falls back to chooser when stock is disabled.",
+    "disable": "A successful disable switches current stock Home to the chooser. Enabling stock does not itself change Home."
+  },
+  "initial_states": "Seven states. Each declared Home with Luma installed or absent, except Home=Luma requires installed. One stock launcher starts installed and enabled. No initial journal.",
+  "journal": "Real bytes written by luma.sh, not synthesized by the model. State identity includes the complete journal, including disabled entries. No arbitrary journal length cutoff.",
+  "atomicity": "The complete shell invocation is NOT atomic. Main-shell Bash simple-command entries, each ADB entry and return, and shell exit record the actual journal and Android state. Pure text commands in pipeline children and command substitutions are not separately observed. Journal redirection, append, and removal are observed before the next main-shell command or ADB boundary. Complete invocations alone admit the next operator action. No claim covers individual filesystem byte writes.",
+  "assumptions": [
+    "One operator and one fixture device with serial OFFLINE. No concurrent shell invocations or other writers.",
+    "No process crash or power loss. Local filesystem operations succeed. No mid-command interruption.",
+    "Android Home resolution is stable between modeled writes, may be empty, and its query transport succeeds.",
+    "ADB package and serial reads succeed. The sole stock package is installed. The other three KNOWN packages are absent.",
+    "Android enable and disable either succeed and apply the change, or fail without a change. Set-home may also return zero without changing Home.",
+    "The TV is asleep. show_home reads power state and does not send a Home key.",
+    "An APK placeholder is already present. The fake ADB handles install. No build, signing, key generation, download, real ADB, network, or TV operation occurs."
+  ],
+  "exclusions": [
+    "Unbounded proof of shell code or all Android behavior. This result covers this finite domain only.",
+    "Multiple installed stock launchers, different components or component syntax, and four-launcher priority permutations.",
+    "Transient query failures, failed writes that partially apply, external Home changes between reads, and awake-TV Home-key behavior.",
+    "Arbitrary pre-existing, corrupt, empty-file, or externally edited journals. Journals must be reachable from the declared initial states.",
+    "Build, widgets, status, uninstall, real APK contents, signing, devices, networking, credentials, and real restore behavior."
+  ],
+  "enumeration_argument": "Breadth-first search expands each new quiescent state once. For each action it executes a prefix, takes each new decision's first option, and enqueues every other option with its exact prefix. Induction over the finite choice tree covers every leaf. All observed successors enter the state worklist. Empty worklist establishes the fixed point. Internal snapshots check safety throughout each invocation. The shortest counterexamples minimize operator-action count, not shell-command count. An enumeration cap, unknown command, unsupported value, timeout, stale hash, or recorder mismatch exits two and never reports a pass. A concrete counterexample terminates the search after its breadth-first layer. It refutes that invariant. Properties with no counterexample are UNKNOWN unless the frontier is empty. This stopping rule changes neither the domain nor the invariants.",
+  "safety_caps": {
+    "quiescent_states": 2048,
+    "outcome_leaves_per_state_action": 4096,
+    "seconds_per_source_execution": 10
+  },
+  "observer_equivalence": "Every enumerated outcome tape is replayed through a normal /bin/bash invocation of the unchanged script without the observer or source wrapper. Exit status, stdout, stderr, complete journal bytes, Android state, and consumed external outcomes must match. A mismatch is an error, not an invariant result.",
+  "transition_definition": "A quiescent state is (Home, Luma installed, stock enabled, exact journal bytes). An operation edge is one real source execution for an action and one complete adaptive Android outcome tape. Its ordered boundary snapshots expand the edge into transient execution states, with the edge ID and snapshot index as the program position. Safety properties are checked at these observed cuts. Restore postconditions are checked against the actual exit and final state. Internal execution cannot admit another operator action under the single-operator assumption.",
+  "trusted_base": [
+    "The Python explicit-state search and property predicates in scripts/verify.py.",
+    "The finite external Android semantics in scripts/fake-adb.bash, checked against android_outcomes.",
+    "Bash DEBUG and EXIT observation, checked against an uninstrumented replay for every enumerated outcome.",
+    "The recorded local Python, /bin/bash, and POSIX text-tool implementations. No independent theorem prover or full-shell proof backend is claimed."
+  ],
+  "coverage_audit": "After enumeration, a separate prefix-tree reconstruction checks that each observed decision has exactly every declared outcome child, every complete tape occurs once, and every reachable state has all three actions expanded exactly once. Any missing branch or successor expansion is an error. The report records the audited state-action count."
+}

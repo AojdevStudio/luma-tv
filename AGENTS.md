@@ -5,3 +5,8 @@
 - The PR body has five fixed sections: Problem, Change, Proof, Review, Merge danger. Merge danger names the door and the blast radius.
 - The open-pr gate and the `pr-kit` CI check refuse a body that breaks the contract. Fix the body. Never route around either.
 <!-- pr-kit:end -->
+
+## Verification
+
+- For source builds and TCL app checks, use `.agents/skills/verify-luma/SKILL.md`.
+- For `luma.sh` state and journal changes, use `.agents/skills/verify-luma-state/SKILL.md`. Report counterexamples and UNKNOWN results without relabeling them as passes.
