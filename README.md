@@ -118,7 +118,11 @@ To go back to your TV's own home screen:
 ```
 
 It switches back on exactly what `home` switched off (it remembers per TV, in `.local/`) and makes the original
-launcher the default again. Luma stays installed; `adb uninstall dev.luma.tv` removes it. On a TV where the
+launcher the default again. The installer saves that original before installing the APK, because Android can reset
+the Home choice when a second launcher is installed. Later installs keep the existing saved original.
+If Luma is already HOME without a journal, installation leaves the existing restore fallback available.
+If enabling a launcher or selecting the recorded HOME fails, restore stops and keeps its journal for a retry.
+Luma stays installed; `adb uninstall dev.luma.tv` removes it. On a TV where the
 launcher was never switched off, Settings → *Home screen* → *Return to the TV's home screen* does the same from
 the couch.
 
@@ -160,6 +164,9 @@ trusts. Luma never sees a password or token.
 Plain Java and Android views, no third-party libraries, compiled by `build.sh` with `aapt2`, `javac` and `d8`.
 The sounds are synthesised by [`tools/generate_sounds.py`](tools/generate_sounds.py). Motion is native property
 animation tuned for small TV chips: on a 2 GB TV stick, moving around Home keeps a steady frame rate.
+
+Run `python3 -m unittest discover -s tools -p "test_luma.py" -v` to check installer and launcher restore behavior
+with a local ADB fixture. The test does not connect to a TV.
 
 ### Wallpapers
 
