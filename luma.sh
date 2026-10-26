@@ -27,6 +27,10 @@ $list"
 tv() { adb -s "$DEVICE" shell "$@" | tr -d '\r'; }
 home_now() { tv cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1; }
 state_file() { mkdir -p .local; echo ".local/home-$(tv getprop ro.serialno | tr -cd 'A-Za-z0-9').txt"; }
+remember_home() {
+    local state="$1"
+    if [ ! -s "$state" ]; then echo "original=$(home_now)" > "$state"; fi
+}
 installed() { tv pm list packages "$1" | grep -qx "package:$1"; }
 show_home() { tv dumpsys power | grep -q 'mWakefulness=Awake' && tv input keyevent KEYCODE_HOME || true; } # never wakes a sleeping TV
 
@@ -36,12 +40,13 @@ build)
 install)
     pick_device
     [ -f dist/luma-tv.apk ] || bash build.sh
+    remember_home "$(state_file)"
     adb -s "$DEVICE" install --no-incremental -r dist/luma-tv.apk ;;
 home)
     pick_device
     installed dev.luma.tv || die "Luma is not installed yet: ./luma.sh install"
     state="$(state_file)"
-    if [ ! -s "$state" ]; then echo "original=$(home_now)" > "$state"; fi
+    remember_home "$state"
     tv cmd package set-home-activity --user 0 "$LUMA" >/dev/null
     for _ in 1 2 3 4; do
         current="$(home_now)"
