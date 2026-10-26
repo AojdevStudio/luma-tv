@@ -120,6 +120,7 @@ To go back to your TV's own home screen:
 It switches back on exactly what `home` switched off (it remembers per TV, in `.local/`) and makes the original
 launcher the default again. The installer saves that original before installing the APK, because Android can reset
 the Home choice when a second launcher is installed. Later installs keep the existing saved original.
+If Luma is already HOME without a journal, installation leaves the existing restore fallback available.
 Luma stays installed; `adb uninstall dev.luma.tv` removes it. On a TV where the
 launcher was never switched off, Settings → *Home screen* → *Return to the TV's home screen* does the same from
 the couch.

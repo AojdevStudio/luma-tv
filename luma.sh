@@ -28,8 +28,11 @@ tv() { adb -s "$DEVICE" shell "$@" | tr -d '\r'; }
 home_now() { tv cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1; }
 state_file() { mkdir -p .local; echo ".local/home-$(tv getprop ro.serialno | tr -cd 'A-Za-z0-9').txt"; }
 remember_home() {
-    local state="$1"
-    if [ ! -s "$state" ]; then echo "original=$(home_now)" > "$state"; fi
+    local state="$1" original
+    if [ ! -s "$state" ]; then
+        original="$(home_now)"
+        if [ "$original" != "$LUMA" ]; then printf 'original=%s\n' "$original" > "$state"; fi
+    fi
 }
 installed() { tv pm list packages "$1" | grep -qx "package:$1"; }
 show_home() { tv dumpsys power | grep -q 'mWakefulness=Awake' && tv input keyevent KEYCODE_HOME || true; } # never wakes a sleeping TV
