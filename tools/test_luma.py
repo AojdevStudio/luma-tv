@@ -30,9 +30,15 @@ elif command[:1] == ["shell"]:
     elif shell == ["cmd", "package", "resolve-activity", "--brief", "-a",
                    "android.intent.action.MAIN", "-c", "android.intent.category.HOME"]:
         print(device["home"])
-    elif shell == ["pm", "list", "packages", "dev.luma.tv"]:
-        if device["installed"]:
-            print("package:dev.luma.tv")
+    elif shell[:3] == ["pm", "list", "packages"]:
+        package = shell[-1]
+        if package == "dev.luma.tv" and device["installed"]:
+            print("package:" + package)
+        elif package == "com.google.android.tvlauncher" and "stock_enabled" in device:
+            if "-d" not in shell or not device["stock_enabled"]:
+                print("package:" + package)
+    elif shell == ["pm", "enable", "--user", "0", "com.google.android.tvlauncher"]:
+        device["stock_enabled"] = True
     elif shell[:5] == ["cmd", "package", "set-home-activity", "--user", "0"]:
         device["home"] = shell[5]
     elif shell == ["dumpsys", "power"]:
@@ -86,10 +92,21 @@ class LauncherRestoreTest(unittest.TestCase):
         self.assertTrue(device["installed"])
         self.assertFalse(self.journal.exists())
 
-    def test_update_without_journal_does_not_record_luma_as_original(self):
-        self.device_file.write_text(json.dumps({"home": "dev.luma.tv/.MainActivity", "installed": True}))
+    def test_update_without_journal_restores_disabled_stock_launcher(self):
+        self.device_file.write_text(json.dumps({"home": "dev.luma.tv/.MainActivity",
+                                               "installed": True, "stock_enabled": False}))
         self.run_action("install")
-        self.assertFalse(self.journal.exists(), "Luma is not a restorable original launcher")
+        self.run_action("restore")
+        self.assertTrue(json.loads(self.device_file.read_text())["stock_enabled"])
+        self.assertFalse(self.journal.exists())
+
+    def test_empty_home_stops_install_without_journal(self):
+        self.device_file.write_text(json.dumps({"home": "", "installed": False}))
+        result = subprocess.run(["bash", "luma.sh", "-s", "test-tv", "install"],
+                                cwd=self.root, env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(json.loads(self.device_file.read_text())["installed"])
+        self.assertFalse(self.journal.exists())
 
 
 if __name__ == "__main__":

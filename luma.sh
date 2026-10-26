@@ -31,7 +31,8 @@ remember_home() {
     local state="$1" original
     if [ ! -s "$state" ]; then
         original="$(home_now)"
-        if [ "$original" != "$LUMA" ]; then printf 'original=%s\n' "$original" > "$state"; fi
+        [ -n "$original" ] || die "could not read the TV's home screen"
+        printf 'original=%s\n' "$original" > "$state"
     fi
 }
 installed() { tv pm list packages "$1" | grep -qx "package:$1"; }
@@ -43,7 +44,7 @@ build)
 install)
     pick_device
     [ -f dist/luma-tv.apk ] || bash build.sh
-    remember_home "$(state_file)"
+    [ "$(home_now)" = "$LUMA" ] || remember_home "$(state_file)"
     adb -s "$DEVICE" install --no-incremental -r dist/luma-tv.apk ;;
 home)
     pick_device
