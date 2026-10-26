@@ -1,0 +1,782 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:luma-state-verification:artifacts:1",
+  "title": "Luma finite source-execution verification artifacts",
+  "description": "report.json matches report or error. graph.json matches graph. Each traces.jsonl line matches trace. mutations.json matches mutations. Metadata coverage and domain are snapshots of the adjacent model files. Fixed-point scope and command-boundary semantics are defined there. Exit zero means all invariants passed in this finite domain. Exit one means a concrete invariant counterexample was found. Properties not disproven remain unknown unless the fixed point was reached. Exit two means verification was incomplete.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/report"
+    },
+    {
+      "$ref": "#/$defs/error"
+    },
+    {
+      "$ref": "#/$defs/graph"
+    },
+    {
+      "$ref": "#/$defs/trace"
+    },
+    {
+      "$ref": "#/$defs/mutations"
+    }
+  ],
+  "$defs": {
+    "state": {
+      "type": "object",
+      "properties": {
+        "home": {
+          "enum": [
+            "com.google.android.tvlauncher/.Home",
+            "dev.luma.tv/.MainActivity",
+            "android/.ResolverActivity",
+            ""
+          ]
+        },
+        "luma_installed": {
+          "type": "boolean"
+        },
+        "stock_enabled": {
+          "type": "boolean"
+        },
+        "journal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "home",
+        "luma_installed",
+        "stock_enabled",
+        "journal"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "enum": [
+            "shell_before",
+            "shell_exit",
+            "adb_before",
+            "adb_after"
+          ]
+        },
+        "source_line": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/state"
+        },
+        "command": {
+          "type": "string"
+        },
+        "caller_lines": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 2
+          }
+        }
+      },
+      "required": [
+        "phase",
+        "source_line",
+        "exit_code",
+        "state",
+        "command",
+        "caller_lines"
+      ],
+      "additionalProperties": false
+    },
+    "choice": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string"
+        },
+        "selected": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "operation",
+        "selected",
+        "options"
+      ],
+      "additionalProperties": false
+    },
+    "run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "enum": [
+            "home",
+            "install",
+            "restore"
+          ]
+        },
+        "start": {
+          "$ref": "#/$defs/state"
+        },
+        "end": {
+          "$ref": "#/$defs/state"
+        },
+        "exit_code": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/choice"
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "start",
+        "end",
+        "exit_code",
+        "choices",
+        "events",
+        "stdout",
+        "stderr"
+      ],
+      "additionalProperties": false
+    },
+    "trace": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "enum": [
+            "home",
+            "install",
+            "restore"
+          ]
+        },
+        "start": {
+          "$ref": "#/$defs/state"
+        },
+        "end": {
+          "$ref": "#/$defs/state"
+        },
+        "exit_code": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/choice"
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "edge_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "action",
+        "start",
+        "end",
+        "exit_code",
+        "choices",
+        "events",
+        "stdout",
+        "stderr",
+        "schema_version",
+        "edge_id",
+        "violations"
+      ],
+      "additionalProperties": false
+    },
+    "counterexample": {
+      "type": "object",
+      "properties": {
+        "edge_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "operator_actions": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "first_boundary": {
+          "$ref": "#/$defs/event"
+        },
+        "words": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "edge_ids",
+        "operator_actions",
+        "first_boundary",
+        "words"
+      ],
+      "additionalProperties": false
+    },
+    "property": {
+      "type": "object",
+      "properties": {
+        "statement": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "unknown"
+          ]
+        },
+        "exit_code": {
+          "enum": [
+            0,
+            1,
+            2
+          ]
+        },
+        "counterexample": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/counterexample"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "statement",
+        "status",
+        "exit_code",
+        "counterexample"
+      ],
+      "additionalProperties": false
+    },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "no_luma_original": {
+          "$ref": "#/$defs/property"
+        },
+        "no_empty_original": {
+          "$ref": "#/$defs/property"
+        },
+        "restore_returns_original": {
+          "$ref": "#/$defs/property"
+        },
+        "restore_failure_not_success": {
+          "$ref": "#/$defs/property"
+        },
+        "baseline_immutable": {
+          "$ref": "#/$defs/property"
+        }
+      },
+      "required": [
+        "no_luma_original",
+        "no_empty_original",
+        "restore_returns_original",
+        "restore_failure_not_success",
+        "baseline_immutable"
+      ],
+      "additionalProperties": false
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "fixed_point": {
+          "type": "boolean"
+        },
+        "initial_states": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "quiescent_states": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "operation_transitions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "boundary_snapshot_states": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "boundary_transition_occurrences": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "instrumented_source_executions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "normal_source_executions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_executions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observer_equivalence": {
+          "const": "pass_for_every_outcome_trace"
+        },
+        "maximum_shortest_operator_distance": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "properties": {
+          "$ref": "#/$defs/properties"
+        },
+        "choice_tree_audit": {
+          "const": "pass_for_every_expanded_state_action"
+        },
+        "expanded_state_actions": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "terminated_on_counterexample": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fixed_point",
+        "initial_states",
+        "quiescent_states",
+        "operation_transitions",
+        "boundary_snapshot_states",
+        "boundary_transition_occurrences",
+        "instrumented_source_executions",
+        "normal_source_executions",
+        "source_executions",
+        "observer_equivalence",
+        "maximum_shortest_operator_distance",
+        "properties",
+        "choice_tree_audit",
+        "expanded_state_actions",
+        "terminated_on_counterexample"
+      ],
+      "additionalProperties": false
+    },
+    "report": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        "exit_code": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "method": {
+          "const": "actual-source finite explicit-state fixed-point model checking"
+        },
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "coverage": {
+          "type": "object"
+        },
+        "domain": {
+          "type": "object"
+        },
+        "toolchain": {
+          "type": "object",
+          "properties": {
+            "python": {
+              "type": "string"
+            },
+            "bash": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "python",
+            "bash"
+          ],
+          "additionalProperties": false
+        },
+        "tooling_sha256": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        },
+        "mutation_self_check": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "not_requested"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "pass"
+                },
+                "properties_caught": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "method": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "properties_caught",
+                "method"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "exit_code",
+        "method",
+        "source_sha256",
+        "coverage",
+        "domain",
+        "toolchain",
+        "tooling_sha256",
+        "verification",
+        "mutation_self_check"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "status": {
+          "const": "error"
+        },
+        "exit_code": {
+          "const": 2
+        },
+        "error": {
+          "type": "string"
+        },
+        "fixed_point": {
+          "const": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "status",
+        "exit_code",
+        "error",
+        "fixed_point"
+      ],
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "properties": {
+        "edge_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "enum": [
+            "home",
+            "install",
+            "restore"
+          ]
+        },
+        "start": {
+          "$ref": "#/$defs/state"
+        },
+        "end": {
+          "$ref": "#/$defs/state"
+        },
+        "exit_code": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "words": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "edge_id",
+        "action",
+        "start",
+        "end",
+        "exit_code",
+        "outcomes",
+        "words"
+      ],
+      "additionalProperties": false
+    },
+    "graph": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "initial_states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/state"
+          }
+        },
+        "states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/state"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/edge"
+          }
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "initial_states",
+        "states",
+        "edges",
+        "complete"
+      ],
+      "additionalProperties": false
+    },
+    "mutation": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "control_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "mutant_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "outcome_traces": {
+          "type": "object",
+          "properties": {
+            "control": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mutant": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "control",
+            "mutant"
+          ],
+          "additionalProperties": false
+        },
+        "source_executions": {
+          "type": "object",
+          "properties": {
+            "control": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mutant": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "control",
+            "mutant"
+          ],
+          "additionalProperties": false
+        },
+        "operator_sequence": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "home",
+              "install",
+              "restore"
+            ]
+          }
+        },
+        "witness": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/run"
+          }
+        }
+      },
+      "required": [
+        "status",
+        "control_sha256",
+        "mutant_sha256",
+        "outcome_traces",
+        "source_executions",
+        "operator_sequence",
+        "witness"
+      ],
+      "additionalProperties": false
+    },
+    "mutations": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "checks": {
+          "type": "object",
+          "properties": {
+            "no_luma_original": {
+              "$ref": "#/$defs/mutation"
+            },
+            "no_empty_original": {
+              "$ref": "#/$defs/mutation"
+            },
+            "restore_returns_original": {
+              "$ref": "#/$defs/mutation"
+            },
+            "restore_failure_not_success": {
+              "$ref": "#/$defs/mutation"
+            },
+            "baseline_immutable": {
+              "$ref": "#/$defs/mutation"
+            }
+          },
+          "required": [
+            "no_luma_original",
+            "no_empty_original",
+            "restore_returns_original",
+            "restore_failure_not_success",
+            "baseline_immutable"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "checks"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
