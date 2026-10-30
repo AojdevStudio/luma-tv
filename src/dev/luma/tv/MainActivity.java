@@ -1062,7 +1062,7 @@ public final class MainActivity extends Activity {
         public String homeLayout(){return MainActivity.this.homeLayout();}
         public HouseScenes.Read house(){return house?houseRead:HouseScenes.Read.failed("House Control TV is not installed or is turned off.");}
         public void readHouse(Runnable done){MainActivity.this.readHouse(done);}
-        public void runScene(HouseScenes.Scene scene,java.util.function.Consumer<HouseScenes.Outcome> done){houseLink.run(scene,done);}
+        public void runScene(HouseScenes.Scene scene,java.util.function.Supplier<String> refusal,java.util.function.Consumer<HouseScenes.Outcome> done){houseLink.run(scene,refusal,done);}
         public String sceneApp(String scene){return MainActivity.this.sceneApp(scene);}
         public boolean waiting(){return started&&center!=null&&capabilityOverlay==center;}
     }

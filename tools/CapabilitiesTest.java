@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public final class CapabilitiesTest {
     static int failures;
@@ -21,8 +22,9 @@ public final class CapabilitiesTest {
         /** House Control as last read, the read that readHouse fetches next, and the reply to the next scene run. */
         HouseScenes.Read house, fresh;
         Object reply = HouseScenesTest.map("ok", true, "direct", true);
-        boolean lost, waiting = true;
+        boolean lost, waiting = true, queued;
         String ran;
+        Runnable held;
         final HashMap<String, String> sceneApps = new HashMap<>();
         public boolean clockShown() { return clock; }
         public boolean hasInputs() { return inputs; }
@@ -37,9 +39,14 @@ public final class CapabilitiesTest {
         public String homeLayout() { return layout; }
         public HouseScenes.Read house() { return house; }
         public void readHouse(Runnable done) { if (fresh != null) house = fresh; done.run(); }
-        public void runScene(HouseScenes.Scene scene, Consumer<HouseScenes.Outcome> done) {
-            ran = scene.id;
-            done.accept(lost ? HouseScenes.unknown(scene) : HouseScenes.outcome(scene, reply));
+        public void runScene(HouseScenes.Scene scene, Supplier<String> refusal, Consumer<HouseScenes.Outcome> done) {
+            Runnable send = () -> {
+                String why = refusal.get();
+                if (why != null) { done.accept(HouseScenes.notRun(why)); return; }
+                ran = scene.id;
+                done.accept(lost ? HouseScenes.unknown(scene) : HouseScenes.outcome(scene, reply));
+            };
+            if (queued) held = send; else send.run();
         }
         public String sceneApp(String scene) { return sceneApps.getOrDefault(scene, ""); }
         public boolean waiting() { return waiting; }
@@ -193,6 +200,14 @@ public final class CapabilitiesTest {
         child.profile = Profiles.DEFAULT.enter(Profiles.Mode.CHILD);
         expect(!Capabilities.scenes(child).get(1).available() && run(childMovie, child, 23L).status == Capabilities.Status.NOT_RUN && child.ran == null,
             "Child mode runs no scene, also one previewed in Normal");
+        FakeTv queue = house(true);
+        queue.queued = true;
+        ArrayList<Capabilities.Result> afterQueue = new ArrayList<>();
+        Capabilities.run(Capabilities.scenes(queue).get(1), queue, 23L, afterQueue::add);
+        queue.profile = Profiles.DEFAULT.enter(Profiles.Mode.CHILD);
+        queue.held.run();
+        expect(afterQueue.size() == 1 && afterQueue.get(0).status == Capabilities.Status.NOT_RUN && queue.ran == null && queue.saved == null,
+            "a scene still waiting to be sent when Child mode starts is not sent");
         FakeTv visitor = house(true);
         visitor.profile = Profiles.DEFAULT.enter(Profiles.Mode.GUEST);
         replace(visitor, "com.plexapp.android", new Commands.Target(Commands.Kind.APP, "com.plexapp.android", "Plex", false));

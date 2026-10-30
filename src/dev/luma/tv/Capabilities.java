@@ -3,6 +3,7 @@ package dev.luma.tv;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 final class Capabilities {
     static final String LAST = "capability_last";
@@ -24,8 +25,9 @@ final class Capabilities {
         HouseScenes.Read house();
         /** Reads House Control again, so house() is fresh, then calls done on the main thread. */
         void readHouse(Runnable done);
-        /** Sends the scene to House Control and answers on the main thread. Nothing checks the preview here. */
-        void runScene(HouseScenes.Scene scene, Consumer<HouseScenes.Outcome> done);
+        /** Sends the scene to House Control unless refusal, asked on the main thread right before the send, names a reason.
+         *  A refused scene answers Not run. Answers on the main thread. */
+        void runScene(HouseScenes.Scene scene, Supplier<String> refusal, Consumer<HouseScenes.Outcome> done);
         /** The app chosen in Settings, Scene apps, to open after this scene, or "" for none. */
         String sceneApp(String scene);
         /** The panel that confirmed the action is still open, so a scene may still open its app. */
@@ -182,13 +184,9 @@ final class Capabilities {
         String refused = refusal(previewed, tv);
         if (refused != null) { done.accept(new Result(previewed.capability, Status.NOT_RUN, refused, now)); return; }
         if (previewed.capability == Capability.SCENE) {
-            // The cached read may be old. Read again, then check the preview and the mode against that read before sending.
-            tv.readHouse(() -> {
-                String stale = refusal(previewed, tv);
-                if (stale != null) { done.accept(new Result(Capability.SCENE, Status.NOT_RUN, stale, now)); return; }
-                tv.runScene(previewed.scene, outcome -> finish(new Result(Capability.SCENE, outcome.status,
-                    outcome.status == Status.DONE ? opened(outcome.message, tv.sceneApp(previewed.id), tv) : outcome.message, now), tv, done));
-            });
+            // The cached read may be old. Read again, so the check at the send compares the preview with that read or a newer one.
+            tv.readHouse(() -> tv.runScene(previewed.scene, () -> refusal(previewed, tv), outcome -> finish(new Result(Capability.SCENE, outcome.status,
+                outcome.status == Status.DONE ? opened(outcome.message, tv.sceneApp(previewed.id), tv) : outcome.message, now), tv, done)));
             return;
         }
         String message;

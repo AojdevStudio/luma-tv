@@ -13,6 +13,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONTokener;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -20,6 +21,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /** Luma's one path to House Control's HomeService for scenes, owned by the activity rather than the Home widget.
  *  Code 1 reads the home, 2 runs a scene on the real home and 4 on House Control's isolated demo home. HomeService
@@ -32,14 +34,13 @@ final class HouseLink {
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    /** Requests waiting for the connection. Each is handed the binder, or null when the connection failed. */
-    private final ArrayList<Consumer<IBinder>> waiting = new ArrayList<>();
+    /** Requests not yet on the worker, oldest first. Each is handed the binder, or null when the connection failed. */
+    private final ArrayDeque<Consumer<IBinder>> queue = new ArrayDeque<>();
     private IBinder binder;
-    private boolean bound, closed;
-    private int sent;
+    private boolean bound, busy, closed;
     private final Runnable release = this::unbind, timeout = this::giveUp;
     private final ServiceConnection connection = new ServiceConnection() {
-        public void onServiceConnected(ComponentName name, IBinder service) { main.removeCallbacks(timeout); binder = service; answerWaiting(service); }
+        public void onServiceConnected(ComponentName name, IBinder service) { main.removeCallbacks(timeout); binder = service; next(); }
         public void onServiceDisconnected(ComponentName name) { binder = null; }
         public void onBindingDied(ComponentName name) { giveUp(); }
         public void onNullBinding(ComponentName name) { giveUp(); }
@@ -47,15 +48,20 @@ final class HouseLink {
 
     HouseLink(Context context) { this.context = context.getApplicationContext(); }
 
-    void read(Consumer<HouseScenes.Read> done) { request(HouseLink::fetch, HouseScenes.Read.failed(NO_ANSWER), done); }
+    void read(Consumer<HouseScenes.Read> done) { request(HouseLink::fetch, () -> null, HouseScenes.Read.failed(NO_ANSWER), done); }
 
-    void run(HouseScenes.Scene scene, Consumer<HouseScenes.Outcome> done) {
-        request(target -> send(target, scene), HouseScenes.notRun(NO_ANSWER), done);
+    /** Sends the scene unless refusal names a reason. refusal runs on the main thread when the worker takes the scene,
+     *  after any wait behind other requests, so a mode or plan change during that wait is seen before anything is sent. */
+    void run(HouseScenes.Scene scene, Supplier<String> refusal, Consumer<HouseScenes.Outcome> done) {
+        request(target -> send(target, scene), () -> {
+            String why = refusal.get();
+            return why == null ? null : HouseScenes.notRun(why);
+        }, HouseScenes.notRun(NO_ANSWER), done);
     }
 
     void close() {
         closed = true;
-        waiting.clear();
+        queue.clear();
         unbind();
         main.removeCallbacksAndMessages(null);
         worker.shutdownNow();
@@ -66,18 +72,32 @@ final class HouseLink {
         try { return HouseScenes.read(tree(home)); } catch (JSONException unreadable) { return HouseScenes.read(null); }
     }
 
-    private <T> void request(Function<IBinder, T> call, T unreachable, Consumer<T> done) {
+    /** instead runs on the main thread just before call goes to the worker. A value from it answers in place of call. */
+    private <T> void request(Function<IBinder, T> call, Supplier<T> instead, T unreachable, Consumer<T> done) {
         if (closed) return;
         main.removeCallbacks(release);
-        waiting.add(target -> {
+        queue.add(target -> {
             if (target == null) { answer(unreachable, done); return; }
-            sent++;
+            T refused = instead.get();
+            if (refused != null) { answer(refused, done); return; }
+            busy = true;
             worker.execute(() -> {
                 T value = call.apply(target);
-                main.post(() -> { sent--; answer(value, done); });
+                main.post(() -> { busy = false; answer(value, done); next(); });
             });
         });
-        if (binder != null) { answerWaiting(binder); return; }
+        next();
+    }
+
+    /** The worker takes one request at a time, so the next one is handed over, and checked, only once it is free. */
+    private void next() {
+        while (!busy && !queue.isEmpty()) {
+            if (binder == null) { connect(); return; }
+            queue.poll().accept(binder);
+        }
+    }
+
+    private void connect() {
         main.removeCallbacks(timeout);
         main.postDelayed(timeout, CONNECT_MS);
         if (bound) return;
@@ -98,19 +118,15 @@ final class HouseLink {
 
     private void giveUp() {
         unbind();
-        answerWaiting(null);
-    }
-
-    private void answerWaiting(IBinder target) {
-        ArrayList<Consumer<IBinder>> now = new ArrayList<>(waiting);
-        waiting.clear();
-        for (Consumer<IBinder> send : now) send.accept(target);
+        ArrayList<Consumer<IBinder>> unsent = new ArrayList<>(queue);
+        queue.clear();
+        for (Consumer<IBinder> request : unsent) request.accept(null);
     }
 
     private <T> void answer(T value, Consumer<T> done) {
         if (closed) return;
         done.accept(value);
-        if (sent == 0 && waiting.isEmpty()) { main.removeCallbacks(release); main.postDelayed(release, IDLE_MS); }
+        if (!busy && queue.isEmpty()) { main.removeCallbacks(release); main.postDelayed(release, IDLE_MS); }
     }
 
     private static HouseScenes.Read fetch(IBinder target) {
