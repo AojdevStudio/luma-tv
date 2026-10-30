@@ -35,7 +35,7 @@ final class Capabilities {
     }
 
     enum Away {
-        CLOSED("The panel closed first"), OFF_SCREEN("Luma was not on screen");
+        CLOSED("The panel closed first"), MOVED_ON("You moved on first"), OFF_SCREEN("Luma was not on screen");
         final String reason;
         Away(String reason) { this.reason = reason; }
     }

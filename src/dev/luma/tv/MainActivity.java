@@ -1047,8 +1047,9 @@ public final class MainActivity extends Activity {
     }
     private final class CapabilityTv implements Capabilities.Tv {
         final SharedPreferences.Editor edit=prefs.edit();
-        /** The panel that built this, so a late scene result knows whether it is still open. */
+        /** The panel and its pane as this was built. runAction builds one as the action starts, so a late result knows whether the panel still shows that action. */
         final CapabilityCenter center=capabilityOverlay;
+        final int pane=center==null?0:center.paneChanges;
         public boolean clockShown(){return prefs.getBoolean("clock",true);}
         public boolean hasInputs(){return !InputsWidget.list(MainActivity.this).isEmpty();}
         public boolean widgetOn(String id){return WidgetBoard.on(prefs,id);}
@@ -1064,7 +1065,7 @@ public final class MainActivity extends Activity {
         public void readHouse(Runnable done){MainActivity.this.readHouse(done);}
         public void runScene(HouseScenes.Scene scene,java.util.function.Supplier<String> refusal,java.util.function.Consumer<HouseScenes.Outcome> done){houseLink.run(scene,refusal,done);}
         public String sceneApp(String scene){return MainActivity.this.sceneApp(scene);}
-        public Capabilities.Away away(){return center==null||capabilityOverlay!=center?Capabilities.Away.CLOSED:!started?Capabilities.Away.OFF_SCREEN:null;}
+        public Capabilities.Away away(){return center==null||capabilityOverlay!=center?Capabilities.Away.CLOSED:!center.shows(pane)?Capabilities.Away.MOVED_ON:!started?Capabilities.Away.OFF_SCREEN:null;}
     }
     private Commands.Registry commandRegistry(){
         ArrayList<Commands.Target> targets=new ArrayList<>();
@@ -1117,6 +1118,7 @@ public final class MainActivity extends Activity {
         Runnable pending;
         View opener;
         boolean confirming;
+        int paneChanges;
         /** The Home scene button that opened this panel, and the scene still to preview once the scenes load. */
         final String homeScene;
         String wanted;
@@ -1228,7 +1230,8 @@ public final class MainActivity extends Activity {
             opener=previewButton;pane("Not run",result.message,"Nothing ran. Edit the request, or cancel it.");
             buttons("Edit",()->field.requestFocus(),"Cancel",()->{field.setText("");field.requestFocus();status.setText("Cancelled. Nothing ran.");});primary.requestFocus();
         }
-        void pane(String title,String body,String state){paneTitle.setText(title);paneBody.setText(body);status.setText(state);}
+        void pane(String title,String body,String state){paneChanges++;paneTitle.setText(title);paneBody.setText(body);status.setText(state);}
+        boolean shows(int pane){return capabilityOverlay==this&&paneChanges==pane&&primary.hasFocus();}
         void showAction(Capabilities.Action action){pane(action.name,action.available()?action.preview:action.unavailable,action.available()?"Asks before it runs.":"Unavailable");}
         void choose(Capabilities.Action action,View from){
             String refused=action.available()?Capabilities.refusal(action,new CapabilityTv()):action.unavailable;
@@ -1249,7 +1252,7 @@ public final class MainActivity extends Activity {
                 String line=result.status.label+". "+result.message;
                 // Guest mode can run scenes but never sees the history line.
                 if(capabilityOverlay==this&&settings)last.setText(lastLine());
-                if(capabilityOverlay!=this||!primary.hasFocus()){if(started)Toast.makeText(MainActivity.this,ran.label+". "+line,Toast.LENGTH_LONG).show();return;}
+                if(!shows(tv.pane)){if(started)Toast.makeText(MainActivity.this,ran.label+". "+line,Toast.LENGTH_LONG).show();return;}
                 clock.setVisibility(prefs.getBoolean("clock",true)?View.VISIBLE:View.GONE);
                 if(section==CapabilityPanel.Section.ACTIONS)refreshActions();
                 buttons("Close",()->closeOverlay(true),null,null);primary.requestFocus();

@@ -225,6 +225,11 @@ public final class CapabilitiesTest {
         Capabilities.Result unseen = run(Capabilities.scenes(paused).get(1), paused, 25L);
         expect(unseen.done() && paused.opened == null && unseen.message.equals("Started Movie. Luma was not on screen, so Plex did not open"),
             "a result while Luma is off screen opens no app and says so, not that the panel closed");
+        FakeTv movedOn = house(true);
+        movedOn.away = Capabilities.Away.MOVED_ON;
+        Capabilities.Result behind = run(Capabilities.scenes(movedOn).get(1), movedOn, 25L);
+        expect(behind.done() && movedOn.opened == null && behind.message.equals("Started Movie. You moved on first, so Plex did not open"),
+            "a result after the panel moved on to something else opens no app over it");
         FakeTv uninstalled = house(true);
         replace(uninstalled, "com.plexapp.android", null);
         Capabilities.Action noPlex = Capabilities.scenes(uninstalled).get(1);
