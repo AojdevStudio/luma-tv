@@ -7,7 +7,6 @@ import java.util.Locale;
 import java.util.Objects;
 
 final class Commands {
-    static final String NO_SCENES = "Luma cannot start scenes from Capabilities yet. Use the scene buttons on Home.";
     enum Kind { APP, TAB, WIDGET, SCENE }
     enum Verb { LAUNCH_APP, SELECT_TAB, SHOW_WIDGET, HIDE_WIDGET, START_SCENE }
     enum Status { READY, UNSUPPORTED, AMBIGUOUS, UNINSTALLED, UNAVAILABLE, UNSAFE }
@@ -120,7 +119,7 @@ final class Commands {
             : new Result(Status.UNSUPPORTED, "No registered target matches that request.");
         if (!matched.target.available) return matched.target.kind == Kind.APP
             ? new Result(Status.UNINSTALLED, "This app is not installed or cannot be opened on this TV.")
-            : new Result(Status.UNAVAILABLE, matched.target.kind == Kind.SCENE ? NO_SCENES : "This target is unavailable on this TV.");
+            : new Result(Status.UNAVAILABLE, "This target is unavailable on this TV.");
         return new Result(matched);
     }
 

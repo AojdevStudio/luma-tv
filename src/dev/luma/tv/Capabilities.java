@@ -2,6 +2,7 @@ package dev.luma.tv;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 final class Capabilities {
     static final String LAST = "capability_last";
@@ -19,6 +20,16 @@ final class Capabilities {
         Profiles profile();
         /** The layout Home shows instead of the owner's own, or null on Default. Widget changes edit Default only. */
         String homeLayout();
+        /** House Control as Luma last read it, or null before the first read. */
+        HouseScenes.Read house();
+        /** Reads House Control again, so house() is fresh, then calls done on the main thread. */
+        void readHouse(Runnable done);
+        /** Sends the scene to House Control and answers on the main thread. Nothing checks the preview here. */
+        void runScene(HouseScenes.Scene scene, Consumer<HouseScenes.Outcome> done);
+        /** The app chosen in Settings, Scene apps, to open after this scene, or "" for none. */
+        String sceneApp(String scene);
+        /** The panel that confirmed the action is still open, so a scene may still open its app. */
+        boolean waiting();
     }
 
     enum Capability {
@@ -51,8 +62,13 @@ final class Capabilities {
         final String preview;
         final boolean confirm;
         final String unavailable;
+        /** The scene as previewed, or null for other capabilities and for a scene House Control no longer lists. */
+        final HouseScenes.Scene scene;
         private final boolean target;
         private Action(Capability capability, String id, String label, String name, String preview, String unavailable, boolean target) {
+            this(capability, id, label, name, preview, unavailable, target, null);
+        }
+        private Action(Capability capability, String id, String label, String name, String preview, String unavailable, boolean target, HouseScenes.Scene scene) {
             this.capability = capability;
             this.id = id;
             this.label = label;
@@ -61,21 +77,23 @@ final class Capabilities {
             this.confirm = true;
             this.unavailable = unavailable;
             this.target = target;
+            this.scene = scene;
         }
         boolean available() { return unavailable == null; }
     }
 
     static final class Result {
         final Capability capability;
-        final boolean done;
+        final Status status;
         final String message;
         final long at;
-        private Result(Capability capability, boolean done, String message, long at) {
+        private Result(Capability capability, Status status, String message, long at) {
             this.capability = capability;
-            this.done = done;
+            this.status = status;
             this.message = message;
             this.at = at;
         }
+        boolean done() { return status == Status.DONE; }
         String line() { return "1\t" + capability.id + "\t" + at + "\t" + message; }
         static Result parse(String line) {
             if (line == null || line.isEmpty()) return null;
@@ -86,7 +104,7 @@ final class Capabilities {
             long at;
             try { at = Long.parseLong(fields[2]); } catch (NumberFormatException error) { return null; }
             if (at < 0 || fields[3].isEmpty()) return null;
-            return new Result(capability, true, fields[3], at);
+            return new Result(capability, Status.DONE, fields[3], at);
         }
     }
 
@@ -108,7 +126,15 @@ final class Capabilities {
         return actions;
     }
 
-    static Action of(Commands.Command command) {
+    /** Every scene in House Control's last read, in its order. Empty when the read failed or has none. */
+    static List<Action> scenes(Tv tv) {
+        ArrayList<Action> actions = new ArrayList<>();
+        HouseScenes.Read read = tv.house();
+        if (read != null && read.home != null) for (HouseScenes.Scene scene : read.home.scenes) actions.add(scene(scene, tv));
+        return actions;
+    }
+
+    static Action of(Commands.Command command, Tv tv) {
         Commands.Target t = command.target;
         switch (command.verb) {
             case LAUNCH_APP: return new Action(Capability.APP, t.id, t.name, "Open " + t.name,
@@ -119,18 +145,46 @@ final class Capabilities {
                 "Shows the " + t.name + " widget on Home.", null, true);
             case HIDE_WIDGET: return new Action(Capability.WIDGET, t.id, t.name, "Hide " + t.name + " from Home",
                 "Hides the " + t.name + " widget from Home.", null, false);
-            default: return scene(t);
+            default:
+                HouseScenes.Read read = tv.house();
+                HouseScenes.Scene scene = read == null || read.home == null ? null : read.home.scene(t.id);
+                if (scene != null) return scene(scene, tv);
+                String gone = t.name + " is no longer in House Control.";
+                return new Action(Capability.SCENE, t.id, t.name, "Start " + t.name, gone, gone, true);
         }
     }
 
-    static Action scene(Commands.Target scene) {
-        return new Action(Capability.SCENE, scene.id, scene.name, "Start " + scene.name,
-            "House Control runs the " + scene.name + " scene.", Commands.NO_SCENES, true);
+    /** The preview names what House Control changes, what the TV does after, and which home it acts on. */
+    static Action scene(HouseScenes.Scene scene, Tv tv) {
+        String unavailable = blocked(Capability.SCENE, tv);
+        if (unavailable == null) unavailable = HouseScenes.refusal(scene, tv.house());
+        ArrayList<String> changes = new ArrayList<>(scene.changes.subList(0, Math.min(4, scene.changes.size())));
+        if (scene.changes.size() > 4) changes.add("And " + (scene.changes.size() - 4) + " more changes.");
+        String pkg = tv.sceneApp(scene.id);
+        Commands.Target app = app(pkg, tv);
+        String after = pkg.isEmpty() ? "Stays on Luma."
+            : app == null ? pkg + " is chosen to open after this scene, but it is not installed. The TV stays on Luma."
+            : !app.available ? tv.profile().mode.name + " mode does not open " + app.name + ". The TV stays on Luma."
+            : "Opens " + app.name + " after the scene finishes.";
+        String preview = "Home. " + (changes.isEmpty() ? "This scene changes no lights or air conditioners." : String.join(" ", changes))
+            + "\nTV. " + after + "\nSource. " + scene.source.label;
+        return new Action(Capability.SCENE, scene.id, scene.name, "Start " + scene.name, preview, unavailable, true, scene);
     }
 
-    static Result run(Action previewed, Tv tv, long now) {
+    /** Answers once through done. Settings, apps and tabs answer at once. A scene answers after House Control does. */
+    static void run(Action previewed, Tv tv, long now, Consumer<Result> done) {
         String refused = refusal(previewed, tv);
-        if (refused != null) return new Result(previewed.capability, false, refused, now);
+        if (refused != null) { done.accept(new Result(previewed.capability, Status.NOT_RUN, refused, now)); return; }
+        if (previewed.capability == Capability.SCENE) {
+            // The cached read may be old. Read again, then check the preview and the mode against that read before sending.
+            tv.readHouse(() -> {
+                String stale = refusal(previewed, tv);
+                if (stale != null) { done.accept(new Result(Capability.SCENE, Status.NOT_RUN, stale, now)); return; }
+                tv.runScene(previewed.scene, outcome -> finish(new Result(Capability.SCENE, outcome.status,
+                    outcome.status == Status.DONE ? opened(outcome.message, tv.sceneApp(previewed.id), tv) : outcome.message, now), tv, done));
+            });
+            return;
+        }
         String message;
         switch (previewed.capability) {
             case CLOCK:
@@ -146,7 +200,10 @@ final class Capabilities {
                 message = previewed.target ? "Showed " + previewed.label + " on Home" : "Hid " + previewed.label + " from Home";
                 break;
             case APP:
-                if (!tv.openApp(previewed.id)) return new Result(previewed.capability, false, "Android could not open " + previewed.label + ". It may be updating.", now);
+                if (!tv.openApp(previewed.id)) {
+                    done.accept(new Result(previewed.capability, Status.NOT_RUN, "Android could not open " + previewed.label + ". It may be updating.", now));
+                    return;
+                }
                 message = "Opened " + previewed.label;
                 break;
             case TAB:
@@ -156,9 +213,28 @@ final class Capabilities {
             default:
                 throw new AssertionError(previewed.capability);
         }
-        Result result = new Result(previewed.capability, true, message, now);
-        tv.remember(result.line());
-        return result;
+        finish(new Result(previewed.capability, Status.DONE, message, now), tv, done);
+    }
+
+    private static void finish(Result result, Tv tv, Consumer<Result> done) {
+        if (result.done()) tv.remember(result.line());
+        done.accept(result);
+    }
+
+    /** A started scene opens its app only when the mode allows it and the panel that asked is still open. */
+    private static String opened(String started, String pkg, Tv tv) {
+        if (pkg.isEmpty()) return started;
+        Commands.Target app = app(pkg, tv);
+        if (app == null) return started + ". " + pkg + " is not installed, so no app opened";
+        if (!app.available) return started + ". " + tv.profile().mode.name + " mode does not open " + app.name;
+        if (!tv.waiting()) return started + ". The panel closed first, so " + app.name + " did not open";
+        return started + (tv.openApp(pkg) ? ". Opened " + app.name : ". Android could not open " + app.name);
+    }
+
+    /** The installed app as the registry lists it now, or null. */
+    private static Commands.Target app(String pkg, Tv tv) {
+        for (Commands.Target target : tv.registry().targets) if (target.kind == Commands.Kind.APP && target.id.equals(pkg)) return target;
+        return null;
     }
 
     private static String blocked(Capability capability, Tv tv) {
@@ -171,9 +247,9 @@ final class Capabilities {
 
     /** Why a previewed action may not run now, or null. */
     static String refusal(Action previewed, Tv tv) {
-        if (previewed.capability == Capability.SCENE) return Commands.NO_SCENES;
         String blocked = blocked(previewed.capability, tv);
         if (blocked != null) return blocked;
+        if (previewed.capability == Capability.SCENE) return previewed.scene == null ? previewed.unavailable : HouseScenes.refusal(previewed.scene, tv.house());
         if (previewed.capability.kind == null) {
             for (Action action : list(tv)) if (action.capability == previewed.capability) return action.unavailable;
             return "This capability is no longer available.";

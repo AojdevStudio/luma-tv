@@ -48,8 +48,6 @@ public final class CommandsTest {
         refused("open Absent Player", registry, Commands.Status.UNINSTALLED);
         refused("show Inputs", registry, Commands.Status.UNAVAILABLE);
         refused("start Away", registry, Commands.Status.UNAVAILABLE);
-        expect(Commands.interpret("start Away", registry).message.contains("scene buttons on Home"),
-            "unavailable scenes explain how to continue on Home");
         refused("start Unknown Scene", registry, Commands.Status.UNSUPPORTED);
         refused("open Pl", registry, Commands.Status.UNINSTALLED);
         refused("open Plex and start Movie Night", registry, Commands.Status.UNINSTALLED);
