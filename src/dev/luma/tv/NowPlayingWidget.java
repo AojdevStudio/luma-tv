@@ -23,7 +23,9 @@ import java.util.*;
 
 /** Now Playing: the media session of the app playing on this TV (Spotify, YouTube Music, SoundCloud…) with its
  *  artwork, progress and previous / play-pause / next. Android hands media sessions only to a notification
- *  listener, so Luma declares one (MediaListener) that reads no notifications; the user allows it once. */
+ *  listener, so Luma declares one (MediaListener) that reads no notifications; the user allows it once. The source
+ *  line says whether the session is live or the promo demo, and the Home line shows the session's own description
+ *  as a summary (MediaContext), or says none was shared. */
 final class NowPlayingWidget extends Widget {
     static final String[] MUSIC={"com.spotify.tv.android","com.google.android.youtube.tvmusic","com.soundcloud.android","com.apple.android.music","deezer.android.tv","com.amazon.music.tv","com.aspiro.tidal","ru.yandex.music","com.google.android.youtube.tv"};
     static final float PAD=18,ART=104,TX=136,CTRL_Y=130;
@@ -62,7 +64,7 @@ final class NowPlayingWidget extends Widget {
         artist=text("",13,ink(0xB3),"sans-serif");addView(artist,pos(tw,17,TX,66));
         track=new View(context);track.setBackground(round(ink(0x26),1.5f));addView(track,pos(tw,3,TX,96));
         fill=new View(context);fill.setBackground(round(ink(0xD9),1.5f));fill.setPivotX(0);addView(fill,pos(tw,3,TX,96));
-        elapsed=text("",10.5f,ink(0x80),"sans-serif");addView(elapsed,pos(60,13,TX,104));
+        elapsed=text("",10.5f,ink(0x80),"sans-serif");addView(elapsed,pos(tw-64,13,TX,104));
         remaining=text("",10.5f,ink(0x80),"sans-serif");remaining.setGravity(Gravity.RIGHT);addView(remaining,pos(60,13,w-PAD-60,104));
         prev=button("previous",34,TX-4,CTRL_Y+4,0,()->{if(controller!=null)controller.getTransportControls().skipToPrevious();});
         play=button("play",42,TX+38,CTRL_Y,1,()->{if(Promo.on){Promo.toggle();render();return;}if(controller==null)return;if(playing())controller.getTransportControls().pause();else controller.getTransportControls().play();});
@@ -116,6 +118,13 @@ final class NowPlayingWidget extends Widget {
     private static String titleOf(MediaController c){MediaMetadata m=c.getMetadata();if(m==null)return "";CharSequence t=m.getText(MediaMetadata.METADATA_KEY_DISPLAY_TITLE);if(t==null)t=m.getText(MediaMetadata.METADATA_KEY_TITLE);return t==null?"":t.toString();}
     private boolean playing(){if(Promo.on)return Promo.playing;PlaybackState s=controller==null?null:controller.getPlaybackState();return s!=null&&(s.getState()==PlaybackState.STATE_PLAYING||s.getState()==PlaybackState.STATE_BUFFERING);}
     private String appName(String pkg){MainActivity.App a=host.app(pkg);return a==null?"":a.label;}
+    /** The shown session as Home describes it; Promo's song is demo data with no description. */
+    private MediaContext context(){
+        if(Promo.on)return MediaContext.watched(Promo.SOURCE,MediaContext.Data.DEMO,Promo.position(),Promo.SONG_LENGTH,null);
+        MediaMetadata m=controller.getMetadata();PlaybackState s=controller.getPlaybackState();
+        CharSequence d=m==null?null:m.getText(MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION);
+        return MediaContext.watched(appName(controller.getPackageName()),MediaContext.Data.LIVE,s==null?0:s.getPosition(),m==null?0:m.getLong(MediaMetadata.METADATA_KEY_DURATION),d==null?null:d.toString());
+    }
 
     /** Updates the widget in place; focus moves to a visible control if its control disappears. */
     private void render(){
@@ -127,7 +136,7 @@ final class NowPlayingWidget extends Widget {
         shortcuts.setVisibility(has?GONE:VISIBLE);
         if(has){
             MediaMetadata m=controller.getMetadata();String pkg=controller.getPackageName();
-            source.setText(appName(pkg).toUpperCase(Locale.ENGLISH));title.setText(titleOf(controller));
+            source.setText(context().label().toUpperCase(Locale.ENGLISH));title.setText(titleOf(controller));
             CharSequence a=m.getText(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);if(a==null)a=m.getText(MediaMetadata.METADATA_KEY_ARTIST);if(a==null)a=m.getText(MediaMetadata.METADATA_KEY_ALBUM);
             artist.setText(a==null?"":a);
             long actions=controller.getPlaybackState()==null?~0L:controller.getPlaybackState().getActions();
@@ -148,7 +157,7 @@ final class NowPlayingWidget extends Widget {
     private void promo(){
         for(View v:new View[]{prev,play,next,track,fill,elapsed,remaining,openPill})v.setVisibility(VISIBLE);
         shortcuts.setVisibility(GONE);prev.setAlpha(1);next.setAlpha(1);
-        source.setText(Promo.SOURCE.toUpperCase(Locale.ENGLISH));title.setText(Promo.SONG);artist.setText(Promo.ARTIST);
+        source.setText(context().label().toUpperCase(Locale.ENGLISH));title.setText(Promo.SONG);artist.setText(Promo.ARTIST);
         playGlyph.kind(Promo.playing?"pause":"play");
         openPill.setText("Open "+Promo.SOURCE);
         if(!artKey.equals("promo")){artKey="promo";fade(Promo.artwork(px(ART)*2));}
@@ -174,7 +183,7 @@ final class NowPlayingWidget extends Widget {
         if(Promo.on){long d=Promo.SONG_LENGTH,p=Promo.position();track.setVisibility(VISIBLE);fill.setVisibility(VISIBLE);fill.setScaleX(p/(float)d);elapsed.setText(time(p));remaining.setText("−"+time(d-p));return;}
         if(controller==null)return;PlaybackState s=controller.getPlaybackState();MediaMetadata m=controller.getMetadata();
         long duration=m==null?0:m.getLong(MediaMetadata.METADATA_KEY_DURATION);
-        if(s==null||duration<=0){fill.setScaleX(0);track.setVisibility(INVISIBLE);fill.setVisibility(INVISIBLE);elapsed.setText("");remaining.setText("");return;}
+        if(s==null||duration<=0){fill.setScaleX(0);track.setVisibility(INVISIBLE);fill.setVisibility(INVISIBLE);elapsed.setText("Progress unavailable");remaining.setText("");return;}
         long position=s.getPosition();if(s.getState()==PlaybackState.STATE_PLAYING&&s.getLastPositionUpdateTime()>0)position+=(long)((SystemClock.elapsedRealtime()-s.getLastPositionUpdateTime())*s.getPlaybackSpeed());
         position=Math.max(0,Math.min(duration,position));
         track.setVisibility(VISIBLE);fill.setVisibility(VISIBLE);fill.setScaleX(position/(float)duration);
@@ -196,8 +205,8 @@ final class NowPlayingWidget extends Widget {
     }
     private void fade(Bitmap b){artImage.setImageBitmap(b);if(motion()){artImage.setAlpha(0f);artImage.animate().alpha(1).setDuration(300).start();}}
     private String[] hero(){
-        if(Promo.on)return new String[]{"music:promo",Promo.SONG,Promo.ARTIST+" · "+Promo.SOURCE};
-        if(controller!=null&&!titleOf(controller).isEmpty())return new String[]{"music:"+titleOf(controller),titleOf(controller),UpNextWidget.join(artist.getText().toString(),appName(controller.getPackageName()))};
+        if(Promo.on)return new String[]{"music:promo",Promo.SONG,context().summaryText()};
+        if(controller!=null&&!titleOf(controller).isEmpty())return new String[]{"music:"+titleOf(controller),titleOf(controller),context().summaryText()};
         return access?new String[]{"music:none","Now Playing","Start music in an app and control it from Home."}:new String[]{"music:allow","Now Playing","Allow notification access so Luma can show and control the music playing on this TV. Luma does not read your notifications."};
     }
     @Override protected void onDetachedFromWindow(){setActive(false);handler.removeCallbacksAndMessages(null);super.onDetachedFromWindow();}
