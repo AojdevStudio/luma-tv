@@ -54,6 +54,7 @@ public final class MainActivity extends Activity {
     private Daylight daylight;
     private final Runnable daylightTick=this::syncDaylight;
     private FrameLayout tabBar;
+    private TextView modeChip;
     /** House Control TV is installed and enabled: only then does Home show the scenes and the 3D home. */
     private boolean house;
     private int capabilitiesRow;
@@ -164,6 +165,7 @@ public final class MainActivity extends Activity {
         if(daylight!=null){long now=System.currentTimeMillis();long[] sun=daylight.times(now);SimpleDateFormat f=new SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US);
             writer.println(prefix+"Luma daylight: zone="+TimeZone.getDefault().getID()+" sunrise="+f.format(new Date(sun[0]))+" sunset="+f.format(new Date(sun[1]))+" day="+daylight.isDay(now)+" next="+f.format(new Date(daylight.nextChange(now)))+" light="+light);}
         writer.println(prefix+"Luma capabilities: clock="+prefs.getBoolean("clock",true)+" last="+prefs.getString(Capabilities.LAST,"") );
+        writer.println(prefix+"Luma home: mode="+profiles.mode.id+" layout="+presets.active.name()+" saved="+(presets.choices().size()-HomePresets.BuiltIn.values().length-1));
     }
     private boolean houseInstalled(){try{return getPackageManager().getApplicationInfo(HOUSE_CONTROL,0).enabled;}catch(PackageManager.NameNotFoundException e){return false;}}
     /** Rebuilds Home when House Control TV is installed, removed, switched on or off. */
@@ -196,7 +198,20 @@ public final class MainActivity extends Activity {
     /** Unfocused glass: frosted white on a pale wallpaper, a faint white veil on dark ones. */
     private int glass(){return light?0x8CFFFFFF:0x1FFFFFFF;}
     private void shadow(TextView t,float radius){if(light)t.setShadowLayer(0,0,0,0);else t.setShadowLayer(px(radius),0,px(1),0x55000000);}
-    private int wallpaperStyle(){return Math.max(0,Math.min(WALLPAPERS.length-1,prefs.getInt("wallpaper",SILVER)));}
+    /** The wallpaper Home shows: the owner's, or a saved layout's own. */
+    private int wallpaperStyle(){return Math.max(0,Math.min(WALLPAPERS.length-1,layout().wallpaper));}
+    /** The owner's own Home, read from the existing keys. Default shows it, and no layout ever writes it. */
+    private HomePresets.Layout owner(){
+        ArrayList<String> homeApps=new ArrayList<>();for(App app:visibleApps(false))homeApps.add(app.pkg);
+        return new HomePresets.Layout(prefs.getInt("wallpaper",SILVER),WidgetBoard.enabled(prefs),homeApps,Collections.<String>emptyList());
+    }
+    /** The Home to show now, before the mode filters it. */
+    private HomePresets.Layout layout(){return presets.current(owner());}
+    /** Every app launch asks this. Guest keeps the apps on the Home now shown, Child only its approved apps. */
+    private boolean allowsApp(String pkg){return profiles.allowsApp(pkg,layout().apps.contains(pkg));}
+    /** The layout over Home, or null on Default. Settings edits Default only, so it stops them while one is shown. */
+    private String homeLayout(){return presets.active.equals(HomePresets.Selection.DEFAULT)?null:presets.active.name();}
+    private String lockedLine(){return "Home shows the "+homeLayout()+" layout. To change your own Home, choose Default in Settings, Capabilities, Layouts.";}
     /** Silver shows its light picture between sunrise and sunset and its dark one at night. */
     private int variant(int style){return style==SILVER&&!isDay()?SILVER_NIGHT:style;}
     /** QA: am start -n dev.luma.tv/.MainActivity --es luma.daylight day|night|auto previews either look (not saved). */
@@ -219,11 +234,31 @@ public final class MainActivity extends Activity {
         // ended in EGL_BAD_ALLOC on this stick once. Paused, the colours are left as they are; onResume switches them.
         content.animate().alpha(0).setDuration(220).setInterpolator(ease).withEndAction(()->{if(!started){content.setAlpha(1);return;}showPage(page,true);content.setAlpha(0);content.animate().alpha(1).setDuration(420).setInterpolator(ease).start();}).start();
     }
-    /** Colours of the parts that stay across pages: tab bar, clock and the settings scrim. */
+    /** Colours of the parts that stay across pages: tab bar, mode control, clock and the settings scrim. */
     private void paintChrome(){
         if(tabBar!=null)tabBar.setBackground(shape(light?0x47FFFFFF:0x1FFFFFFF,22));
         if(clock!=null){clock.setTextColor(ink(0xF2));shadow(clock,6);}
         if(sceneryShade!=null)sceneryShade.setBackgroundColor(light?0x73F2F2F5:0x80000000);
+        paintMode();
+    }
+    /** Also hides the Settings tab outside Normal. */
+    private void paintMode(){
+        if(modeChip==null)return;
+        boolean f=modeChip.hasFocus();String label=profiles.mode.name+" mode";
+        modeChip.setText(label);modeChip.setContentDescription(label+". OK changes the mode.");
+        GradientDrawable ring=shape(f?(light?0xFF1D1D1F:0xF5FFFFFF):Color.TRANSPARENT,18);if(!f)ring.setStroke(Math.max(1,px(1)),ink(0x66));
+        modeChip.setBackground(ring);modeChip.setTextColor(f?(light?Color.WHITE:0xFF17202B):ink(0xFF));
+        tabs.get(2).setVisibility(profiles.allows(Profiles.Content.SETTINGS)?View.VISIBLE:View.GONE);
+    }
+    /** Down from the tab bar: the first widget on Home, the first row in Settings, else the first app. */
+    private void focusPage(){
+        View widget=page.equals("home")&&board!=null?board.first():null;
+        if(widget!=null)widget.requestFocus();else if(page.equals("settings"))controlsFocus(0);else focusFirst();
+    }
+    /** The mode control opens the panel at Mode with Normal focused, so returning to Normal is one more OK. */
+    private void modeCenter(){
+        CapabilityCenter center=new CapabilityCenter(CapabilityPanel.Section.MODE,false);
+        root.post(()->{if(capabilityOverlay==center&&!center.rows.isEmpty())center.rows.get(0).requestFocus();});
     }
 
     private void createShell() {
@@ -236,6 +271,19 @@ public final class MainActivity extends Activity {
         brand = text("luma", 23, Color.WHITE, "sans-serif-medium"); brand.setVisibility(View.GONE);
         root.addView(brand, pos(120, 32, 48, 29));
         LinearLayout navigation = new LinearLayout(this); navigation.setGravity(Gravity.CENTER);
+        // The mode control sits in the bar on every page and in every mode, so Normal is always one OK away.
+        modeChip = text("", 14, Color.WHITE, "sans-serif-medium"); modeChip.setId(View.generateViewId());
+        modeChip.setPadding(px(14), 0, px(14), 0); modeChip.setGravity(Gravity.CENTER);
+        modeChip.setFocusable(true); modeChip.setFocusableInTouchMode(true); modeChip.setSoundEffectsEnabled(false);
+        modeChip.setOnFocusChangeListener((v, focus) -> { paintMode(); if(focus) navigationSound(0); });
+        modeChip.setOnClickListener(v -> { sound(); modeCenter(); });
+        modeChip.setOnKeyListener((v,key,e) -> {
+            if (e.getAction()!=KeyEvent.ACTION_DOWN) return false;
+            if (key==KeyEvent.KEYCODE_DPAD_DOWN) { focusPage(); return true; }
+            return key==KeyEvent.KEYCODE_DPAD_LEFT || key==KeyEvent.KEYCODE_DPAD_UP;
+        });
+        LinearLayout.LayoutParams chipSpace = new LinearLayout.LayoutParams(-2, px(36)); chipSpace.rightMargin = px(8);
+        navigation.addView(modeChip, chipSpace);
         String[] titles = {"Home", "Apps", "Settings"};
         String[] pages = {"home", "apps", "settings"};
         for (int i=0;i<titles.length;i++) {
@@ -256,13 +304,15 @@ public final class MainActivity extends Activity {
             });
             tabs.add(tab); navigation.addView(tab, new LinearLayout.LayoutParams(-2, px(36)));
         }
+        tabs.get(0).setId(View.generateViewId()); tabs.get(0).setNextFocusLeftId(modeChip.getId()); modeChip.setNextFocusRightId(tabs.get(0).getId());
         FrameLayout bar = new FrameLayout(this); bar.setClipChildren(false); tabBar=bar;
         tabIndicatorShape = shape(0x24FFFFFF, 18); tabIndicator = new View(this); tabIndicator.setBackground(tabIndicatorShape);
         bar.addView(tabIndicator, new FrameLayout.LayoutParams(0, px(36), Gravity.CENTER_VERTICAL));
         bar.addView(navigation, new FrameLayout.LayoutParams(-2, -1));
         bar.setPadding(px(4),px(2),px(4),px(2)); bar.setBackground(shape(0x1FFFFFFF,22));
         root.addView(bar, pos(-2, 40, 0, 26));
-        bar.post(()->{ bar.setTranslationX((getResources().getDisplayMetrics().widthPixels-bar.getWidth())/2f); moveTabIndicator(false); });
+        // The bar re-centres whenever its width changes: the mode's name, and Settings hidden outside Normal.
+        bar.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> { if(r-l!=or-ol) bar.post(()->{ bar.setTranslationX((getResources().getDisplayMetrics().widthPixels-bar.getWidth())/2f); moveTabIndicator(false); }); });
         clock = text("", 18, 0xF2FFFFFF, "sans-serif-medium"); clock.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL); clock.setLetterSpacing(.01f);
         root.addView(clock, pos(130, 36, 782, 28));
         paintChrome();
@@ -333,6 +383,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showPage(String next, boolean focus) {
+        if(next.equals("settings")&&!profiles.allows(Profiles.Content.SETTINGS))next="home";
         String previous=page;
         boolean transition=loaded && !previous.equals(next) && motion();
         for(Animator animation:pageAnimations)animation.cancel();pageAnimations.clear();
@@ -351,18 +402,21 @@ public final class MainActivity extends Activity {
         if (page.equals("settings")) { settings(focus); animatePage(previous,transition); return; }
         boolean home=page.equals("home");
         hero=new FrameLayout(this){@Override public boolean hasOverlappingRendering(){return false;}};
-        heroTitle=text(home ? welcome() : "All your apps", 42, ink(0xFF), "sans-serif-medium");
+        boolean normal=profiles.mode==Profiles.Mode.NORMAL;
+        heroTitle=text(home ? welcome() : normal ? "All your apps" : "Apps", 42, ink(0xFF), "sans-serif-medium");
         heroTitle.setLetterSpacing(-.035f); heroTitle.setSingleLine(true); heroTitle.setEllipsize(android.text.TextUtils.TruncateAt.END); shadow(heroTitle,10);
         hero.addView(heroTitle,pos(home?392:860,54,0,0));
-        heroDescription=text(home ? greetingLine() : "Everything installed on this TV.", 16, ink(0xB3), "sans-serif");
+        heroDescription=text(home ? greetingLine() : normal ? "Everything installed on this TV." : profiles.mode==Profiles.Mode.GUEST ? "The apps on Home." : "Apps approved for Child mode.", 16, ink(0xB3), "sans-serif");
         heroDescription.setSingleLine(true); heroDescription.setEllipsize(android.text.TextUtils.TruncateAt.END); shadow(heroDescription,8); hero.addView(heroDescription,pos(home?392:860,22,1,60));
+        HomePresets.Layout shown=layout();
+        ArrayList<String> widgets=new ArrayList<>();for(String id:shown.widgets)if(profiles.allowsWidget(id))widgets.add(id);
         // Without widgets, the greeting moves down to sit just above the favourites and the wallpaper stays open above it.
-        ArrayList<ArrayList<String>> layout=home?WidgetBoard.pages(prefs,house,!InputsWidget.list(this).isEmpty()):new ArrayList<>();
+        ArrayList<ArrayList<String>> layout=home?WidgetBoard.pages(widgets,house,!InputsWidget.list(this).isEmpty()):new ArrayList<>();
         boolean housePage=false;for(ArrayList<String> p:layout)housePage|=p.contains("house");
         content.addView(hero,pos(864,88,48,home?(!layout.isEmpty()?96:272):100));
         heroKey=home?"@greeting":"";
         if(home&&housePage){
-            houseWidgets=new HouseWidgets(this,unit,new HouseWidgets.Callbacks(){
+            houseWidgets=new HouseWidgets(this,unit,shown.scenes,new HouseWidgets.Callbacks(){
                 public void up(){tabs.get(0).requestFocus();}
                 public void down(float x){focusNearestTile(x);}
                 public void open(){try{startActivity(new Intent().setComponent(new ComponentName("dev.housecontrol.tv","dev.housecontrol.tv.MainActivity")));overridePendingTransition(0,0);}catch(Exception e){Toast.makeText(MainActivity.this,"Install House Control to connect your home.",Toast.LENGTH_SHORT).show();}}
@@ -388,11 +442,14 @@ public final class MainActivity extends Activity {
         rows.setPadding(px(48),px(home?16:10),px(48),px(30));
         scroll.addView(rows,new ScrollView.LayoutParams(-1,-2));
         content.addView(scroll,pos(960, home ? 150 : 330,0,home ? 388 : 200));
-        ArrayList<App> list=visibleApps(!home);
+        ArrayList<App> list=new ArrayList<>();
+        if(home){for(String pkg:profiles.home(shown.apps)){App app=appIndex.get(pkg);if(app!=null)list.add(app);}}
+        else for(App app:visibleApps(true))if(profiles.allowsApp(app.pkg,shown.apps.contains(app.pkg)))list.add(app);
         if (!loaded) {
             rows.addView(text("Finding your apps…",15,ink(0xBB),"sans-serif"));
         } else if (list.isEmpty()) {
-            rows.addView(text("Your home is empty. Find your apps in the Apps tab.",15,ink(0xBB),"sans-serif"));
+            rows.addView(text(profiles.noApps()?"No apps are approved for Child mode yet. An adult can choose them in Normal mode."
+                :normal?"Your home is empty. Find your apps in the Apps tab.":"None of this mode's apps are installed.",15,ink(0xBB),"sans-serif"));
         } else {
             int count=home ? Math.min(6,list.size()) : list.size();
             for (int start=0;start<count;start+=6) {
@@ -443,8 +500,8 @@ public final class MainActivity extends Activity {
     /** Under the greeting: today's date, quietly. */
     private String greetingLine(){return today();}
     /** "Hello, <name>" with the name saved in Settings, else the build's greeting: "Hello", or LUMA_GREETING /
-     *  .local/greeting.txt (see build.sh). */
-    private String welcome(){String name=prefs.getString("name","").trim();return name.isEmpty()?getString(R.string.greeting):"Hello, "+name;}
+     *  .local/greeting.txt (see build.sh). Guest and Child mode hide both, as either can name the owner. */
+    private String welcome(){if(!profiles.allows(Profiles.Content.PERSONAL))return greeting();String name=prefs.getString("name","").trim();return name.isEmpty()?getString(R.string.greeting):"Hello, "+name;}
     /** Settings → Your name: typed with the TV keyboard and kept only in this app's storage on the TV. */
     private void nameEditor(){
         FrameLayout o=openOverlay(0xA6000000);
@@ -505,7 +562,11 @@ public final class MainActivity extends Activity {
         public App app(String pkg){return appIndex.get(pkg);}
         public View art(String pkg){App a=appIndex.get(pkg);return a==null?null:new Art(a);}
         public void launch(String pkg){App a=appIndex.get(pkg);if(a!=null)MainActivity.this.launch(a);else Toast.makeText(MainActivity.this,"This app is not installed.",Toast.LENGTH_SHORT).show();}
-        public void start(Intent intent){try{startActivity(intent);overridePendingTransition(0,0);}catch(RuntimeException e){Toast.makeText(MainActivity.this,"This can't be opened on this TV.",Toast.LENGTH_SHORT).show();}}
+        public void start(Intent intent){
+            // Normal opens anything. Guest and Child open only an app they allow, so an intent Luma cannot resolve stays shut.
+            ComponentName target=intent.resolveActivity(getPackageManager());
+            if(profiles.mode!=Profiles.Mode.NORMAL&&(target==null||!allowsApp(target.getPackageName()))){Toast.makeText(MainActivity.this,profiles.mode.name+" mode does not open this.",Toast.LENGTH_SHORT).show();return;}
+            try{startActivity(intent);overridePendingTransition(0,0);}catch(RuntimeException e){Toast.makeText(MainActivity.this,"This can't be opened on this TV.",Toast.LENGTH_SHORT).show();}}
         public SharedPreferences prefs(){return prefs;}
         public Activity activity(){return MainActivity.this;}
     };
@@ -566,6 +627,7 @@ public final class MainActivity extends Activity {
     }
 
     private boolean launch(App app) {
+        if (!allowsApp(app.pkg)) { Toast.makeText(this,profiles.mode.name+" mode does not open "+app.label+".",Toast.LENGTH_SHORT).show(); return false; }
         try {
             Intent intent=getPackageManager().getLeanbackLaunchIntentForPackage(app.pkg);
             if (intent==null) intent=getPackageManager().getLaunchIntentForPackage(app.pkg);
@@ -658,6 +720,7 @@ public final class MainActivity extends Activity {
     }
     /** Full-screen wallpaper picker: moving between thumbnails previews each wallpaper live. */
     private void wallpaperPicker(){
+        if(homeLayout()!=null){notice("Wallpaper",lockedLine());return;}
         final int saved=wallpaperStyle();
         FrameLayout o=openOverlay(Color.TRANSPARENT);
         overlayCancel=()->{wallpaper.show(saved);content.animate().alpha(1).setDuration(260).start();nav().animate().alpha(1).setDuration(260).start();sceneryShade.animate().alpha(1).setDuration(260).start();};
@@ -769,6 +832,7 @@ public final class MainActivity extends Activity {
     private boolean sceneApplied(String id){
         String pkg=sceneApp(id);if(pkg.isEmpty()||sceneTransition)return false;App target=null;for(App app:apps)if(app.pkg.equals(pkg))target=app;
         if(target==null){Toast.makeText(this,"The scene app is not installed.",Toast.LENGTH_SHORT).show();return false;}
+        if(!allowsApp(pkg)){Toast.makeText(this,"The scene ran. "+profiles.mode.name+" mode does not open "+target.label+".",Toast.LENGTH_SHORT).show();return false;}
         final App selected=target;if(!motion()||houseWidgets==null){launch(selected);return false;}
         sceneTransition=true;content.setTranslationZ(px(40));
         sceneVeil=new View(this);sceneVeil.setBackgroundColor(Color.BLACK);sceneVeil.setAlpha(0);sceneVeil.setFocusable(true);sceneVeil.setFocusableInTouchMode(true);sceneVeil.setOnKeyListener((v,k,e)->true);sceneVeil.setTranslationZ(px(200));root.addView(sceneVeil,new FrameLayout.LayoutParams(-1,-1));sceneVeil.requestFocus();
@@ -783,7 +847,8 @@ public final class MainActivity extends Activity {
         houseWidgets.fadeControls(260);houseWidgets.portalToTV(flight);
         sceneVeil.animate().alpha(1).setStartDelay(flight-420).setDuration(420).setInterpolator(new PathInterpolator(.5f,0f,1f,1f)).start();
         // Delays follow the system animation scale, like the animations themselves.
-        handler.postDelayed(()->{if(sceneTransition&&started)launch(selected);},Math.round((flight+40)*Math.max(.01f,ValueAnimator.getDurationScale())));
+        // launch() asks the mode again; a refusal lifts the veil instead of leaving Home black.
+        handler.postDelayed(()->{if(sceneTransition&&started&&!launch(selected))resetSceneTransition();},Math.round((flight+40)*Math.max(.01f,ValueAnimator.getDurationScale())));
         return true;
     }
     private void resetSceneTransition(){
@@ -791,6 +856,7 @@ public final class MainActivity extends Activity {
     }
 
     private void appMenu(App app) {
+        if (homeLayout()!=null) { menu(app.label,new String[]{"Open","App info","Organize"},-1,index->{if(index==0)launch(app);else if(index==1)appInfo(app);else notice("Organize apps",lockedLine());}); return; }
         Set<String> hidden=new HashSet<>(prefs.getStringSet("hidden",Collections.emptySet()));
         String[] choices={"Open", "Move to first position", "Move left", "Move right", hidden.contains(app.pkg) ? "Show on Home" : "Hide from Home", "App info"};
         menu(app.label,choices,-1,index-> {
@@ -800,11 +866,12 @@ public final class MainActivity extends Activity {
             if (index==2 && current>0) Collections.swap(ids,current,current-1);
             if (index==3 && current<ids.size()-1) Collections.swap(ids,current,current+1);
             if (index==4) { if (hidden.contains(app.pkg)) hidden.remove(app.pkg); else hidden.add(app.pkg); }
-            if (index==5) { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:"+app.pkg))); return; }
+            if (index==5) { appInfo(app); return; }
             prefs.edit().putString("order",String.join(",",ids)).putStringSet("hidden",hidden).apply();
             selectedPackage=app.pkg;showPage(page,true);
         });
     }
+    private void appInfo(App app){startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:"+app.pkg)));}
 
     /* ---------- Settings ---------- */
     private ImageView previewImage;private TextView previewTitle,previewBody;
@@ -846,7 +913,7 @@ public final class MainActivity extends Activity {
         controls.add(option(list,"Navigation sounds",null,"sound",()->{},()->preview(0,"Navigation sounds","Soft, quiet feedback as you move and open apps.")));
         caption(list,"Home",false);
         widgetsRow=controls.size();
-        controls.add(option(list,"Home widgets",this::widgetSummary,null,this::widgetEditor,
+        controls.add(option(list,"Home widgets",()->homeLayout()!=null?homeLayout()+" layout":widgetSummary(),null,this::widgetEditor,
             ()->preview(0,"Home widgets","Choose what Home shows above your apps — "+(house?"Smart Home, ":"")+"Up Next, Weather, "+(InputsWidget.count>0?"Inputs, ":"")+"Now Playing and Control — and their order. Left and Right turn the pages.")));
         controls.add(option(list,"Temperature",()->new String[]{"Automatic","Celsius","Fahrenheit"}[unitIndex()],null,this::temperatureMenu,
             ()->preview(0,"Temperature","Weather in Celsius or Fahrenheit. Automatic follows the TV's region. The forecast uses your saved location when set. Otherwise it uses the TV's time zone.")));
@@ -892,7 +959,7 @@ public final class MainActivity extends Activity {
         menu("Temperature",new String[]{"Automatic","Celsius","Fahrenheit"},unitIndex(),choice->{
             prefs.edit().putString("temp_unit",new String[]{"auto","c","f"}[choice]).apply();showPage("settings",false);controlsFocus(widgetsRow+1);});
     }
-    private void widgetEditor(){new WidgetEditor();}
+    private void widgetEditor(){if(homeLayout()!=null){notice("Home widgets",lockedLine());return;}new WidgetEditor();}
     /** Settings → Home widgets. OK turns a widget on or off; Hold OK picks it up, Up and Down move it, OK or Back
      *  puts it down. On the right, miniature pages show how the widgets fill Home, updated with every change. */
     private final class WidgetEditor {
@@ -984,7 +1051,7 @@ public final class MainActivity extends Activity {
         void drawPages(){
             pages.removeAllViews();
             pages.addView(text("Your Home",13,0x99FFFFFF,"sans-serif-medium"),pos(240,16,2,0));
-            ArrayList<ArrayList<String>> layout=WidgetBoard.pages(prefs,house,inputs);
+            ArrayList<ArrayList<String>> layout=WidgetBoard.pages(WidgetBoard.enabled(prefs),house,inputs);
             if(layout.isEmpty()){TextView t=text("Only the greeting and your apps.",12.5f,0x80FFFFFF,"sans-serif");pages.addView(t,pos(250,18,2,30));return;}
             float mw=122,mh=69,k=(mw-16)/WidgetBoard.ROW_W;
             for(int p=0;p<Math.min(6,layout.size());p++){
@@ -1021,13 +1088,15 @@ public final class MainActivity extends Activity {
         public boolean openApp(String pkg){App app=appIndex.get(pkg);return app!=null&&launch(app);}
         public void selectTab(String id){showPage(id,false);}
         public Profiles profile(){return profiles;}
-        public String homeLayout(){return presets.active.equals(HomePresets.Selection.DEFAULT)?null:presets.active.name();}
+        public String homeLayout(){return MainActivity.this.homeLayout();}
     }
     private Commands.Registry commandRegistry(){
         ArrayList<Commands.Target> targets=new ArrayList<>();
-        for(App app:appIndex.values())if(!app.label.trim().isEmpty())targets.add(new Commands.Target(Commands.Kind.APP,app.pkg,app.label,true));
+        // The mode decides availability here too, so a request names an app or tab and still cannot reach it.
+        List<String> home=layout().apps;
+        for(App app:appIndex.values())if(!app.label.trim().isEmpty())targets.add(new Commands.Target(Commands.Kind.APP,app.pkg,app.label,profiles.allowsApp(app.pkg,home.contains(app.pkg))));
         String[] tabIds={"home","apps","settings"},tabNames={"Home","Apps","Settings"};
-        for(int i=0;i<tabIds.length;i++)targets.add(new Commands.Target(Commands.Kind.TAB,tabIds[i],tabNames[i],true));
+        for(int i=0;i<tabIds.length;i++)targets.add(new Commands.Target(Commands.Kind.TAB,tabIds[i],tabNames[i],!tabIds[i].equals("settings")||profiles.allows(Profiles.Content.SETTINGS)));
         boolean inputs=!InputsWidget.list(this).isEmpty();
         for(String id:WidgetBoard.IDS)targets.add(new Commands.Target(Commands.Kind.WIDGET,id,WidgetBoard.title(id),id.equals("house")?house:!id.equals("inputs")||inputs));
         targets.addAll(sceneTargets());
@@ -1041,14 +1110,31 @@ public final class MainActivity extends Activity {
             String id=scene.optString("id").trim(),name=scene.optString("name").trim();if(!id.isEmpty()&&!name.isEmpty())targets.add(new Commands.Target(Commands.Kind.SCENE,id,name,false));}
         return targets;
     }
+    /** What this TV has, for layout previews. Scenes are the ones House Control last sent to Home. */
+    private final HomePresets.Tv homeTv=new HomePresets.Tv(){
+        public boolean hasApp(String pkg){return appIndex.containsKey(pkg);}
+        public boolean hasWidget(String id){return id.equals("house")?house:id.equals("inputs")?!InputsWidget.list(MainActivity.this).isEmpty():Arrays.asList(WidgetBoard.IDS).contains(id);}
+        public boolean hasScene(String id){return partNames.scene(id)!=null;}
+    };
+    private final CapabilityPanel.Names partNames=new CapabilityPanel.Names(){
+        public String app(String pkg){App app=appIndex.get(pkg);return app==null?null:app.label;}
+        public String widget(String id){return WidgetBoard.title(id);}
+        public String scene(String id){for(Commands.Target scene:sceneTargets())if(scene.id.equals(id))return scene.name;return null;}
+        public String wallpaper(int index){return WALLPAPERS[Math.max(0,Math.min(WALLPAPERS.length-1,index))];}
+        public boolean house(){return house;}
+    };
     private void capabilityCenter(){new CapabilityCenter(CapabilityPanel.Section.ACTIONS,false);}
     private final class CapabilityCenter {
         final boolean dark=prefs.getBoolean("capability_dark",false);
         final int paper=dark?Color.BLACK:Color.WHITE,ink=dark?Color.WHITE:0xFF1D1D1F,soft=dark?0xB3FFFFFF:0xFF5B6472,rest=dark?0x1FFFFFFF:0x0F000000,chosen=dark?0x4DFFFFFF:0x29000000;
-        final List<CapabilityPanel.Section> shown=CapabilityPanel.sections(house);
+        /** Guest and Child see Mode alone: no settings, history or theme switch. */
+        final boolean settings=profiles.allows(Profiles.Content.SETTINGS);
+        final List<CapabilityPanel.Section> shown=CapabilityPanel.sections(house,profiles);
         final CapabilityPanel.Health health=new CapabilityPanel.Health();
         final FrameLayout panel,items,pane;
         final LinearLayout sections=new LinearLayout(MainActivity.this),list=new LinearLayout(MainActivity.this);
+        /** The middle column scrolls, for the saved layouts and the Child apps list. */
+        final ScrollView scroller=new ScrollView(MainActivity.this);
         final TextView last,theme,paneTitle,paneBody,status,primary,secondary;
         final ArrayList<TextView> sectionRows=new ArrayList<>(),rows=new ArrayList<>();
         final ArrayList<Capabilities.Action> actions=new ArrayList<>();
@@ -1057,7 +1143,8 @@ public final class MainActivity extends Activity {
         TextView chosenRow,previewButton;
         EditText field;
         Runnable primaryAction,secondaryAction;
-        Capabilities.Action pending;
+        /** The previewed change that Confirm runs: a capability, a layout, a saved layout or a mode. */
+        Runnable pending;
         View opener;
         boolean confirming;
         CapabilityCenter(CapabilityPanel.Section start,boolean focusTheme){
@@ -1066,17 +1153,19 @@ public final class MainActivity extends Activity {
             overlayCancel=()->{capabilityOverlay=null;health.close();if(page.equals("settings")){showPage("settings",false);controlsFocus(capabilitiesRow);}else showPage(page,true);};
             panel=new FrameLayout(MainActivity.this);GradientDrawable bg=shape(paper,24);if(dark)bg.setStroke(Math.max(1,px(1)),0x40FFFFFF);panel.setBackground(bg);panel.setElevation(px(24));
             o.addView(panel,new FrameLayout.LayoutParams(px(900),px(480),Gravity.CENTER));
-            panel.addView(text("Capabilities",24,ink,"sans-serif-medium"),pos(500,32,28,22));
-            last=text(lastLine(),12.5f,soft,"sans-serif");last.setSingleLine(true);panel.addView(last,pos(840,18,28,58));
+            panel.addView(text(settings?"Capabilities":"Mode",24,ink,"sans-serif-medium"),pos(500,32,28,22));
+            last=text(settings?lastLine():"",12.5f,soft,"sans-serif");last.setSingleLine(true);panel.addView(last,pos(840,18,28,58));
             sections.setOrientation(LinearLayout.VERTICAL);panel.addView(sections,pos(170,shown.size()*50,20,92));
             for(int i=0;i<shown.size();i++){final CapabilityPanel.Section s=shown.get(i);TextView row=control(s.label,false);onFocus(row,i,()->select(s));sections.addView(row,rowParams());sectionRows.add(row);}
             theme=control(dark?"Dark mode   On":"Dark mode   Off",false);onFocus(theme,4,()->{});theme.setOnClickListener(v->{sound();toggleTheme();});panel.addView(theme,pos(170,44,20,416));
+            theme.setVisibility(settings?View.VISIBLE:View.GONE);
             items=new FrameLayout(MainActivity.this);panel.addView(items,pos(300,370,206,92));
             list.setOrientation(LinearLayout.VERTICAL);
+            scroller.setVerticalScrollBarEnabled(false);scroller.setOverScrollMode(View.OVER_SCROLL_NEVER);scroller.addView(list);
             pane=new FrameLayout(MainActivity.this);pane.setBackground(shape(rest,16));panel.addView(pane,pos(358,370,522,92));
             paneTitle=text("",18,ink,"sans-serif-medium");paneTitle.setSingleLine(true);paneTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);pane.addView(paneTitle,pos(318,26,20,18));
-            paneBody=text("",13.5f,ink,"sans-serif");paneBody.setLineSpacing(px(4),1);pane.addView(paneBody,pos(318,150,20,56));
-            status=text("",13,ink,"sans-serif-medium");status.setMaxLines(2);pane.addView(status,pos(318,40,20,220));
+            paneBody=text("",13.5f,ink,"sans-serif");paneBody.setLineSpacing(px(4),1);pane.addView(paneBody,pos(318,186,20,56));
+            status=text("",13,ink,"sans-serif-medium");status.setMaxLines(2);pane.addView(status,pos(318,40,20,252));
             primary=control("",true);primary.setOnClickListener(v->{sound();primaryAction.run();});pane.addView(primary,pos(150,42,20,306));
             secondary=control("",true);secondary.setOnClickListener(v->{sound();secondaryAction.run();});pane.addView(secondary,pos(150,42,186,306));
             primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);
@@ -1097,19 +1186,24 @@ public final class MainActivity extends Activity {
             TextView was=chosenRow;chosenRow=sectionRows.get(shown.indexOf(next));if(was!=null)paint(was);paint(chosenRow);
             if(next==section){relink();return;}
             section=next;dropPending();opener=null;
-            items.removeAllViews();list.removeAllViews();rows.clear();actions.clear();field=null;previewButton=null;
-            switch(next){
-                case ACTIONS:items.addView(list,new FrameLayout.LayoutParams(-1,-1));fillRows(Capabilities.list(new CapabilityTv()));break;
+            refill();relink();
+        }
+        /** Builds the middle column of the open section again, after a change it shows. */
+        void refill(){
+            items.removeAllViews();list.removeAllViews();rows.clear();actions.clear();field=null;previewButton=null;scroller.scrollTo(0,0);
+            switch(section){
+                case ACTIONS:items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));fillRows(Capabilities.list(new CapabilityTv()));break;
                 case ASK:askControls();break;
+                case LAYOUTS:layoutControls();break;
                 case SCENES:{
                     ArrayList<Capabilities.Action> scenes=new ArrayList<>();for(Commands.Target scene:sceneTargets())scenes.add(Capabilities.scene(scene));
-                    if(!scenes.isEmpty()){items.addView(list,new FrameLayout.LayoutParams(-1,-1));fillRows(scenes);break;}
+                    if(!scenes.isEmpty()){items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));fillRows(scenes);break;}
                     TextView note=text("Open Home once so Luma can load your scenes from House Control.",13,soft,"sans-serif");note.setLineSpacing(px(4),1);items.addView(note,pos(290,80,6,8));
                     pane("Scenes","Scenes come from House Control TV.","");break;
                 }
                 case HEALTH:healthControls();break;
+                case MODE:modeControls();break;
             }
-            relink();
         }
         void fillRows(List<Capabilities.Action> from){
             actions.addAll(from);
@@ -1117,13 +1211,18 @@ public final class MainActivity extends Activity {
                 onFocus(row,i,()->showAction(actions.get(index)));row.setOnClickListener(v->{sound();choose(actions.get(index),row);});list.addView(row,rowParams());rows.add(row);}
             showAction(actions.get(0));
         }
+        /** A one-line text field for the TV keyboard. done runs on the keyboard's Done key. */
+        EditText entry(String hint,int length,Runnable focused,Runnable done){
+            EditText f=new EditText(MainActivity.this);f.setSingleLine(true);f.setHint(hint);f.setHintTextColor(soft);f.setTextColor(ink);f.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(15));
+            f.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(length)});f.setPadding(px(14),0,px(14),0);
+            f.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE|android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);f.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+            Runnable ring=()->{GradientDrawable b=shape(rest,12);if(f.hasFocus())b.setStroke(Math.max(1,px(1.5f)),ink);f.setBackground(b);};ring.run();
+            f.setOnFocusChangeListener((v,on)->{ring.run();if(on){dropPending();navigationSound(0);focused.run();}});
+            f.setOnEditorActionListener((v,action,e)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){done.run();return true;}return false;});
+            return f;
+        }
         void askControls(){
-            field=new EditText(MainActivity.this);field.setSingleLine(true);field.setHint("open Plex");field.setHintTextColor(soft);field.setTextColor(ink);field.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(15));
-            field.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});field.setPadding(px(14),0,px(14),0);
-            field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE|android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);field.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
-            final EditText f=field;Runnable ring=()->{GradientDrawable b=shape(rest,12);if(f.hasFocus())b.setStroke(Math.max(1,px(1.5f)),ink);f.setBackground(b);};ring.run();
-            field.setOnFocusChangeListener((v,focused)->{ring.run();if(focused){dropPending();navigationSound(0);}});
-            field.setOnEditorActionListener((v,action,e)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){interpret();return true;}return false;});
+            field=entry("open Plex",80,()->{},this::interpret);
             items.addView(field,pos(300,46,0,0));
             previewButton=control("Preview",true);onFocus(previewButton,1,()->{});previewButton.setOnClickListener(v->{sound();interpret();});items.addView(previewButton,pos(300,42,0,56));
             TextView hint=text("Try open Plex, switch to Apps, show Weather or hide Inputs. OK on the line opens the keyboard.",12.5f,soft,"sans-serif");hint.setLineSpacing(px(4),1);items.addView(hint,pos(296,80,2,114));
@@ -1138,14 +1237,19 @@ public final class MainActivity extends Activity {
         }
         void pane(String title,String body,String state){paneTitle.setText(title);paneBody.setText(body);status.setText(state);}
         void showAction(Capabilities.Action action){pane(action.name,action.available()?action.preview:action.unavailable,action.available()?"Asks before it runs.":"Unavailable");}
+        /** A refusal shows before Confirm, so a change Home would not show is never offered. */
         void choose(Capabilities.Action action,View from){
-            opener=from;
-            if(!action.available()){pane(action.name,action.unavailable,"Not run. Nothing changed.");return;}
-            pending=action;confirming=true;pane(action.name,action.preview,"Confirm this change.");
+            String refused=action.available()?Capabilities.refusal(action,new CapabilityTv()):action.unavailable;
+            if(refused!=null){opener=from;pane(action.name,refused,"Not run. Nothing changed.");return;}
+            ask(action.name,action.preview,"Confirm this change.",from,()->runAction(action));
+        }
+        /** The shared confirmation: a preview, then Confirm runs change and Cancel or Back runs nothing. */
+        void ask(String title,String body,String note,View from,Runnable change){
+            opener=from;pending=change;confirming=true;pane(title,body,note);
             buttons("Confirm",this::runPending,"Cancel",this::cancel);primary.requestFocus();
         }
-        void runPending(){
-            if(pending==null)return;Capabilities.Action ran=pending;pending=null;confirming=false;
+        void runPending(){if(pending==null)return;Runnable change=pending;pending=null;confirming=false;change.run();}
+        void runAction(Capabilities.Action ran){
             CapabilityTv tv=new CapabilityTv();Capabilities.Result result=Capabilities.run(ran,tv,System.currentTimeMillis());tv.edit.apply();
             clock.setVisibility(prefs.getBoolean("clock",true)?View.VISIBLE:View.GONE);
             if(section==CapabilityPanel.Section.ACTIONS)refreshActions();
@@ -1161,8 +1265,86 @@ public final class MainActivity extends Activity {
             relink();
         }
         void hideButtons(){primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);relink();}
+        /** Layouts: Default, the built-in layouts and saved ones, then a name and Save for the Home shown now.
+         *  Focus previews in the pane and writes nothing. Apply and Save go through ask. */
+        void layoutControls(){
+            items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));
+            List<HomePresets.Selection> choices=presets.choices();
+            for(int i=0;i<choices.size();i++){final HomePresets.Selection choice=choices.get(i);TextView row=control(choice.name()+(choice.equals(presets.active)?"   On Home":""),false);
+                onFocus(row,i,()->showLayout(choice));row.setOnClickListener(v->{sound();chooseLayout(choice,row);});list.addView(row,rowParams());rows.add(row);}
+            field=entry("Name for this Home",24,this::showSave,this::saveLayout);
+            LinearLayout.LayoutParams gap=new LinearLayout.LayoutParams(-1,px(46));gap.topMargin=px(8);gap.bottomMargin=px(10);list.addView(field,gap);
+            previewButton=control("Save this Home",true);onFocus(previewButton,choices.size()+1,this::showSave);previewButton.setOnClickListener(v->{sound();saveLayout();});list.addView(previewButton,rowParams());
+            showLayout(presets.active);
+        }
+        HomePresets.Proposal preview(HomePresets.Selection choice){return presets.preview(choice,owner(),homeTv);}
+        void showLayout(HomePresets.Selection choice){pane(choice.name(),CapabilityPanel.layout(preview(choice),partNames),choice.equals(presets.active)?"On Home now.":"A preview. Home changes only after you confirm.");}
+        void showSave(){pane("Save this Home",CapabilityPanel.layout(preview(presets.active),partNames),"Type a name, then Save. Save asks first.");}
+        void chooseLayout(HomePresets.Selection choice,View row){
+            HomePresets.Proposal proposal=preview(choice);
+            if(choice.equals(presets.active)){opener=row;pane(choice.name(),CapabilityPanel.layout(proposal,partNames),"Already on Home. Nothing changed.");return;}
+            ask("Apply "+choice.name(),CapabilityPanel.layout(proposal,partNames),choice.equals(HomePresets.Selection.DEFAULT)?"Confirm to bring back your own Home.":"Confirm to change Home. Default stays saved.",row,()->applyLayout(proposal));
+        }
+        void applyLayout(HomePresets.Proposal proposal){
+            String name=proposal.source.name();HomePresets next=presets.apply(proposal);
+            if(!profiles.allows(Profiles.Content.SETTINGS)){pane(name,profiles.mode.name+" mode does not change layouts.","Not run. Nothing changed.");return;}
+            if(!next.active.equals(proposal.source)){pane(name,"This saved layout is gone.","Not run. Nothing changed.");return;}
+            presets=next;prefs.edit().putString(HomePresets.KEY,presets.line()).apply();homePage=0;
+            refill();opener=rows.get(presets.choices().indexOf(proposal.source));
+            pane(name+" is on Home",CapabilityPanel.layout(proposal,partNames),"Done. Close to see Home.");
+            buttons("Close",()->closeOverlay(true),null,null);primary.requestFocus();
+        }
+        void saveLayout(){
+            ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(field.getWindowToken(),0);
+            String name=HomePresets.name(field.getText().toString());HomePresets.Proposal now=preview(presets.active);
+            HomePresets next=name==null?null:presets.save(name,now.layout);
+            if(next==null){opener=previewButton;pane("Not saved",name==null?"Choose another name. A name cannot be blank, and Default, Movies, Sports, News and Guests are taken.":"Luma cannot store a part of this Home.","Nothing changed.");return;}
+            boolean replaces=false;for(HomePresets.Selection choice:presets.choices())replaces|=choice.name().equals(name);
+            String note=!next.current(owner()).equals(now.layout)?"This replaces "+name+", which is on Home, so Home changes at once.":replaces?"This replaces the saved "+name+".":"Adds "+name+" to Layouts. Home stays as it is.";
+            ask("Save "+name,CapabilityPanel.layout(now,partNames),note,previewButton,()->storeLayout(name,now.layout));
+        }
+        void storeLayout(String name,HomePresets.Layout layout){
+            HomePresets next=presets.save(name,layout);
+            if(!profiles.allows(Profiles.Content.SETTINGS)||next==null){pane("Not saved",profiles.mode.name+" mode does not save layouts.","Nothing changed.");return;}
+            presets=next;prefs.edit().putString(HomePresets.KEY,presets.line()).apply();
+            refill();List<HomePresets.Selection> choices=presets.choices();
+            for(int i=0;i<choices.size();i++)if(choices.get(i).name().equals(name))rows.get(i).requestFocus();
+            status.setText("Saved "+name+". OK applies it.");
+        }
+        /** Mode: Normal, Guest and Child. Normal also lists every app, and OK approves or removes it for Child mode. */
+        void modeControls(){
+            items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));
+            for(Profiles.Mode mode:Profiles.Mode.values()){TextView row=control(mode.name+" mode"+(mode==profiles.mode?"   On":""),false);
+                onFocus(row,rows.size(),()->showMode(mode));row.setOnClickListener(v->{sound();chooseMode(mode,row);});list.addView(row,rowParams());rows.add(row);}
+            if(profiles.mode==Profiles.Mode.NORMAL){
+                TextView caption=text("Child apps",12.5f,soft,"sans-serif-medium");caption.setGravity(Gravity.CENTER_VERTICAL);caption.setPadding(px(14),0,0,0);list.addView(caption,new LinearLayout.LayoutParams(-1,px(32)));
+                for(App app:visibleApps(true)){TextView row=control(approval(app),false);onFocus(row,rows.size(),()->showApproval(app));row.setOnClickListener(v->{sound();toggleApproval(app,row);});list.addView(row,rowParams());rows.add(row);}
+            }
+            showMode(profiles.mode);
+        }
+        String approval(App app){return (profiles.childApps.contains(app.pkg)?"✓  ":"")+app.label;}
+        List<String> approved(){ArrayList<String> names=new ArrayList<>();for(String pkg:profiles.childApps)names.add(appLabel(pkg));return names;}
+        void showMode(Profiles.Mode mode){pane(mode.name+" mode",CapabilityPanel.mode(mode,approved()),mode==profiles.mode?"On now.":mode==Profiles.Mode.NORMAL?"OK returns to Normal at once.":"OK asks before it switches.");}
+        void showApproval(App app){boolean on=profiles.childApps.contains(app.pkg);pane("Child apps",CapabilityPanel.mode(Profiles.Mode.CHILD,approved()),(on?"Approved. OK removes ":"Not approved. OK adds ")+app.label+".");}
+        void toggleApproval(App app,TextView row){
+            ArrayList<String> next=new ArrayList<>(profiles.childApps);if(!next.remove(app.pkg))next.add(app.pkg);
+            Profiles changed=profiles.approve(next);
+            if(changed==profiles){pane("Child apps","Only Normal mode changes the Child apps.","Nothing changed.");return;}
+            profiles=changed;prefs.edit().putString(Profiles.KEY,profiles.line()).apply();
+            String label=approval(app);row.setText(label);row.setContentDescription(label);showApproval(app);
+        }
+        /** Entering Normal is never gated. Guest and Child show what they hide and ask first. */
+        void chooseMode(Profiles.Mode mode,View row){
+            if(mode==profiles.mode){opener=row;pane(mode.name+" mode",CapabilityPanel.mode(mode,approved()),"Already on. Nothing changed.");return;}
+            if(mode==Profiles.Mode.NORMAL){enterMode(mode);return;}
+            ask(mode.name+" mode",CapabilityPanel.mode(mode,approved()),"Confirm to switch. Home changes at once.",row,()->enterMode(mode));
+        }
+        void enterMode(Profiles.Mode mode){
+            profiles=profiles.enter(mode);prefs.edit().putString(Profiles.KEY,profiles.line()).apply();homePage=0;
+            capabilityOverlay=null;health.close();overlayCancel=null;overlayReturn=modeChip;closeOverlay(false);showPage("home",false);
+        }
         void healthControls(){
-            items.addView(list,new FrameLayout.LayoutParams(-1,-1));
+            items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));
             for(HealthSnapshot.Metric metric:HealthSnapshot.Metric.values()){
                 TextView row=control(metric.label,false);
                 onFocus(row,metric.ordinal(),()->{selectedMetric=metric;drawHealth();});
@@ -1201,7 +1383,7 @@ public final class MainActivity extends Activity {
         ArrayList<View> column(){ArrayList<View> column=new ArrayList<>(rows);if(field!=null){column.add(field);column.add(previewButton);}return column;}
         void relink(){
             ArrayList<View> column=column();View entry=column.isEmpty()?null:column.get(0);
-            for(int i=0;i<sectionRows.size();i++){View row=sectionRows.get(i);link(row,row,entry==null?row:entry,i==0?row:sectionRows.get(i-1),i+1<sectionRows.size()?sectionRows.get(i+1):theme);}
+            for(int i=0;i<sectionRows.size();i++){View row=sectionRows.get(i);link(row,row,entry==null?row:entry,i==0?row:sectionRows.get(i-1),i+1<sectionRows.size()?sectionRows.get(i+1):settings?theme:row);}
             link(theme,theme,entry==null?theme:entry,sectionRows.get(sectionRows.size()-1),theme);
             boolean buttonsShown=primary.getVisibility()==View.VISIBLE;
             for(int i=0;i<column.size();i++){View v=column.get(i);link(v,chosenRow,buttonsShown?primary:v,i==0?v:column.get(i-1),i+1<column.size()?column.get(i+1):v);}
@@ -1255,7 +1437,7 @@ public final class MainActivity extends Activity {
         Tile(App item,int number) {
             super(MainActivity.this);app=item;index=number;
             setClipChildren(false);setClipToPadding(false);setFocusable(true);setFocusableInTouchMode(true);setSoundEffectsEnabled(false);
-            setContentDescription(app.label+". OK: open. Hold OK: organize app.");
+            setContentDescription(app.label+(profiles.allows(Profiles.Content.SETTINGS)?". OK: open. Hold OK: organize app.":". OK: open."));
             face=new FrameLayout(MainActivity.this);GradientDrawable faceBg=shape(app.color,16);faceBg.setStroke(Math.max(1,px(.6f)),0x1FFFFFFF);face.setBackground(faceBg);face.setClipToOutline(true);face.setElevation(px(2));face.setCameraDistance(px(900));
             art=new Art(app);face.addView(art,new FrameLayout.LayoutParams(-1,-1));
             light=new Shine();light.setAlpha(0);face.addView(light,new FrameLayout.LayoutParams(-1,-1));
@@ -1277,7 +1459,8 @@ public final class MainActivity extends Activity {
                 }
             });
             setOnClickListener(v->launch(app));
-            setOnLongClickListener(v->{sound();appMenu(app);return true;});
+            // App menus are settings: outside Normal, holding OK just opens the app.
+            setOnLongClickListener(v->{if(!profiles.allows(Profiles.Content.SETTINGS))return false;sound();appMenu(app);return true;});
             setOnKeyListener((v,key,e)-> {
                 if(key==KeyEvent.KEYCODE_DPAD_CENTER || key==KeyEvent.KEYCODE_ENTER) {
                     movement.press(e.getAction()==KeyEvent.ACTION_DOWN);return false;

@@ -53,15 +53,18 @@ final class WidgetBoard extends FrameLayout {
         return ids;
     }
     static boolean on(SharedPreferences prefs,String id){return !Arrays.asList(prefs.getString("widget_off","").split(",")).contains(id);}
+    /** The widgets switched on, in the saved order: the owner's own Home. */
+    static ArrayList<String> enabled(SharedPreferences prefs){ArrayList<String> ids=new ArrayList<>();for(String id:order(prefs))if(on(prefs,id))ids.add(id);return ids;}
     static void save(SharedPreferences prefs,List<String> order,Set<String> off){
         if(Promo.on){prefs.edit().putString("widget_off",String.join(",",off)).apply();return;} // the promo order is not the user's
         prefs.edit().putString("widget_order",String.join(",",order)).putString("widget_off",String.join(",",off)).apply();}
-    /** Pages of widget ids: the house alone, the others packed left to right into rows of ROW_W. Smart Home needs
-     *  House Control TV and Inputs a TV with inputs; without them they are skipped. */
-    static ArrayList<ArrayList<String>> pages(SharedPreferences prefs,boolean house,boolean inputs){
+    /** Pages of the given widget ids, in order: the house alone, the others packed left to right into rows of ROW_W.
+     *  Smart Home needs House Control TV and Inputs a TV with inputs; without them, and for an id this version does
+     *  not know, they are skipped. */
+    static ArrayList<ArrayList<String>> pages(List<String> ids,boolean house,boolean inputs){
         ArrayList<ArrayList<String>> pages=new ArrayList<>();ArrayList<String> row=null;float used=0;
-        for(String id:order(prefs)){
-            if(!on(prefs,id))continue;
+        for(String id:ids){
+            if(!Arrays.asList(IDS).contains(id))continue;
             if(id.equals("inputs")&&!inputs)continue;
             if(id.equals("house")){if(!house)continue;pages.add(new ArrayList<>(Collections.singletonList(id)));row=null;continue;}
             float w=width(id);

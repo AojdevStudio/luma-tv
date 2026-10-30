@@ -45,6 +45,8 @@ final class HouseWidgets extends FrameLayout {
     String revision="",title="Your home",pictured="";JSONObject current;
     long warningUntil=0;
     final Callbacks callbacks;
+    /** The layout's scene shortcuts, in order. Empty shows House Control's own scenes. */
+    final List<String> shortcuts;
     interface Callbacks{void up();void down(float screenX);void open();void focusHome(String title,String detail);void activate();boolean sceneApplied(String id);boolean motion();String sceneDetail(String id,String name);boolean light();
         /** Left of the first scene or right of the model: the neighbouring Home page. */void edge(int direction);}
     final Runnable refresh=new Runnable(){public void run(){if(!attached||!active)return;fetch();handler.postDelayed(this,2000);}};
@@ -54,8 +56,8 @@ final class HouseWidgets extends FrameLayout {
         public void onBindingDied(ComponentName name){binder=null;setStatus("Open House Control to reconnect",false);}
     };
 
-    HouseWidgets(Activity activity,float scale,Callbacks callbacks){
-        super(activity);this.activity=activity;this.scale=scale;this.callbacks=callbacks;daylight=callbacks.light();setClipChildren(false);setClipToPadding(false);
+    HouseWidgets(Activity activity,float scale,List<String> shortcuts,Callbacks callbacks){
+        super(activity);this.activity=activity;this.scale=scale;this.shortcuts=shortcuts;this.callbacks=callbacks;daylight=callbacks.light();setClipChildren(false);setClipToPadding(false);
         row=new LinearLayout(activity);row.setClipChildren(false);row.setClipToPadding(false);addView(row,pos(5*SCENE_W+4*SCENE_GAP,SCENE_H,SCENE_X-(SCENE_W-SCENE_D)/2,SCENE_Y));
 
         // A soft contact shadow grounds the floating model; it is a static drawable, not part of the 3D render.
@@ -201,9 +203,12 @@ final class HouseWidgets extends FrameLayout {
     }
     void renderScenes(JSONObject plan){
         boolean hadFocus=false;for(SceneTile t:scenes)hadFocus|=t.hasFocus();
-        row.removeAllViews();scenes.clear();JSONArray list=plan==null?null:plan.optJSONArray("scenes");int count=list==null?0:Math.min(5,list.length());
-        if(count==0){for(String[] s:new String[][]{{"bright","Bright","sun"},{"cozy","Cozy","sofa"},{"movie","Movie","film"},{"night","Night","moon"},{"away","Away","door"}})addScene(s[0],s[1],s[2]);}
-        else for(int i=0;i<count;i++){JSONObject s=list.optJSONObject(i);addScene(s.optString("id"),s.optString("name",s.optString("id")),s.optString("icon","sun"));}
+        row.removeAllViews();scenes.clear();JSONArray list=plan==null?null:plan.optJSONArray("scenes");
+        ArrayList<String[]> all=new ArrayList<>(),shown=new ArrayList<>();
+        if(list==null||list.length()==0)all.addAll(Arrays.asList(new String[][]{{"bright","Bright","sun"},{"cozy","Cozy","sofa"},{"movie","Movie","film"},{"night","Night","moon"},{"away","Away","door"}}));
+        else for(int i=0;i<list.length();i++){JSONObject s=list.optJSONObject(i);all.add(new String[]{s.optString("id"),s.optString("name",s.optString("id")),s.optString("icon","sun")});}
+        if(shortcuts.isEmpty())shown=all;else for(String id:shortcuts)for(String[] s:all)if(s[0].equals(id))shown.add(s);
+        for(int i=0;i<Math.min(5,shown.size());i++)addScene(shown.get(i)[0],shown.get(i)[1],shown.get(i)[2]);
         for(int i=0;i<scenes.size();i++){final int index=i;SceneTile t=scenes.get(i);t.setOnKeyListener((v,key,event)->{if(event.getAction()!=KeyEvent.ACTION_DOWN)return false;
             if(key==KeyEvent.KEYCODE_DPAD_UP){callbacks.up();return true;}
             if(key==KeyEvent.KEYCODE_DPAD_DOWN){callbacks.down(centerX(t));return true;}
