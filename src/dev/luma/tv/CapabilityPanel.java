@@ -41,8 +41,11 @@ final class CapabilityPanel {
 
     /** One Health line pair: the metric, status and value, then the explanation, source and measurement time. */
     static String[] row(HealthSnapshot.Reading reading, String measured, boolean stale) {
-        String status = reading.status.name().charAt(0) + reading.status.name().substring(1).toLowerCase(Locale.ROOT);
-        return new String[]{reading.metric.label + ". " + status + ". " + reading.value,
+        return new String[]{reading.metric.label + ". " + status(reading.status) + ". " + reading.value,
             (stale ? "Stale. " : "") + reading.explanation + " " + reading.source + ", measured " + measured + "."};
+    }
+
+    static String status(HealthSnapshot.Status status) {
+        return status.name().charAt(0) + status.name().substring(1).toLowerCase(Locale.ROOT);
     }
 }

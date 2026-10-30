@@ -1042,12 +1042,13 @@ public final class MainActivity extends Activity {
         final int paper=dark?Color.BLACK:Color.WHITE,ink=dark?Color.WHITE:0xFF1D1D1F,soft=dark?0xB3FFFFFF:0xFF5B6472,rest=dark?0x1FFFFFFF:0x0F000000,chosen=dark?0x4DFFFFFF:0x29000000;
         final List<CapabilityPanel.Section> shown=CapabilityPanel.sections(house);
         final CapabilityPanel.Health health=new CapabilityPanel.Health();
-        final FrameLayout panel,items,pane,report;
-        final LinearLayout sections=new LinearLayout(MainActivity.this),list=new LinearLayout(MainActivity.this),reportRows=new LinearLayout(MainActivity.this);
-        final TextView last,theme,paneTitle,paneBody,status,primary,secondary,reportHeader,refresh,done;
+        final FrameLayout panel,items,pane;
+        final LinearLayout sections=new LinearLayout(MainActivity.this),list=new LinearLayout(MainActivity.this);
+        final TextView last,theme,paneTitle,paneBody,status,primary,secondary;
         final ArrayList<TextView> sectionRows=new ArrayList<>(),rows=new ArrayList<>();
         final ArrayList<Capabilities.Action> actions=new ArrayList<>();
         CapabilityPanel.Section section;
+        HealthSnapshot.Metric selectedMetric=HealthSnapshot.Metric.MEMORY;
         TextView chosenRow,previewButton;
         EditText field;
         Runnable primaryAction,secondaryAction;
@@ -1074,11 +1075,6 @@ public final class MainActivity extends Activity {
             primary=control("",true);primary.setOnClickListener(v->{sound();primaryAction.run();});pane.addView(primary,pos(150,42,20,306));
             secondary=control("",true);secondary.setOnClickListener(v->{sound();secondaryAction.run();});pane.addView(secondary,pos(150,42,186,306));
             primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);
-            report=new FrameLayout(MainActivity.this);report.setVisibility(View.GONE);panel.addView(report,pos(674,370,206,92));
-            reportHeader=text("",12.5f,soft,"sans-serif");reportHeader.setSingleLine(true);report.addView(reportHeader,pos(674,18,0,0));
-            reportRows.setOrientation(LinearLayout.VERTICAL);report.addView(reportRows,pos(674,290,0,26));
-            refresh=control("Refresh",true);refresh.setOnClickListener(v->{sound();measure();});report.addView(refresh,pos(150,42,0,322));
-            done=control("Done",true);done.setOnClickListener(v->{sound();chosenRow.requestFocus();});report.addView(done,pos(150,42,166,322));
             select(shown.contains(start)?start:shown.get(0));
             final View first=focusTheme?theme:chosenRow;root.post(first::requestFocus);
         }
@@ -1099,8 +1095,6 @@ public final class MainActivity extends Activity {
             if(next==section){relink();return;}
             section=next;leave();opener=null;
             items.removeAllViews();list.removeAllViews();rows.clear();actions.clear();field=null;previewButton=null;
-            boolean healthShown=next==CapabilityPanel.Section.HEALTH;
-            items.setVisibility(healthShown?View.GONE:View.VISIBLE);pane.setVisibility(healthShown?View.GONE:View.VISIBLE);report.setVisibility(healthShown?View.VISIBLE:View.GONE);
             switch(next){
                 case ACTIONS:items.addView(list,new FrameLayout.LayoutParams(-1,-1));fillRows(Capabilities.list(new CapabilityTv()));break;
                 case ASK:askControls();break;
@@ -1110,7 +1104,7 @@ public final class MainActivity extends Activity {
                     TextView note=text("Open Home once so Luma can load your scenes from House Control.",13,soft,"sans-serif");note.setLineSpacing(px(4),1);items.addView(note,pos(290,80,6,8));
                     pane("Scenes","Scenes come from House Control TV.","");break;
                 }
-                case HEALTH:if(health.shown()==null&&!health.stale())measure();else drawReport();break;
+                case HEALTH:healthControls();break;
             }
             relink();
         }
@@ -1165,21 +1159,34 @@ public final class MainActivity extends Activity {
             relink();
         }
         void hideButtons(){primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);relink();}
-        void measure(){
-            final int request=health.refresh();drawReport();final Context app=getApplicationContext();
-            healthReads.execute(()->{HealthSnapshot snapshot=HealthReader.read(app);handler.post(()->{if(health.accept(request,snapshot)&&section==CapabilityPanel.Section.HEALTH)drawReport();});});
-        }
-        void drawReport(){
-            HealthSnapshot snapshot=health.shown();SimpleDateFormat time=new SimpleDateFormat("HH:mm:ss",Locale.getDefault());
-            reportHeader.setText(snapshot==null?"Measuring…":health.stale()?"Refreshing. These values are from "+time.format(new Date(snapshot.at))+" and are not current.":"Measured at "+time.format(new Date(snapshot.at))+".");
-            reportRows.removeAllViews();if(snapshot==null)return;
-            for(HealthSnapshot.Reading reading:snapshot.readings){
-                String[] line=CapabilityPanel.row(reading,time.format(new Date(reading.at)),health.stale());
-                LinearLayout pair=new LinearLayout(MainActivity.this);pair.setOrientation(LinearLayout.VERTICAL);pair.setAlpha(health.stale()?.55f:1);
-                TextView head=text(line[0],13.5f,ink,"sans-serif-medium");head.setSingleLine(true);head.setEllipsize(android.text.TextUtils.TruncateAt.END);pair.addView(head,new LinearLayout.LayoutParams(-1,px(18)));
-                TextView detail=text(line[1],11,soft,"sans-serif");detail.setMaxLines(2);detail.setEllipsize(android.text.TextUtils.TruncateAt.END);pair.addView(detail,new LinearLayout.LayoutParams(-1,px(28)));
-                reportRows.addView(pair,new LinearLayout.LayoutParams(-1,px(48)));
+        void healthControls(){
+            items.addView(list,new FrameLayout.LayoutParams(-1,-1));
+            for(HealthSnapshot.Metric metric:HealthSnapshot.Metric.values()){
+                TextView row=control(metric.label,false);
+                onFocus(row,metric.ordinal(),()->{selectedMetric=metric;drawHealth();});
+                row.setOnClickListener(v->{sound();primary.requestFocus();});
+                list.addView(row,rowParams());rows.add(row);
             }
+            if(health.shown()==null&&!health.stale())measure();else drawHealth();
+        }
+        void measure(){
+            final int request=health.refresh();drawHealth();final Context app=getApplicationContext();
+            healthReads.execute(()->{HealthSnapshot snapshot=HealthReader.read(app);handler.post(()->{if(health.accept(request,snapshot)&&section==CapabilityPanel.Section.HEALTH)drawHealth();});});
+        }
+        void drawHealth(){
+            HealthSnapshot snapshot=health.shown();SimpleDateFormat time=new SimpleDateFormat("HH:mm:ss",Locale.getDefault());
+            for(int i=0;i<rows.size();i++){
+                String state=snapshot==null?"Measuring":health.stale()?"Stale":CapabilityPanel.status(snapshot.readings.get(i).status);
+                String label=HealthSnapshot.Metric.values()[i].label+"   "+state;
+                rows.get(i).setText(label);rows.get(i).setContentDescription(label);
+            }
+            opener=rows.get(selectedMetric.ordinal());
+            if(snapshot==null)pane(selectedMetric.label,"Waiting for Android's measurement.","Measuring…");
+            else{
+                HealthSnapshot.Reading reading=snapshot.readings.get(selectedMetric.ordinal());
+                pane(selectedMetric.label,reading.value+"\n\n"+reading.explanation+"\n\nSource. "+reading.source+"\nMeasured. "+time.format(new Date(reading.at))+".",health.stale()?"Refreshing. These values are stale.":CapabilityPanel.status(reading.status));
+            }
+            buttons("Refresh",this::measure,"Done",()->chosenRow.requestFocus());
         }
         void toggleTheme(){prefs.edit().putBoolean("capability_dark",!dark).apply();health.close();new CapabilityCenter(section,true);}
         /** Back cancels a pending action, then returns from the items to their section, then closes the panel. */
@@ -1191,7 +1198,7 @@ public final class MainActivity extends Activity {
         }
         ArrayList<View> column(){ArrayList<View> column=new ArrayList<>(rows);if(field!=null){column.add(field);column.add(previewButton);}return column;}
         void relink(){
-            ArrayList<View> column=column();View entry=section==CapabilityPanel.Section.HEALTH?refresh:column.isEmpty()?null:column.get(0);
+            ArrayList<View> column=column();View entry=column.isEmpty()?null:column.get(0);
             for(int i=0;i<sectionRows.size();i++){View row=sectionRows.get(i);link(row,row,entry==null?row:entry,i==0?row:sectionRows.get(i-1),i+1<sectionRows.size()?sectionRows.get(i+1):theme);}
             link(theme,theme,entry==null?theme:entry,sectionRows.get(sectionRows.size()-1),theme);
             boolean buttonsShown=primary.getVisibility()==View.VISIBLE;
@@ -1199,7 +1206,6 @@ public final class MainActivity extends Activity {
             View back=opener!=null?opener:column.isEmpty()?chosenRow:column.get(0);
             link(primary,back,secondary.getVisibility()==View.VISIBLE?secondary:primary,primary,primary);
             link(secondary,primary,secondary,secondary,secondary);
-            link(refresh,chosenRow,done,refresh,refresh);link(done,refresh,done,done,done);
         }
         void link(View v,View left,View right,View up,View down){v.setNextFocusLeftId(id(left));v.setNextFocusRightId(id(right));v.setNextFocusUpId(id(up));v.setNextFocusDownId(id(down));}
         int id(View v){if(v.getId()==View.NO_ID)v.setId(View.generateViewId());return v.getId();}

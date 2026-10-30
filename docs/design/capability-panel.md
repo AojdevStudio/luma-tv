@@ -25,7 +25,7 @@ House Control's scenes are listed and understood by Ask, but none can start from
 ## Health
 
 - Opening the Health section measures with `HealthReader` on its own background thread.
-- All six readings show their status word, value, explanation, source, and measurement time.
+- The middle column lists all six metrics with their status. Selecting one shows its value, explanation, source, and measurement time in the right column.
 - Refresh marks the shown readings stale at once and keeps their old times. `CapabilityPanel.Health` drops any answer from an older refresh, and any answer after the panel closes.
 - Refresh and Done are reachable with the D-pad. Done and Back return focus to the Health section row. A second Back closes the panel and returns to the Capabilities row in Settings.
 
