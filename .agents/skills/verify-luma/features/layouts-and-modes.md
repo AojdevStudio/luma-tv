@@ -35,6 +35,6 @@ Modes:
 
 ## Gotchas
 
-- Scene shortcuts never run from the panel. Scene execution stays unavailable until #12.
+- Choosing or applying a layout never runs a scene. A scene runs only from its own preview after Confirm. See `capabilities.md`.
 - A missing app shows its package, not a name. That is intended.
 - Keep screenshots and dumps outside the repository. Crop or skip any frame that shows a personal weather location.

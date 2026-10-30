@@ -46,8 +46,8 @@ works on any Android TV.
   in Settings, and Android's own animation settings are respected.
 - **Your smart home, if you have one.** The scene block appears only when
   [House Control TV](https://github.com/0xProbabillity/house-control-tv) is installed: Home then also shows five
-  round scene buttons and a live 3D model of your home floating on the wallpaper, and a scene can open an app as
-  the lights go down (*Movie* starts Plex). Without it, Home is just your greeting and favourites over the wallpaper, and Luma picks House
+  round scene buttons and a live 3D model of your home floating on the wallpaper. A scene shows what it changes and
+  asks first, then it can open an app as the lights go down (*Movie* starts Plex). Without it, Home is just your greeting and favourites over the wallpaper, and Luma picks House
   Control up as soon as you install it.
 - **Easy to leave.** Settings → *Home screen* hands Home back to your TV's own launcher, and
   `./luma.sh restore` undoes everything the installer changed.
@@ -155,8 +155,8 @@ your name and settings stay on the TV. Day and night come from the TV's clock an
 from [Open-Meteo](https://open-meteo.com) (no account or key; the request carries the rounded coordinates of
 your saved weather location, or your time zone's main city in Automatic mode); and the poster pictures that your apps link in their Continue
 watching list. Up Next reads that list on the TV. Now Playing needs notification access only because Android hands
-media controls to notification listeners; Luma reads no notifications. The scene
-buttons talk to House Control over Android's Binder, and House Control only answers a Luma signed with the key it
+media controls to notification listeners; Luma reads no notifications. Scenes
+reach House Control over Android's Binder, and House Control only answers a Luma signed with the key it
 trusts. Luma never sees a password or token.
 
 ## How it is built

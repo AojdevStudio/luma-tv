@@ -30,7 +30,7 @@ Build and install the source APK on the `luma-tv` Android TV emulator. Confirm t
 - Cancel or Back must leave the target unchanged. Correct an unsupported request with Edit, then cancel or confirm it.
 - Preview `switch to tab Settings`, then Cancel. Ask must stay open with the same text and Preview focused. Repeat with remote Back. Both paths must show `Cancelled. Nothing ran.` and preserve the last result.
 - An absent app must report that no installed app matches. Do not treat a request for Plex as evidence that Plex is installed.
-- Scenes is hidden when House Control is absent. Scene execution remains unavailable until its adapter is implemented.
+- Scenes is hidden when House Control is absent. See Smart-home scenes below.
 - Open Health with the D-pad. Move through all six metrics in the middle column and inspect each selected metric's details, source label, and measurement time in the right column.
 - Refresh must mark old readings stale immediately, keep their original times, and replace them with a fresh report.
 - The Back button or remote Back returns to the Health section. Back again closes the panel and returns to the Settings row.
@@ -38,6 +38,21 @@ Build and install the source APK on the `luma-tv` Android TV emulator. Confirm t
 - Restart with a pending request. Nothing runs, and the last successful result remains.
 
 The offline action compiles the capability check with its Commands dependency. It also runs command, voice-boundary, Health snapshot, and panel-state tests without Android or a microphone. The voice entry UI is not implemented by this slice.
+
+## Smart-home scenes
+
+Use House Control TV's isolated demo home for every confirmed run: *Sync & connect → Explore demo home* in House Control. Its scenes reach no real device. Do not confirm a scene on the real home without Ossie's word, and accept no permission prompt. `adb shell dumpsys activity dev.luma.tv/.MainActivity` prints a `Luma scenes:` line with the read state, the source (`live` or `demo`), the scene count and readiness, and no names.
+
+- Without House Control, Home shows no scene buttons and the panel has no Scenes section.
+- With House Control installed and the demo home on, open Settings, Capabilities, Scenes without visiting Home first. Every demo scene is listed, also beyond five. Each preview has `Home.` changes, a `TV.` line and `Source. House Control TV, demo home. No real devices change.`
+- Movie's `TV.` line names Plex when Plex is installed, or the Plex package when it is not.
+- OK shows Confirm and Cancel. Cancel and remote Back say `Cancelled. Nothing ran.` and the demo model on Home stays the same.
+- Confirm shows `Starting…`, then `Done. Started <scene> on the demo home`. Close returns to Settings. The last result line shows the scene.
+- On Home, focus a scene button. The greeting says `OK shows what it changes`. OK opens the panel at that scene with Confirm focused. Back three times returns to Home with focus on the same button. Confirm runs it, and the 3D home follows within a few seconds.
+- Ask `start Movie`. It shows the same preview as the Movie row.
+- With the demo home off and House Control not connected, rows are dimmed and the preview gives House Control's reason. Force-stop House Control while Scenes is open, then choose Scenes again. It must say `House Control did not answer` or House Control's own error, not that there are no scenes.
+- Switch the demo home off after a preview, then Confirm. It must refuse, and nothing changes.
+- Guest: the panel is titled Scenes and mode, has no history line, and runs a demo scene. Plex opens only when it is one of the apps on Home. Otherwise the result says Guest mode does not open it. Child shows no scene buttons and no Scenes section.
 
 ## TCL proof
 
