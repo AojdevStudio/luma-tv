@@ -2,6 +2,9 @@ package dev.luma.tv;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 public final class CapabilityPanelTest {
     static int failures;
@@ -19,11 +22,58 @@ public final class CapabilityPanelTest {
             HealthSnapshot.luma("2.4", 26, at),
             HealthSnapshot.houseControl(false, false, at)));
     }
+    static final class Names implements CapabilityPanel.Names {
+        final Map<String, String> apps = new HashMap<>();
+        boolean house, loaded = true;
+        public String app(String pkg) { return apps.get(pkg); }
+        public String widget(String id) { return id.equals("house") ? "Smart Home" : id.equals("upnext") ? "Up Next" : id.equals("music") ? "Now Playing" : id; }
+        public String scene(String id) { return house && loaded && id.equals("movie") ? "Movie" : null; }
+        public String wallpaper(int index) { return "Silver"; }
+        public boolean house() { return house; }
+    }
+    static final class Tv implements HomePresets.Tv {
+        final Names names;
+        Tv(Names names) { this.names = names; }
+        public boolean hasApp(String pkg) { return names.apps.containsKey(pkg); }
+        public boolean hasWidget(String id) { return !id.equals("house") || names.house; }
+        public boolean hasScene(String id) { return names.scene(id) != null; }
+    }
+    static String unavailable(String text) {
+        for (String line : text.split("\n")) if (line.startsWith("Unavailable.")) return line;
+        return "";
+    }
     public static void main(String[] args) {
-        expect(CapabilityPanel.sections(false).equals(Arrays.asList(CapabilityPanel.Section.ACTIONS, CapabilityPanel.Section.ASK, CapabilityPanel.Section.HEALTH)),
+        Profiles normal = Profiles.DEFAULT;
+        expect(CapabilityPanel.sections(false, normal).equals(Arrays.asList(CapabilityPanel.Section.ACTIONS, CapabilityPanel.Section.ASK, CapabilityPanel.Section.LAYOUTS, CapabilityPanel.Section.HEALTH, CapabilityPanel.Section.MODE)),
             "without House Control the panel has no Scenes section");
-        expect(CapabilityPanel.sections(true).equals(Arrays.asList(CapabilityPanel.Section.ACTIONS, CapabilityPanel.Section.ASK, CapabilityPanel.Section.SCENES, CapabilityPanel.Section.HEALTH)),
+        expect(CapabilityPanel.sections(true, normal).equals(Arrays.asList(CapabilityPanel.Section.ACTIONS, CapabilityPanel.Section.ASK, CapabilityPanel.Section.LAYOUTS, CapabilityPanel.Section.SCENES, CapabilityPanel.Section.HEALTH, CapabilityPanel.Section.MODE)),
             "with House Control the panel adds Scenes");
+        for (Profiles.Mode mode : new Profiles.Mode[]{Profiles.Mode.GUEST, Profiles.Mode.CHILD})
+            expect(CapabilityPanel.sections(true, normal.enter(mode)).equals(Collections.singletonList(CapabilityPanel.Section.MODE)),
+                mode.name + " mode opens only the Mode section");
+
+        Names names = new Names();
+        names.apps.put("com.disney.disneyplus", "Disney+");
+        names.apps.put("com.amazon.amazonvideo.livingroom", "Prime Video");
+        HomePresets.Layout owner = new HomePresets.Layout(7, Arrays.asList("weather"), Arrays.asList("com.google.android.youtube.tv"), Collections.<String>emptyList());
+        HomePresets.Selection movies = null;
+        for (HomePresets.Selection choice : HomePresets.EMPTY.choices()) if (choice.name().equals("Movies")) movies = choice;
+        String bare = CapabilityPanel.layout(HomePresets.EMPTY.preview(movies, owner, new Tv(names)), names);
+        String missing = unavailable(bare);
+        expect(missing.contains("com.plexapp.android is not installed") && missing.contains("Smart Home needs House Control TV") && missing.contains("movie scene needs House Control TV"),
+            "a layout preview names each missing app, widget and scene as unavailable");
+        expect(!missing.contains("Disney+") && !missing.contains("Prime Video") && bare.contains("Apps. com.plexapp.android, Disney+, Prime Video"),
+            "installed apps keep their names and a missing app shows its package, not an invented name");
+        names.apps.put("com.plexapp.android", "Plex");
+        names.house = true;
+        String full = CapabilityPanel.layout(HomePresets.EMPTY.preview(movies, owner, new Tv(names)), names);
+        expect(unavailable(full).isEmpty() && full.contains("Scenes. Movie") && full.contains("Widgets. Smart Home, Up Next, Now Playing"), "a complete layout reports nothing unavailable");
+        names.loaded = false;
+        String unloaded = unavailable(CapabilityPanel.layout(HomePresets.EMPTY.preview(movies, owner, new Tv(names)), names));
+        expect(unloaded.contains("Luma's House Control data") && !unloaded.contains("has no"), "an unloaded scene inventory is unavailable data, not proof the scene does not exist");
+
+        expect(CapabilityPanel.mode(Profiles.Mode.CHILD, Collections.<String>emptyList()).contains("None yet"), "the Child preview says when no apps are approved");
+        expect(CapabilityPanel.mode(Profiles.Mode.CHILD, Arrays.asList("YouTube", "Plex")).contains("YouTube, Plex"), "the Child preview lists the approved apps");
 
         CapabilityPanel.Health health = new CapabilityPanel.Health();
         int first = health.refresh();

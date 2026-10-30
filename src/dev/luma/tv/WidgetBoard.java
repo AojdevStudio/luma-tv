@@ -33,7 +33,7 @@ final class WidgetBoard extends FrameLayout {
         void launch(String pkg);void start(Intent intent);
         SharedPreferences prefs();Activity activity();
     }
-    static String title(String id){switch(id){case "house":return "Smart Home";case "inputs":return "Inputs";case "upnext":return "Up Next";case "weather":return "Weather";case "music":return "Now Playing";default:return "Control";}}
+    static String title(String id){switch(id){case "house":return "Smart Home";case "inputs":return "Inputs";case "upnext":return "Up Next";case "weather":return "Weather";case "music":return "Now Playing";case "control":return "Control";default:return id;}}
     static String glyph(String id){switch(id){case "house":return "home";case "inputs":return "hdmi";case "upnext":return "tv";case "weather":return "partly";case "music":return "note";default:return "gear";}}
     static String about(String id){switch(id){
         case "house":return "Scenes and your live 3D home, from House Control TV.";
@@ -53,15 +53,17 @@ final class WidgetBoard extends FrameLayout {
         return ids;
     }
     static boolean on(SharedPreferences prefs,String id){return !Arrays.asList(prefs.getString("widget_off","").split(",")).contains(id);}
+    static ArrayList<String> enabled(SharedPreferences prefs){ArrayList<String> ids=new ArrayList<>();for(String id:order(prefs))if(on(prefs,id))ids.add(id);return ids;}
     static void save(SharedPreferences prefs,List<String> order,Set<String> off){
         if(Promo.on){prefs.edit().putString("widget_off",String.join(",",off)).apply();return;} // the promo order is not the user's
         prefs.edit().putString("widget_order",String.join(",",order)).putString("widget_off",String.join(",",off)).apply();}
-    /** Pages of widget ids: the house alone, the others packed left to right into rows of ROW_W. Smart Home needs
-     *  House Control TV and Inputs a TV with inputs; without them they are skipped. */
-    static ArrayList<ArrayList<String>> pages(SharedPreferences prefs,boolean house,boolean inputs){
+    /** Pages of the given widget ids, in order: the house alone, the others packed left to right into rows of ROW_W.
+     *  Smart Home needs House Control TV and Inputs a TV with inputs; without them, and for an id this version does
+     *  not know, they are skipped. */
+    static ArrayList<ArrayList<String>> pages(List<String> ids,boolean house,boolean inputs){
         ArrayList<ArrayList<String>> pages=new ArrayList<>();ArrayList<String> row=null;float used=0;
-        for(String id:order(prefs)){
-            if(!on(prefs,id))continue;
+        for(String id:ids){
+            if(!Arrays.asList(IDS).contains(id))continue;
             if(id.equals("inputs")&&!inputs)continue;
             if(id.equals("house")){if(!house)continue;pages.add(new ArrayList<>(Collections.singletonList(id)));row=null;continue;}
             float w=width(id);
@@ -117,7 +119,7 @@ final class WidgetBoard extends FrameLayout {
 
     void setActive(boolean value){active=value;for(int p=0;p<widgets.size();p++)for(Widget w:widgets.get(p))w.setActive(value&&p==index);}
     void refresh(){for(Widget w:widgets.get(index))w.refresh();}
-    @Override protected void onDetachedFromWindow(){for(ArrayList<Widget> list:widgets)for(Widget w:list)w.setActive(false);super.onDetachedFromWindow();}
+    @Override protected void onDetachedFromWindow(){setActive(false);super.onDetachedFromWindow();}
 
     /** The current page's dot is a short pill; the others are small, quiet dots. */
     private void paintDots(boolean animate){

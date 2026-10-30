@@ -5,13 +5,15 @@ Covers [#9](https://github.com/AojdevStudio/luma-tv/issues/9) and [#14](https://
 ## Layout
 
 - Sections on the left. Items in the middle. One shared preview on the right with Confirm and Cancel, then the result.
-- Sections are Actions, Ask, Scenes, and Health. Scenes appears only when House Control is installed and turned on. Layouts, Media, Ambient, and Mode are not built, so they have no section.
+- Sections are Actions, Ask, Layouts, Scenes, Health, and Mode. Scenes appears only when House Control is installed and turned on. Media and Ambient are not built, so they have no section. Layouts and Mode are described in [presets-and-profiles.md](presets-and-profiles.md).
+- Guest and Child mode open the panel at Mode alone, titled Mode. It has no history line and no Dark mode row. The mode control in the tab bar opens it from any page.
 - Light by default. Dark mode is a row under the sections. It uses a true black panel with white primary text and is saved on the TV.
 - Focus is inverted. The open section keeps a darker fill while focus is in its items. Nothing animates while the panel is idle.
 
 ## One path for every action
 
-- `Capabilities.Action` is the only thing the preview shows and the only thing `Capabilities.run` accepts.
+- `Capabilities.Action` is the only thing the preview shows for Actions, Ask and Scenes, and the only thing `Capabilities.run` accepts. Layouts and Mode use the same pane and the same Confirm and Cancel. The panel holds one pending change, and Confirm runs it.
+- The preview asks `Capabilities.refusal` before it offers Confirm, and `run` asks again before it acts. Outside Normal every settings capability is refused. While a layout other than Default is on Home, widget Show and Hide and the Inputs action are refused, because they edit Default.
 - Actions rows come from `Capabilities.list`, as before. Ask turns text into an action with `Commands.interpret`, then `Capabilities.of`. Scenes rows come from `Capabilities.scene`.
 - `MainActivity.commandRegistry()` builds the registry each time a request is interpreted. It holds the launchable apps, the Home, Apps, and Settings tabs, the Home widgets with their availability, and the scenes House Control last sent to Home.
 - `Capabilities.run` asks the TV for a fresh registry right before it acts. An app, widget, or tab that is gone or unavailable is refused with a reason, and nothing changes. An app Android cannot open is reported as not opened.
@@ -35,4 +37,4 @@ House Control's scenes appear in Scenes, and Ask recognizes their names. Until t
 
 ## Checks
 
-`tools/CapabilitiesTest.java` covers the executor and the saved result. `tools/CapabilityPanelTest.java` covers the sections, the Health refresh rules, and the Health row text. Emulator proof of the D-pad path is still pending.
+`tools/CapabilitiesTest.java` covers the executor, the saved result, and the mode and layout refusals. `tools/CapabilityPanelTest.java` covers the sections per mode, the Health refresh rules, the Health row text, the layout preview with its unavailable parts, and the Child preview with no approved apps. Emulator proof of the D-pad path is still pending.

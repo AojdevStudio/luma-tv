@@ -14,7 +14,8 @@ public final class CapabilitiesTest {
         boolean launches = true;
         final HashSet<String> off = new HashSet<>();
         final ArrayList<Commands.Target> targets = new ArrayList<>();
-        String saved, opened, tab;
+        Profiles profile = Profiles.DEFAULT;
+        String saved, opened, tab, layout;
         public boolean clockShown() { return clock; }
         public boolean hasInputs() { return inputs; }
         public boolean widgetOn(String id) { return id.equals("inputs") ? inputsOn : !off.contains(id); }
@@ -24,6 +25,8 @@ public final class CapabilitiesTest {
         public Commands.Registry registry() { return new Commands.Registry(targets); }
         public boolean openApp(String pkg) { if (launches) opened = pkg; return launches; }
         public void selectTab(String id) { tab = id; }
+        public Profiles profile() { return profile; }
+        public String homeLayout() { return layout; }
     }
     static void expect(boolean ok, String message) {
         if (!ok) failures++;
@@ -119,6 +122,30 @@ public final class CapabilitiesTest {
         Capabilities.Action movie = ask("start Movie", scenes);
         Capabilities.Result notStarted = Capabilities.run(movie, scenes, 17L);
         expect(movie != null && !movie.available() && !notStarted.done && scenes.saved == null, "a scene never reports success without a scene adapter");
+
+        FakeTv movies = living();
+        movies.layout = "Movies";
+        Capabilities.Result overridden = Capabilities.run(ask("hide Weather", movies), movies, 18L);
+        expect(!overridden.done && movies.widgetOn("weather") && movies.saved == null && overridden.message.contains("Movies"),
+            "Hide Weather is refused while the Movies layout is on Home, and Weather stays");
+        movies.inputs = true;
+        Capabilities.Action inputsUnderLayout = find(Capabilities.list(movies), Capabilities.Capability.INPUTS);
+        expect(!inputsUnderLayout.available() && !Capabilities.run(inputsUnderLayout, movies, 19L).done && !movies.inputsOn,
+            "Inputs cannot be shown on Home while a layout replaces it");
+        expect(Capabilities.run(find(Capabilities.list(movies), Capabilities.Capability.CLOCK), movies, 20L).done && !movies.clock,
+            "the clock still changes while a layout is on Home");
+        movies.layout = null;
+        expect(Capabilities.run(ask("hide Weather", movies), movies, 21L).done && !movies.widgetOn("weather"), "back on Default, Hide Weather runs");
+
+        FakeTv guest = living();
+        Capabilities.Action clockBefore = find(Capabilities.list(guest), Capabilities.Capability.CLOCK);
+        Capabilities.Action weatherBefore = ask("hide Weather", guest);
+        guest.profile = Profiles.DEFAULT.enter(Profiles.Mode.GUEST);
+        expect(!Capabilities.run(clockBefore, guest, 22L).done && guest.clock && !Capabilities.run(weatherBefore, guest, 23L).done
+            && guest.widgetOn("weather") && guest.saved == null, "an action previewed in Normal is refused after Guest mode starts");
+        expect(!find(Capabilities.list(guest), Capabilities.Capability.CLOCK).available(), "Guest mode lists Luma settings as unavailable");
+        guest.profile = guest.profile.enter(Profiles.Mode.NORMAL);
+        expect(Capabilities.run(clockBefore, guest, 24L).done && !guest.clock, "back in Normal the same action runs");
 
         expect(Capabilities.Result.parse("1\tclock\t7\tHid the clock").capability == Capabilities.Capability.CLOCK, "a saved clock result from the earlier build still parses");
         expect(Capabilities.Result.parse("1\tlauncher\t7\tbad") == null, "an unknown capability id is rejected");
