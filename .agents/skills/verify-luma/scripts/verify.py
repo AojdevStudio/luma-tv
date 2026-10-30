@@ -179,12 +179,14 @@ class Run:
         panel_classes = self.evidence / "panel-classes"
         self.command("panel-compile", [JDK / "bin/javac", "--release", "8", "-d", panel_classes,
                      "src/dev/luma/tv/HealthSnapshot.java", "src/dev/luma/tv/CapabilityPanel.java",
-                     "src/dev/luma/tv/HomePresets.java", "src/dev/luma/tv/Profiles.java",
-                     "tools/HealthSnapshotTest.java", "tools/CapabilityPanelTest.java"])
+                     "src/dev/luma/tv/HomePresets.java", "src/dev/luma/tv/Profiles.java", "src/dev/luma/tv/MediaContext.java",
+                     "tools/HealthSnapshotTest.java", "tools/CapabilityPanelTest.java", "tools/MediaContextTest.java"])
         self.command("health-test", [JDK / "bin/java", "-cp", panel_classes, "dev.luma.tv.HealthSnapshotTest"])
         self.summary["checks"]["health_snapshot"] = "PASS"
         self.command("panel-test", [JDK / "bin/java", "-cp", panel_classes, "dev.luma.tv.CapabilityPanelTest"])
         self.summary["checks"]["capability_panel"] = "PASS"
+        self.command("media-test", [JDK / "bin/java", "-cp", panel_classes, "dev.luma.tv.MediaContextTest"])
+        self.summary["checks"]["media_context"] = "PASS"
         home_classes = self.evidence / "home-classes"
         self.command("home-compile", [JDK / "bin/javac", "--release", "8", "-d", home_classes,
                      "src/dev/luma/tv/HomePresets.java", "src/dev/luma/tv/Profiles.java",

@@ -116,7 +116,7 @@ class VerifyTest(unittest.TestCase):
         (self.root / "tools/test_luma.py").write_bytes(b"")
         code, summary = self.run_verify("safe")
         self.assertEqual((code, summary["status"]), (0, "PASS"), summary)
-        self.assertEqual(set(summary["checks"]), {"source_build", "device_names", "capabilities", "weather_location", "commands", "voice_requests", "health_snapshot", "capability_panel", "home_presets", "profiles", "offline_launcher", "doctor",
+        self.assertEqual(set(summary["checks"]), {"source_build", "device_names", "capabilities", "weather_location", "commands", "voice_requests", "health_snapshot", "capability_panel", "home_presets", "profiles", "media_context", "offline_launcher", "doctor",
                                                   "launch_home_and_baseline", "source_unchanged"})
         self.assertEqual(summary["checks"]["source_build"]["cert_sha256"], "abc123")
         self.assertEqual(summary["observed"]["installed"]["versionName"], "2.4")

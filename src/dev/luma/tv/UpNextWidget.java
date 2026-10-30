@@ -19,26 +19,30 @@ import java.net.URL;
 import java.util.*;
 
 /** Up Next: what you were watching, from Android TV's Watch Next list (the "Continue watching" row that apps such
- *  as YouTube and Netflix fill in), then the apps you used most recently. OK resumes the programme in its app.
- *  Reading Watch Next needs the TV listings permission; recent apps come from usage access when granted, else
- *  from the apps opened from Luma. Nothing leaves the TV except poster pictures loaded from the apps' own links. */
+ *  as YouTube and Plex fill in), then the apps you used most recently. OK resumes the programme in its app.
+ *  Reading Watch Next needs the TV listings permission; recent apps
+ *  come from usage access when granted, else from the apps opened from Luma. Nothing leaves the TV except poster
+ *  pictures loaded from the apps' own links. */
 final class UpNextWidget extends Widget {
     static final Uri WATCH_NEXT=Uri.parse("content://android.media.tv/watch_next_program");
     static final String LISTINGS="android.permission.READ_TV_LISTINGS";
+    static final String PLEX="com.plexapp.android";
     static final int SLOTS=3;
     static final float PAD=18,GAP_X=12,CARD_Y=38;
     /** Posters already decoded, by link: Home rebuilds often (every return from an app), posters rarely change. */
     static final LinkedHashMap<String,Bitmap> posters=new LinkedHashMap<String,Bitmap>(16,.75f,true){@Override protected boolean removeEldestEntry(Map.Entry<String,Bitmap> e){return size()>12;}};
-    static final class Item{String key,title,line,detail,pkg,art;Intent intent;float progress=-1;boolean app,allow;}
+    /** media is set for programmes (Watch Next or demo), null for recent apps and the Allow access card. */
+    static final class Item{String key,title,line,detail,pkg,art;Intent intent;MediaContext media;boolean app,allow;}
 
     final float cardW=(w-PAD*2-GAP_X*(SLOTS-1))/SLOTS,cardH=cardW*9/16;
     final FrameLayout cards;
-    final TextView empty;
+    final TextView tag,empty;
     String shown=null;   // null: nothing shown yet, so an empty list still shows its message
 
     UpNextWidget(Context context,WidgetBoard.Host host){
         super(context,host,WidgetBoard.width("upnext"));
         TextView caption=text("Up Next",12.5f,ink(0x99),"sans-serif-medium");addView(caption,pos(200,16,PAD+2,14));
+        tag=text("",12.5f,ink(0x66),"sans-serif");addView(tag,pos(w-PAD*2-80,16,PAD+2+caption.getPaint().measureText("Up Next")/host.unit()+8,14));
         cards=new FrameLayout(context);cards.setClipChildren(false);cards.setClipToPadding(false);addView(cards,new LayoutParams(-1,-1));
         empty=text("Shows and videos you start will appear here.",13,ink(0x99),"sans-serif");empty.setGravity(Gravity.CENTER);empty.setVisibility(GONE);addView(empty,pos(w-PAD*2,20,PAD,88));
         refresh();
@@ -50,7 +54,11 @@ final class UpNextWidget extends Widget {
 
     private ArrayList<Item> load(Context context){
         ArrayList<Item> items=new ArrayList<>();HashSet<String> seen=new HashSet<>();
-        if(Promo.on){for(Object[] v:Promo.VIDEOS){Item i=new Item();i.pkg="com.google.android.youtube.tv";i.key="promo:"+v[0];i.title=(String)v[0];i.line=(String)v[1];i.detail=(String)v[2];i.art="res:"+v[3];i.progress=(Float)v[4]>0?(Float)v[4]:-1;items.add(i);}return items;}
+        if(Promo.on){
+            for(int n=0;n<MediaContext.DEMO.length;n++){MediaContext.Demo d=MediaContext.DEMO[n];
+                Item i=new Item();i.pkg=PLEX;i.key="demo:"+d.title;i.title=d.title;i.media=d.context;i.line=join(d.context.progressText(),d.context.source);i.detail=d.context.summaryText();i.art="res:"+Promo.VIDEOS[n%Promo.VIDEOS.length][3];items.add(i);}
+            return items;
+        }
         boolean listings=context.checkSelfPermission(LISTINGS)==PackageManager.PERMISSION_GRANTED;
         boolean exists=true;try{context.getPackageManager().getPermissionInfo(LISTINGS,0);}catch(PackageManager.NameNotFoundException e){exists=false;}   // no TV provider (not a TV): no Watch Next to ask for
         if(listings)for(Item i:watchNext(context))if(items.size()<SLOTS&&seen.add(i.key)){items.add(i);}
@@ -69,25 +77,26 @@ final class UpNextWidget extends Widget {
     /** Android TV's Watch Next programmes, most recently watched first. */
     private ArrayList<Item> watchNext(Context context){
         ArrayList<Item> out=new ArrayList<>();
-        String[] columns={"_id","package_name","title","episode_title","season_display_number","episode_display_number","poster_art_uri","thumbnail_uri","intent_uri","last_playback_position_millis","duration_millis","last_engagement_time_utc_millis","watch_next_type","browsable"};
+        String[] columns={"_id","package_name","title","episode_title","season_display_number","episode_display_number","poster_art_uri","thumbnail_uri","intent_uri","last_playback_position_millis","duration_millis","last_engagement_time_utc_millis","watch_next_type","browsable","short_description"};
         try(Cursor c=context.getContentResolver().query(WATCH_NEXT,columns,null,null,null)){
             if(c==null)return out;
             ArrayList<Object[]> rows=new ArrayList<>();
             while(c.moveToNext()){
                 if(!c.isNull(13)&&c.getInt(13)==0)continue;
                 String pkg=c.getString(1);if(pkg==null||host.app(pkg)==null)continue;
-                rows.add(new Object[]{c.getLong(11),c.getLong(0),pkg,c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(7)!=null?c.getString(7):c.getString(6),c.getString(8),c.getLong(9),c.getLong(10),c.getInt(12)});
+                rows.add(new Object[]{c.getLong(11),c.getLong(0),pkg,c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(7)!=null?c.getString(7):c.getString(6),c.getString(8),c.getLong(9),c.getLong(10),c.getInt(12),c.getString(14)});
             }
             Collections.sort(rows,(a,b)->Long.compare((Long)b[0],(Long)a[0]));
             for(Object[] r:rows){
-                Item i=new Item();i.pkg=(String)r[2];i.key="tv:"+r[1];i.title=r[3]==null?host.app(i.pkg).label:(String)r[3];i.art=(String)r[7];
+                Item i=new Item();i.pkg=(String)r[2];i.key="tv:"+r[1];i.art=(String)r[7];
                 try{if(r[8]!=null)i.intent=Intent.parseUri((String)r[8],Intent.URI_INTENT_SCHEME);}catch(Exception ignored){}
-                long pos=(Long)r[9],dur=(Long)r[10];if(dur>0&&pos>0)i.progress=Math.max(.03f,Math.min(1,pos/(float)dur));
-                String episode=r[5]!=null&&r[6]!=null?"S"+r[5]+" E"+r[6]:r[6]!=null?"Episode "+r[6]:"";
-                String state=dur>0&&pos>0?left(dur-pos):((Integer)r[11]==1?"Next episode":(Integer)r[11]==2?"New":(Integer)r[11]==3?"Watchlist":"");
                 String app=host.app(i.pkg).label;
-                i.line=join(episode.isEmpty()?state:episode,app);
-                i.detail=join(join(episode,r[4]==null?"":(String)r[4]),join(state,"in "+app));
+                i.media=MediaContext.watched(app,MediaContext.Data.LIVE,(Long)r[9],(Long)r[10],(String)r[12]);
+                String episode=r[5]!=null&&r[6]!=null?"S"+r[5]+" E"+r[6]:r[6]!=null?"Episode "+r[6]:"";
+                i.title=r[3]==null?app:episode.isEmpty()?(String)r[3]:r[3]+", "+episode;
+                String state=(Integer)r[11]==1?"Next episode":(Integer)r[11]==2?"New":(Integer)r[11]==3?"Watchlist":"";
+                i.line=join(i.media.left<0&&!state.isEmpty()?state:i.media.progressText(),app);
+                i.detail=i.media.summaryText();
                 out.add(i);
             }
         }catch(RuntimeException ignored){/* the provider can refuse a query; Up Next then shows recent apps */}
@@ -114,13 +123,14 @@ final class UpNextWidget extends Widget {
     }
     private static boolean skip(Context c,String pkg){return pkg.equals(c.getPackageName())||pkg.startsWith("com.android.")||pkg.startsWith("com.google.android.tv")||pkg.equals("com.google.android.katniss")||pkg.contains("launcher")||pkg.contains("setupwraith");}
     static String join(String a,String b){return a==null||a.isEmpty()?(b==null?"":b):b==null||b.isEmpty()?a:a+" · "+b;}
-    static String left(long ms){long m=Math.max(1,ms/60000);return m<60?m+" min left":m/60+" h "+(m%60>0?m%60+" min ":"")+"left";}
     static String ago(long at){long m=Math.max(0,(System.currentTimeMillis()-at)/60000);if(m<2)return "Just now";if(m<60)return m+" min ago";if(m<1440)return m/60+" h ago";long d=m/1440;return d==1?"Yesterday":d+" days ago";}
 
     /** Rebuilds the cards only when the list changed, and keeps focus on the same slot. */
     private void show(ArrayList<Item> items){
-        StringBuilder key=new StringBuilder();for(Item i:items)key.append(i.key).append('|').append(i.line).append('|').append(i.progress).append(';');
+        StringBuilder key=new StringBuilder();for(Item i:items)key.append(i.key).append('|').append(i.line).append('|').append(i.detail).append(';');
         if(key.toString().equals(shown)||!isAttachedToWindow())return;shown=key.toString();
+        ArrayList<String> sources=new ArrayList<>();for(Item i:items)if(!i.allow)sources.add(i.media!=null?i.media.source:i.title);
+        tag.setText(MediaContext.tag(Promo.on?MediaContext.Data.DEMO:MediaContext.Data.LIVE,sources));
         int focusedSlot=-1;for(int s=0;s<cards.getChildCount();s++)if(cards.getChildAt(s).hasFocus())focusedSlot=s;
         cards.removeAllViews();
         empty.setVisibility(items.isEmpty()?VISIBLE:GONE);
@@ -143,16 +153,16 @@ final class UpNextWidget extends Widget {
             View art=host.art(item.pkg);if(art!=null){art.setAlpha(1);face.addView(art,0,new LayoutParams(-1,-1));}
             if(item.art!=null)loadPoster(item.art,poster,art);
             View shade=new View(c);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00000000,0x00000000,0x8C000000}));face.addView(shade,new LayoutParams(-1,-1));
-            if(item.progress>0){
+            if(item.media.progress>0){
                 View track=new View(c);track.setBackground(round(0x59FFFFFF,1.5f));face.addView(track,pos(cardW-20,3,10,cardH-10));
-                View fill=new View(c);fill.setBackground(round(Color.WHITE,1.5f));face.addView(fill,pos((cardW-20)*item.progress,3,10,cardH-10));
+                View fill=new View(c);fill.setBackground(round(Color.WHITE,1.5f));face.addView(fill,pos((cardW-20)*Math.max(.03f,item.media.progress),3,10,cardH-10));
             }
         }
         GradientDrawable rim=round(Color.TRANSPARENT,12);rim.setStroke(px(1.2f),0xF0FFFFFF);rim.setAlpha(0);face.setForeground(rim);
         TextView title=text(item.title,13,ink(0xF2),"sans-serif-medium");cell.addView(title,pos(cardW,17,1,cardH+9));
         TextView line=text(item.line==null?"":item.line,11.5f,ink(0x99),"sans-serif");cell.addView(line,pos(cardW,15,1,cardH+28));
         face.setPivotX(px(cardW/2));face.setPivotY(px(cardH/2));
-        cell.setFocusable(true);cell.setFocusableInTouchMode(true);cell.setSoundEffectsEnabled(false);cell.setContentDescription(item.title);
+        cell.setFocusable(true);cell.setFocusableInTouchMode(true);cell.setSoundEffectsEnabled(false);cell.setContentDescription(join(item.title,item.line));
         cell.setOnFocusChangeListener((v,f)->{
             face.animate().cancel();title.animate().cancel();line.animate().cancel();float s=f?1.08f:1;
             if(motion()){face.animate().scaleX(s).scaleY(s).translationY(f?-px(2):0).setDuration(f?460:300).setInterpolator(f?spring:ease).start();
