@@ -34,6 +34,7 @@ public final class MediaContextTest {
             String leaked = MediaContext.concise("Resume at https://plex.example/library?X-Plex-Token=abc123 tonight. Or www.example.com/x");
             expect(leaked != null && !leaked.contains("://") && !leaked.contains("abc123") && !leaked.contains("www."), "links and their tokens never reach the summary");
             expect(MediaContext.concise("https://plex.example/?X-Plex-Token=abc123") == null, "a description that is only a link is unavailable");
+            expect("Recap at tonight.".equals(MediaContext.watched("Plex", MediaContext.Data.LIVE, 0, 0, "Recap at WWW.example.invalid/?X-Plex-Token=scratch-secret tonight.").summaryText()), "uppercase WWW links and their tokens are removed from published summaries");
             expect("See and".equals(MediaContext.concise("See plex.tv/watch?X-Plex-Token=example and mailto:viewer@example.invalid?token=example")), "scheme-less provider links and mailto links are removed with their query values");
         });
         check("concise", () -> {
