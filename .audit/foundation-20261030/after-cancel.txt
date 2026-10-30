@@ -1,0 +1,29 @@
+Page: dev.luma.tv
+App: dev.luma.tv
+Snapshot: 34 visible nodes (49 total)
+Collapsed 15 Android helper nodes from the agent-facing text snapshot; use --raw or --json for the full hierarchy.
+@e3 [group]
+  @e6 [text] "Settings"
+    @e8 [scroll-area] "Home, System, Device settings, ›, Capabilities, Showed the clock ›, Home screen, TV default ›, Temperature, Automatic ›, Home widgets, 4 on ›, Navigation sounds, Living wallpaper" [scrollable]
+      [content above scroll-area hidden]
+      @e10 [group] "Living wallpaper"
+      @e12 [group] "Navigation sounds"
+      @e15 [group] "Home widgets"
+      @e18 [group] "Temperature"
+      @e21 [group] "Home screen"
+      @e25 [group] "Capabilities"
+      @e28 [group] "Device settings"
+      [content below scroll-area hidden]
+  @e31 [image]
+  @e32 [text] "Capabilities"
+  @e33 [text] "Safe TV actions with a preview, confirmation and a local result."
+    @e36 [text] "Capabilities"
+    @e37 [text] "Last: Showed the clock"
+      @e39 [text] "Hide the clock" [focused]
+      @e40 [text] "Show Inputs on Home"
+    @e42 [text] "Hides the clock in the top-right corner of every page."
+    @e43 [text] "Asks before it runs."
+    @e46 [text] "Home"
+    @e47 [text] "Apps"
+    @e48 [text] "Settings"
+  @e49 [text] "10:10"

@@ -152,8 +152,8 @@ the couch.
 Luma has no analytics, advertising ID, accessibility service or account. The list of apps, your favourites,
 your name and settings stay on the TV. Day and night come from the TV's clock and time zone, not its location. It goes online for three things only: House Control TV on the TV itself (`127.0.0.1`), for the
 3D preview, and only when House Control is installed (that web view refuses every other address); the weather,
-from [Open-Meteo](https://open-meteo.com) (no account or key; the request carries only the rounded coordinates of
-your time zone's main city, not your location); and the poster pictures that your apps link in their Continue
+from [Open-Meteo](https://open-meteo.com) (no account or key; the request carries the rounded coordinates of
+your saved weather location, or your time zone's main city in Automatic mode); and the poster pictures that your apps link in their Continue
 watching list. Up Next reads that list on the TV. Now Playing needs notification access only because Android hands
 media controls to notification listeners; Luma reads no notifications. The scene
 buttons talk to House Control over Android's Binder, and House Control only answers a Luma signed with the key it

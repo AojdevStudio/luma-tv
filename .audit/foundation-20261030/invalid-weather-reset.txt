@@ -1,0 +1,27 @@
+Page: dev.luma.tv
+App: dev.luma.tv
+Snapshot: 34 visible nodes (40 total)
+Collapsed 6 Android helper nodes from the agent-facing text snapshot; use --raw or --json for the full hierarchy.
+@e3 [group]
+  @e10 [group] "YouTube"
+    @e11 [text] "YouTube"
+    @e12 [text] "3 days ago"
+  @e13 [group] "Continue watching"
+    @e14 [text] "Allow access"
+    @e15 [text] "Continue watching"
+    @e16 [text] "Allow access"
+  @e17 [text] "Up Next"
+  @e18 [group] "Central, —, Set the TV's time zone to see the weather"
+  @e24 [text] "Hello"
+  @e25 [text] "Friday, October 30"
+  @e26 [scroll-area] "YouTube" [scrollable]
+    @e29 [group] "YouTube. OK: open. Hold OK: organize app." [focused]
+    @e31 [group] "YouTube Music. OK: open. Hold OK: organize app."
+    @e32 [group] "Live TV. OK: open. Hold OK: organize app."
+    @e33 [group] "Play Store. OK: open. Hold OK: organize app."
+    @e34 [group] "Settings. OK: open. Hold OK: organize app."
+    @e37 [text] "Home"
+    @e38 [text] "Apps"
+    @e39 [text] "Settings"
+    [content below scroll-area hidden]
+  @e40 [text] "10:09"

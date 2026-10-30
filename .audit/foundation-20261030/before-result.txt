@@ -1,0 +1,25 @@
+Page: dev.luma.tv
+App: dev.luma.tv
+Snapshot: 34 nodes
+@e3 [group]
+  @e6 [text] "All your apps"
+  @e7 [text] "Everything installed on this TV."
+  @e8 [scroll-area] [scrollable]
+    @e11 [group] "YouTube. OK: open. Hold OK: organize app."
+    @e12 [group] "YouTube Music. OK: open. Hold OK: organize app."
+    @e13 [group] "Live TV. OK: open. Hold OK: organize app."
+    @e14 [group] "Play Games. OK: open. Hold OK: organize app."
+    @e15 [group] "Play Store. OK: open. Hold OK: organize app."
+    @e16 [group] "Settings. OK: open. Hold OK: organize app."
+    @e19 [text] "Capabilities"
+    @e20 [text] "Last: Showed the clock"
+      @e22 [text] "Hide the clock"
+      @e23 [text] "Show Inputs on Home"
+      @e25 [text] "Show the clock"
+      @e26 [text] "Shows the clock in the top-right corner of every page."
+      @e27 [text] "Done. Showed the clock"
+      @e28 [text] "Close" [focused]
+    @e31 [text] "Home"
+    @e32 [text] "Apps"
+    @e33 [text] "Settings"
+  @e34 [text] "10:04"

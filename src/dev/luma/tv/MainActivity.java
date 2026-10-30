@@ -39,6 +39,7 @@ public final class MainActivity extends Activity {
     private ScrollView scroll;
     private LinearLayout rows;
     private String page = "home", selectedPackage = "com.google.android.youtube.tv";
+    private String homeReturnPackage = "com.google.android.youtube.tv";
     private JSONObject lastHome;
     private View sceneVeil;
     private TextView brand;
@@ -50,6 +51,8 @@ public final class MainActivity extends Activity {
     private FrameLayout tabBar;
     /** House Control TV is installed and enabled: only then does Home show the scenes and the 3D home. */
     private boolean house;
+    private int capabilitiesRow;
+    private CapabilityCenter capabilityOverlay;
     /** Home pages of widgets chosen in Settings (WidgetBoard); homePage is the page shown, kept across rebuilds. */
     private WidgetBoard board;
     private int homePage;
@@ -84,10 +87,12 @@ public final class MainActivity extends Activity {
         }
     };
     private static final String[] FIRST = {"com.google.android.youtube.tv", "com.netflix.ninja", "com.amazon.amazonvideo.livingroom", "com.disney.disneyplus", "com.spotify.tv.android", "com.google.android.youtube.tvmusic"};
+    private static final String[] DEFAULT_HIDDEN = {"tv.pluto.android", "com.tcl.videoplayer", "com.google.android.play.games", "com.tcl.waterfall.overseas", "com.haystack.android"};
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = getSharedPreferences("luma", MODE_PRIVATE);
+        hideDefaultApps();
         unit = getResources().getDisplayMetrics().widthPixels / 960f;
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -100,6 +105,7 @@ public final class MainActivity extends Activity {
         IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_PACKAGE_ADDED);filter.addAction(Intent.ACTION_PACKAGE_REMOVED);filter.addAction(Intent.ACTION_PACKAGE_CHANGED);filter.addDataScheme("package");
         registerReceiver(packages,filter);
         createShell();
+        applyWeatherLocation(getIntent());
         discover();
     }
 
@@ -133,8 +139,13 @@ public final class MainActivity extends Activity {
         if(look!=null&&look.matches("day|night|auto")){daylightOverride=look;if(started)syncDaylight();}
         String demo=intent.getStringExtra("luma.demo");if(demo!=null){Promo.on=demo.equals("promo");if(Promo.on)Promo.start();board=null;homePage=0;showPage("home",true);} // board=null: start on the first page
         String inputs=intent.getStringExtra("luma.inputs");if(inputs!=null){InputsWidget.demo=inputs.equals("demo");showPage(page,true);} // arrives while paused
+        applyWeatherLocation(intent);
         if (intent.hasCategory(Intent.CATEGORY_HOME)){selectedPackage="com.google.android.youtube.tv";if(started)homePage=0;showPage("home", true);} // Home pressed on Home: back to the first page
     }
+    private void applyWeatherLocation(Intent intent){String weatherLocation=intent.getStringExtra("luma.weather.location");if(weatherLocation!=null){String[] fields=weatherLocation.split("\\|",-1);if(fields.length==3)setWeatherLocation(fields[0],fields[1],fields[2]);else resetInvalidWeatherLocation();}}
+    private void setWeatherLocation(String city,String lat,String lon){WeatherLocation location=WeatherLocation.parse(city,lat,lon);if(location==null){resetInvalidWeatherLocation();return;}prefs.edit().putString("weather_city",location.city).putString("weather_lat",Double.toString(location.lat)).putString("weather_lon",Double.toString(location.lon)).remove("weather_json").remove("weather_key").apply();showPage(page,true);}
+    private void resetInvalidWeatherLocation(){Toast.makeText(this,"Weather location reset to Automatic.",Toast.LENGTH_SHORT).show();clearWeatherLocation();}
+    private void clearWeatherLocation(){prefs.edit().remove("weather_city").remove("weather_lat").remove("weather_lon").remove("weather_json").remove("weather_key").apply();showPage(page,true);}
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){
         super.onRequestPermissionsResult(code,permissions,results);
         if(board!=null)board.refresh();
@@ -145,6 +156,7 @@ public final class MainActivity extends Activity {
         if(wallpaper!=null)writer.println(prefix+"Luma ambient: running="+wallpaper.ambientRunning+" ticks="+wallpaper.ambientTicks+" seconds="+wallpaper.ambientSeconds+" style="+wallpaper.requestedStyle+" page="+page);
         if(daylight!=null){long now=System.currentTimeMillis();long[] sun=daylight.times(now);SimpleDateFormat f=new SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US);
             writer.println(prefix+"Luma daylight: zone="+TimeZone.getDefault().getID()+" sunrise="+f.format(new Date(sun[0]))+" sunset="+f.format(new Date(sun[1]))+" day="+daylight.isDay(now)+" next="+f.format(new Date(daylight.nextChange(now)))+" light="+light);}
+        writer.println(prefix+"Luma capabilities: clock="+prefs.getBoolean("clock",true)+" last="+prefs.getString(Capabilities.LAST,"") );
     }
     private boolean houseInstalled(){try{return getPackageManager().getApplicationInfo(HOUSE_CONTROL,0).enabled;}catch(PackageManager.NameNotFoundException e){return false;}}
     /** Rebuilds Home when House Control TV is installed, removed, switched on or off. */
@@ -300,6 +312,12 @@ public final class MainActivity extends Activity {
         for (App app:apps) if (!ids.contains(app.pkg)) ids.add(app.pkg);
         return ids;
     }
+    private void hideDefaultApps() {
+        if (prefs.getBoolean("default_hidden_v1", false)) return;
+        Set<String> hidden = new HashSet<>(prefs.getStringSet("hidden", Collections.emptySet()));
+        hidden.addAll(Arrays.asList(DEFAULT_HIDDEN));
+        prefs.edit().putStringSet("hidden", hidden).putBoolean("default_hidden_v1", true).apply();
+    }
     private ArrayList<App> visibleApps(boolean all) {
         ArrayList<App> result=new ArrayList<>();
         Set<String> hidden=prefs.getStringSet("hidden", Collections.emptySet());
@@ -448,7 +466,13 @@ public final class MainActivity extends Activity {
     }
     private String greeting(){int h=Calendar.getInstance().get(Calendar.HOUR_OF_DAY);return h<5?"Good night":h<12?"Good morning":h<18?"Good afternoon":"Good evening";}
     private String today(){return new SimpleDateFormat("EEEE, MMMM d",Locale.ENGLISH).format(new Date());}
-    private void focusNearestTile(float x){Tile best=nearestTile(x);if(best!=null)best.requestFocus();}
+    private void focusNearestTile(float x){Tile best=homeReturnTile(x);if(best!=null)best.requestFocus();}
+    private Tile homeReturnTile(float x){
+        Tile remembered=null;
+        for(Tile t:tiles)if(t.index<6&&t.app.pkg.equals(homeReturnPackage)){remembered=t;break;}
+        if(remembered!=null){lastDirectionY=1;lastDirectionX=0;return remembered;}
+        return nearestTile(x);
+    }
     private Tile nearestTile(float x){
         Tile best=null;float d=Float.MAX_VALUE;int[] l=new int[2];
         for(Tile t:tiles){if(t.index>=6)break;t.getLocationOnScreen(l);float e=Math.abs(l[0]+t.getWidth()/2f-x);if(e<d){d=e;best=t;}}
@@ -464,7 +488,7 @@ public final class MainActivity extends Activity {
         public void open(){sound();}
         public void hero(String key,String title,String detail){holdGreeting=false;homeGreeting=false;setHero(key,title,detail);}
         public View up(){return tabs.get(0);}
-        public View down(float x){return nearestTile(x);}
+        public View down(float x){return homeReturnTile(x);}
         public void pageChanged(boolean onHouse,int direction){if(board!=null)homePage=board.index;showHouse(onHouse,direction);}
         public View houseEntry(int direction){if(houseWidgets==null)return null;return direction<0||houseWidgets.scenes.isEmpty()?houseWidgets.cover:houseWidgets.scenes.get(0);}
         public void nudgeHouse(int direction){
@@ -817,11 +841,14 @@ public final class MainActivity extends Activity {
         controls.add(option(list,"Home widgets",this::widgetSummary,null,this::widgetEditor,
             ()->preview(0,"Home widgets","Choose what Home shows above your apps — "+(house?"Smart Home, ":"")+"Up Next, Weather, "+(InputsWidget.count>0?"Inputs, ":"")+"Now Playing and Control — and their order. Left and Right turn the pages.")));
         controls.add(option(list,"Temperature",()->new String[]{"Automatic","Celsius","Fahrenheit"}[unitIndex()],null,this::temperatureMenu,
-            ()->preview(0,"Temperature","Weather in Celsius or Fahrenheit. Automatic follows the TV's region. The forecast is for "+Daylight.city()+", the main city of the TV's time zone.")));
+            ()->preview(0,"Temperature","Weather in Celsius or Fahrenheit. Automatic follows the TV's region. The forecast uses your saved location when set. Otherwise it uses the TV's time zone.")));
         if(house)controls.add(option(list,"Scene apps",()->"Choose",null,this::sceneApps,()->preview(0,"Scene apps","Open an app after a scene — Movie can start Netflix as the lights go down.")));
         controls.add(option(list,"Home screen",()->lumaIsHome()?"Luma":"TV default",null,this::homeScreen,
             ()->preview(0,"Home screen",lumaIsHome()?"Luma opens when you press Home. Choose to return to your TV's own home screen.":"Your TV's own home screen opens when you press Home.")));
         caption(list,"System",false);
+        capabilitiesRow=controls.size();
+        controls.add(option(list,"Capabilities",this::capabilitySummary,null,this::capabilityCenter,
+            ()->preview(0,"Capabilities","Safe TV actions with a preview, confirmation and a local result.")));
         controls.add(option(list,"Device settings",()->"",null,()->startActivity(new Intent(Settings.ACTION_SETTINGS)),()->preview(0,"Device settings","Network, picture, sound and accounts.")));
         controls.add(option(list,"Support the author",()->"",null,this::supportScreen,()->preview(0,"Support the author","Luma is free and has no ads. A tip in crypto helps it grow.")));
         controls.add(option(list,"About Luma",()->"",null,this::aboutScreen,()->preview(0,"About Luma","Version "+version()+" · made by "+about("author"))));
@@ -851,6 +878,7 @@ public final class MainActivity extends Activity {
         settingsGlide.addUpdateListener(a->sv.scrollTo(0,(int)a.getAnimatedValue()));settingsGlide.start();
     }
     private String widgetSummary(){boolean inputs=!InputsWidget.list(this).isEmpty();int n=0;for(String id:WidgetBoard.IDS)if(WidgetBoard.on(prefs,id)&&(house||!id.equals("house"))&&(inputs||!id.equals("inputs")))n++;return n==0?"Off":n+" on";}
+    private String capabilitySummary(){Capabilities.Result last=Capabilities.Result.parse(prefs.getString(Capabilities.LAST,null));return last==null?"Explore":last.message;}
     private int unitIndex(){String u=prefs.getString("temp_unit","auto");return u.equals("c")?1:u.equals("f")?2:0;}
     private void temperatureMenu(){
         menu("Temperature",new String[]{"Automatic","Celsius","Fahrenheit"},unitIndex(),choice->{
@@ -973,6 +1001,56 @@ public final class MainActivity extends Activity {
             }
         }
     }
+    private final class CapabilityTv implements Capabilities.Tv {
+        final SharedPreferences.Editor edit=prefs.edit();
+        public boolean clockShown(){return prefs.getBoolean("clock",true);}
+        public boolean hasInputs(){return !InputsWidget.list(MainActivity.this).isEmpty();}
+        public boolean widgetOn(String id){return WidgetBoard.on(prefs,id);}
+        public void showClock(boolean shown){edit.putBoolean("clock",shown);}
+        public void showWidget(String id,boolean on){HashSet<String> off=new HashSet<>();for(String value:prefs.getString("widget_off","").split(","))if(!value.isEmpty())off.add(value);if(on)off.remove(id);else off.add(id);edit.putString("widget_off",String.join(",",off));}
+        public void remember(String line){edit.putString(Capabilities.LAST,line);}
+    }
+    private void capabilityCenter(){new CapabilityCenter();}
+    private final class CapabilityCenter {
+        final FrameLayout panel,pane;
+        final LinearLayout list;
+        final TextView paneTitle,paneBody,status,last;
+        final ArrayList<Capabilities.Action> actions=new ArrayList<>();
+        final ArrayList<TextView> rows=new ArrayList<>();
+        TextView confirm,cancel,close;
+        Capabilities.Action pending;
+        boolean confirming;
+        int selected;
+        CapabilityCenter(){
+            capabilityOverlay=this;
+            FrameLayout o=openOverlay(0xB3000000);
+            overlayCancel=()->{capabilityOverlay=null;showPage("settings",false);controlsFocus(capabilitiesRow);};
+            panel=new FrameLayout(MainActivity.this);panel.setBackground(shape(0xF51C1C1E,24));panel.setElevation(px(24));panel.setClipChildren(false);o.addView(panel,new FrameLayout.LayoutParams(px(820),px(420),Gravity.CENTER));
+            panel.addView(text("Capabilities",24,Color.WHITE,"sans-serif-medium"),pos(400,32,28,24));
+            last=text(lastLine(),12.5f,0xB3FFFFFF,"sans-serif");last.setSingleLine(true);panel.addView(last,pos(760,20,28,59));
+            list=new LinearLayout(MainActivity.this);list.setOrientation(LinearLayout.VERTICAL);list.setPadding(px(8),0,px(8),0);list.setClipChildren(false);list.setClipToPadding(false);panel.addView(list,pos(330,250,24,94));
+            pane=new FrameLayout(MainActivity.this);pane.setBackground(shape(0x18FFFFFF,16));pane.setClipToOutline(true);panel.addView(pane,pos(430,300,370,94));
+            paneTitle=text("",18,Color.WHITE,"sans-serif-medium");pane.addView(paneTitle,pos(390,28,20,18));
+            paneBody=text("",13,0xC7FFFFFF,"sans-serif");paneBody.setLineSpacing(px(4),1);pane.addView(paneBody,pos(380,86,20,58));
+            status=text("",13,0xFF8FD6A3,"sans-serif-medium");status.setSingleLine(true);pane.addView(status,pos(380,26,20,194));
+            fill();
+            root.post(()->{if(!rows.isEmpty())rows.get(0).requestFocus();});
+        }
+        String lastLine(){Capabilities.Result result=Capabilities.Result.parse(prefs.getString(Capabilities.LAST,null));return result==null?"No capability has run on this TV yet.":"Last: "+result.message;}
+        void fill(){
+            list.removeAllViews();rows.clear();actions.clear();actions.addAll(Capabilities.list(new CapabilityTv()));
+            for(int i=0;i<actions.size();i++){final int index=i;Capabilities.Action action=actions.get(i);TextView row=text(action.name,14.5f,Color.WHITE,"sans-serif-medium");row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(px(16),0,px(12),0);row.setFocusable(true);row.setFocusableInTouchMode(true);row.setAlpha(action.available()?1:.5f);row.setContentDescription(action.name);row.setBackground(shape(0x14FFFFFF,12));row.setOnFocusChangeListener((v,f)->{row.setBackground(shape(f?0xFAFFFFFF:0x14FFFFFF,12));row.setTextColor(f?0xFF111827:Color.WHITE);if(f){selected=index;showAction(actions.get(index));navigationSound(index);}});row.setOnClickListener(v->{sound();Capabilities.Action current=actions.get(index);if(!current.available()){showUnavailable(current);return;}ask(current);});list.addView(row,new LinearLayout.LayoutParams(-1,px(54)));rows.add(row);}
+            if(!actions.isEmpty())showAction(actions.get(0));
+        }
+        void showAction(Capabilities.Action action){paneTitle.setText(action.name);paneBody.setText(action.available()?action.preview:action.unavailable);status.setText(action.available()?"Asks before it runs.":"Unavailable");confirming=false;hideButtons();}
+        void showUnavailable(Capabilities.Action action){paneTitle.setText(action.name);paneBody.setText(action.unavailable);status.setText("Not run. Nothing changed.");hideButtons();}
+        void ask(Capabilities.Action action){pending=action;confirming=true;paneTitle.setText(action.name);paneBody.setText(action.preview);status.setText("Confirm this change.");if(confirm==null){confirm=button("Confirm",this::runPending);cancel=button("Cancel",this::cancel);pane.addView(confirm,pos(150,42,20,242));pane.addView(cancel,pos(150,42,190,242));}confirm.setVisibility(View.VISIBLE);cancel.setVisibility(View.VISIBLE);if(close!=null)close.setVisibility(View.GONE);confirm.requestFocus();}
+        TextView button(String label,Runnable action){TextView b=text(label,13.5f,Color.WHITE,"sans-serif-medium");b.setGravity(Gravity.CENTER);b.setFocusable(true);b.setFocusableInTouchMode(true);b.setBackground(shape(0x2EFFFFFF,12));b.setOnFocusChangeListener((v,f)->{b.setBackground(shape(f?0xFAFFFFFF:0x2EFFFFFF,12));b.setTextColor(f?0xFF111827:Color.WHITE);});b.setOnClickListener(v->{sound();action.run();});return b;}
+        void hideButtons(){if(confirm!=null)confirm.setVisibility(View.GONE);if(cancel!=null)cancel.setVisibility(View.GONE);if(close!=null)close.setVisibility(View.GONE);}
+        void runPending(){if(pending==null)return;CapabilityTv tv=new CapabilityTv();Capabilities.Result result=Capabilities.run(pending,tv,System.currentTimeMillis());tv.edit.apply();clock.setVisibility(prefs.getBoolean("clock",true)?View.VISIBLE:View.GONE);refreshActions();last.setText(lastLine());confirming=false;if(confirm!=null)confirm.setVisibility(View.GONE);if(cancel!=null)cancel.setVisibility(View.GONE);if(close==null){close=button("Close",()->closeOverlay(true));pane.addView(close,pos(150,42,105,242));}close.setVisibility(View.VISIBLE);close.requestFocus();paneTitle.setText(pending.name);paneBody.setText(pending.preview);status.setText(result.done?"Done. "+result.message:"Not run. "+result.message);}
+        void refreshActions(){ArrayList<Capabilities.Action> fresh=new ArrayList<>(Capabilities.list(new CapabilityTv()));for(int i=0;i<fresh.size()&&i<rows.size();i++){actions.set(i,fresh.get(i));TextView row=rows.get(i);row.setText(fresh.get(i).name);row.setContentDescription(fresh.get(i).name);row.setAlpha(fresh.get(i).available()?1:.5f);}}
+        void cancel(){if(!confirming)return;pending=null;confirming=false;showAction(actions.get(selected));if(selected<rows.size())rows.get(selected).requestFocus();}
+    }
     @SuppressWarnings("unchecked") private void controlsFocus(int i) { root.post(()-> { Object tag=content.getTag(); if(tag instanceof ArrayList) ((ArrayList<View>)tag).get(i).requestFocus(); }); }
     /** A settings row: either a value with a chevron, or an Apple-style switch bound to a preference. */
     private View option(LinearLayout parent,String title,java.util.function.Supplier<String> value,String toggle,Runnable action,Runnable onFocus) {
@@ -997,7 +1075,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,px(44));lp.bottomMargin=px(6);parent.addView(row,lp);return row;
     }
     @Override public void onBackPressed() {
-        if (overlay!=null) { closeOverlay(true); return; }
+        if (overlay!=null) { if(capabilityOverlay!=null&&capabilityOverlay.confirming){capabilityOverlay.cancel();return;} closeOverlay(true); return; }
         if (!page.equals("home")) showPage("home",true);
         else if (board!=null && board.index>0) {board.showPage(0);tabs.get(0).requestFocus();}
         else if (scroll!=null && scroll.getScrollY()>0) {scroll.smoothScrollTo(0,0);if(!tiles.isEmpty())tiles.get(0).requestFocus();}
@@ -1031,6 +1109,7 @@ public final class MainActivity extends Activity {
                 label.animate().cancel();if(motion())label.animate().alpha(f?1:0).translationY(f?0:-px(3)).setDuration(f?260:140).setInterpolator(ease).start();else label.setAlpha(f?1:0);
                 setTranslationZ(px(f?20:0));
                 if(f) {
+                    if(page.equals("home")&&index<6)homeReturnPackage=app.pkg;
                     selectApp(app);wallpaper.follow(index);
                     if(index<6) scroll.post(()->scroll.smoothScrollTo(0,0));
                     else requestRectangleOnScreen(new Rect(-px(12),-px(14),getWidth()+px(12),getHeight()+px(5)),false);

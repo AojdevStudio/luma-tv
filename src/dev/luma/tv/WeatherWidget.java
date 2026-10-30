@@ -16,10 +16,6 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import org.json.*;
 
-/** Weather for the main city of the TV's time zone (the place Daylight uses for sunrise): no location permission.
- *  Forecasts come from Open-Meteo (open-meteo.com, free, no account or key); the request carries only the city's
- *  rounded coordinates. The last forecast is kept, so Home shows it at once and offline. OK switches between
- *  the next hours and the coming days. */
 final class WeatherWidget extends Widget {
     static final long FRESH=30*60000L;
     static final float PAD=18,SLOTS_Y=114;
@@ -60,9 +56,17 @@ final class WeatherWidget extends Widget {
         if(motion())animate().scaleX(s).scaleY(s).translationY(focused?-px(3):0).setDuration(focused?460:300).setInterpolator(focused?spring:ease).start();else{setScaleX(s);setScaleY(s);}
         setElevation(px(focused?10:0));
     }
-    /** The time zone's main city, or Miami in the promo demo (Promo). */
-    String city(){return Promo.on?Promo.CITY:Daylight.city();}
-    double[] place(){return Promo.on?Promo.MIAMI:Daylight.place(getContext());}
+    WeatherLocation location(){
+        if(Promo.on)return new WeatherLocation(Promo.CITY,Promo.MIAMI[0],Promo.MIAMI[1]);
+        if(host.prefs().contains("weather_city")){
+            WeatherLocation saved=WeatherLocation.parse(host.prefs().getString("weather_city",""),host.prefs().getString("weather_lat",""),host.prefs().getString("weather_lon",""));
+            if(saved!=null)return saved;
+            host.prefs().edit().remove("weather_city").remove("weather_lat").remove("weather_lon").remove("weather_json").remove("weather_key").apply();
+        }
+        double[] place=Daylight.place(getContext());return place==null?null:new WeatherLocation(Daylight.city(),place[0],place[1]);
+    }
+    String city(){WeatherLocation location=location();return location==null?Daylight.city():location.city;}
+    double[] place(){WeatherLocation location=location();return location==null?null:new double[]{location.lat,location.lon};}
     static boolean fahrenheit(android.content.SharedPreferences prefs){
         String unit=prefs.getString("temp_unit","auto");if(!unit.equals("auto"))return unit.equals("f");
         if(Promo.on)return true;
