@@ -20,14 +20,14 @@ Covers [#9](https://github.com/AojdevStudio/luma-tv/issues/9) and [#14](https://
 
 ## Scenes
 
-House Control's scenes are listed and understood by Ask, but none can start from this panel yet. Each previews as unavailable and points to the scene buttons on Home. The House Control scene ticket owns a safe adapter. Until then, no scene result is ever reported as done.
+House Control's scenes appear in Scenes, and Ask recognizes their names. Until the scene adapter is implemented, Ask refuses those requests with the same Home instruction shown in the Scenes preview. No scene runs or reports success from this panel.
 
 ## Health
 
-- Opening the Health section measures with `HealthReader` on its own background thread.
+- The first Health visit in a panel session measures with `HealthReader` on its own background thread. Later visits keep that report and its measurement times. Refresh measures again.
 - The middle column lists all six metrics with their status. Selecting one shows its value, explanation, source, and measurement time in the right column.
 - Refresh marks the shown readings stale at once and keeps their old times. `CapabilityPanel.Health` drops any answer from an older refresh, and any answer after the panel closes.
-- Refresh and Done are reachable with the D-pad. Done and Back return focus to the Health section row. A second Back closes the panel and returns to the Capabilities row in Settings.
+- Refresh and Back are reachable with the D-pad. The Back button and remote Back return focus to the Health section row. A second Back closes the panel and returns to the Capabilities row in Settings.
 
 ## D-pad
 

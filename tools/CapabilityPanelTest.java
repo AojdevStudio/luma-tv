@@ -3,8 +3,6 @@ package dev.luma.tv;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-/** Checks the Capabilities panel's sections and Health refresh rules without Android classes. Run from the repository root:
- *    javac --release 8 -d build/test src/dev/luma/tv/CapabilityPanel.java src/dev/luma/tv/HealthSnapshot.java tools/CapabilityPanelTest.java && java -cp build/test dev.luma.tv.CapabilityPanelTest */
 public final class CapabilityPanelTest {
     static int failures;
     static void expect(boolean ok, String message) {
@@ -30,15 +28,15 @@ public final class CapabilityPanelTest {
         CapabilityPanel.Health health = new CapabilityPanel.Health();
         int first = health.refresh();
         expect(health.shown() == null && health.stale(), "the first check shows no values while it measures");
-        expect(health.accept(first, snapshot(100L)) && health.shown().at == 100L && !health.stale(), "the newest check replaces the report");
+        expect(health.accept(first, snapshot(100L)) && health.shown().started == 100L && !health.stale(), "the newest check replaces the report");
         int older = health.refresh();
-        expect(health.stale() && health.shown().at == 100L, "refresh marks the shown values stale at once and keeps their time");
+        expect(health.stale() && health.shown().started == 100L, "refresh marks the shown values stale at once and keeps their time");
         int newer = health.refresh();
-        expect(!health.accept(older, snapshot(200L)) && health.shown().at == 100L && health.stale(), "an older refresh that answers late is ignored");
-        expect(health.accept(newer, snapshot(300L)) && health.shown().at == 300L && !health.stale(), "the newest refresh lands");
+        expect(!health.accept(older, snapshot(200L)) && health.shown().started == 100L && health.stale(), "an older refresh that answers late is ignored");
+        expect(health.accept(newer, snapshot(300L)) && health.shown().started == 300L && !health.stale(), "the newest refresh lands");
         int late = health.refresh();
         health.close();
-        expect(!health.accept(late, snapshot(400L)) && health.shown().at == 300L, "nothing lands after the panel closes");
+        expect(!health.accept(late, snapshot(400L)) && health.shown().started == 300L, "nothing lands after the panel closes");
 
         ArrayList<String> lines = new ArrayList<>();
         for (HealthSnapshot.Reading reading : snapshot(500L).readings) {

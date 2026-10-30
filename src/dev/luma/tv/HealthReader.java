@@ -12,9 +12,6 @@ import android.net.NetworkCapabilities;
 import android.os.StatFs;
 import java.util.ArrayList;
 
-/** Measures a HealthSnapshot with Android's ordinary app APIs: no root, no shell and no new permission. Every call
- *  measures again and keeps nothing, so a refresh never passes off an older value as current. Call it off the main
- *  thread, since package and storage queries can block. */
 final class HealthReader {
     private static final String HOUSE_CONTROL = "dev.housecontrol.tv";
 

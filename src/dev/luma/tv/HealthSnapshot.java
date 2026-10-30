@@ -5,12 +5,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
-/** One health check of the TV: memory, storage, network, the Home app, installed Luma and House Control. A reading
- *  is healthy or degraded only when Android itself says so. Luma never invents a threshold. No Android classes,
- *  so tools/HealthSnapshotTest.java checks it on a computer. HealthReader fills it on the TV. */
 final class HealthSnapshot {
-    /** HEALTHY and DEGRADED come from an Android signal. UNAVAILABLE means Luma could not measure it, or an optional
-     *  part is absent. UNKNOWN means Luma has a value but Android gives no signal to judge it by. */
     enum Status { HEALTHY, DEGRADED, UNAVAILABLE, UNKNOWN }
 
     enum Metric {
@@ -42,12 +37,11 @@ final class HealthSnapshot {
         }
     }
 
-    /** When this check started. Each reading keeps the time it was measured. */
-    final long at;
+    final long started;
     final List<Reading> readings;
 
-    HealthSnapshot(long at, List<Reading> readings) {
-        this.at = at;
+    HealthSnapshot(long started, List<Reading> readings) {
+        this.started = started;
         this.readings = Collections.unmodifiableList(new ArrayList<>(readings));
     }
 
@@ -63,7 +57,6 @@ final class HealthSnapshot {
             : new Reading(Metric.STORAGE, Status.HEALTHY, value, "Android does not report low storage.", at);
     }
 
-    /** transport: "Ethernet", "Wi-Fi" and so on, or null with no active network. */
     static Reading network(String transport, boolean validated, long at) {
         if (transport == null) return new Reading(Metric.NETWORK, Status.DEGRADED, "Not connected", "The TV has no active network connection.", at);
         return validated ? new Reading(Metric.NETWORK, Status.HEALTHY, transport, "Connected. Android confirmed internet access.", at)
@@ -88,12 +81,10 @@ final class HealthSnapshot {
         return new Reading(Metric.HOUSE_CONTROL, Status.UNKNOWN, "Installed", "House Control is installed. This does not check that it can reach your home.", at);
     }
 
-    /** Android refused or failed to answer. The cause stays out of the report, since it can carry private detail. */
     static Reading failed(Metric metric, long at) {
         return new Reading(metric, Status.UNAVAILABLE, "Not measured", "Android did not answer, so Luma cannot measure this right now.", at);
     }
 
-    /** Decimal units, as Android's own storage settings show them. */
     private static String size(long bytes) {
         return bytes >= 1_000_000_000L ? String.format(Locale.US, "%.1f GB", bytes / 1e9) : bytes / 1_000_000L + " MB";
     }

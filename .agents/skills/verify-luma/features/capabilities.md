@@ -32,7 +32,7 @@ Build and install the source APK on the `luma-tv` Android TV emulator. Confirm t
 - Scenes is hidden when House Control is absent. Scene execution remains unavailable until its adapter is implemented.
 - Open Health with the D-pad. Move through all six metrics in the middle column and inspect each selected metric's details, source label, and measurement time in the right column.
 - Refresh must mark old readings stale immediately, keep their original times, and replace them with a fresh report.
-- Done or Back returns to the Health section. Back again closes the panel and returns to the Settings row.
+- The Back button or remote Back returns to the Health section. Back again closes the panel and returns to the Settings row.
 - Toggle Dark mode and inspect a true-black panel with white primary text. Toggle back and inspect the light panel.
 - Restart with a pending request. Nothing runs, and the last successful result remains.
 

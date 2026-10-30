@@ -5,7 +5,6 @@ import java.util.List;
 
 final class Capabilities {
     static final String LAST = "capability_last";
-    private static final String NO_SCENES = "Luma cannot start scenes from Capabilities yet. Use the scene buttons on Home.";
 
     interface Tv {
         boolean clockShown();
@@ -14,14 +13,11 @@ final class Capabilities {
         void showClock(boolean shown);
         void showWidget(String id, boolean on);
         void remember(String line);
-        /** The installed apps, tabs, widgets and scenes as they are right now. */
         Commands.Registry registry();
-        /** false when Android cannot open the app. */
         boolean openApp(String pkg);
         void selectTab(String id);
     }
 
-    /** kind is the Commands target a capability acts on. The clock and the Inputs action predate Commands and have none. */
     enum Capability {
         CLOCK("clock", null), INPUTS("inputs", null), APP("app", Commands.Kind.APP), TAB("tab", Commands.Kind.TAB),
         WIDGET("widget", Commands.Kind.WIDGET), SCENE("scene", Commands.Kind.SCENE);
@@ -36,7 +32,6 @@ final class Capabilities {
 
     static final class Action {
         final Capability capability;
-        /** The target: a package, tab, widget or scene id, or the capability id for the clock and Inputs. */
         final String id;
         final String label;
         final String name;
@@ -100,7 +95,6 @@ final class Capabilities {
         return actions;
     }
 
-    /** The preview for an interpreted request. Nothing runs until run() is called with it. */
     static Action of(Commands.Command command) {
         Commands.Target t = command.target;
         switch (command.verb) {
@@ -116,13 +110,11 @@ final class Capabilities {
         }
     }
 
-    /** Luma has no safe way yet to start a House Control scene from here, so a scene previews as unavailable. */
     static Action scene(Commands.Target scene) {
         return new Action(Capability.SCENE, scene.id, scene.name, "Start " + scene.name,
-            "House Control runs the " + scene.name + " scene.", NO_SCENES, true);
+            "House Control runs the " + scene.name + " scene.", Commands.NO_SCENES, true);
     }
 
-    /** Checks the action against the TV as it is now, then makes its change. A refused action changes nothing. */
     static Result run(Action previewed, Tv tv, long now) {
         String refused = refusal(previewed, tv);
         if (refused != null) return new Result(previewed.capability, false, refused, now);
@@ -157,7 +149,7 @@ final class Capabilities {
     }
 
     private static String refusal(Action previewed, Tv tv) {
-        if (previewed.capability == Capability.SCENE) return NO_SCENES;
+        if (previewed.capability == Capability.SCENE) return Commands.NO_SCENES;
         if (previewed.capability.kind == null) {
             for (Action action : list(tv)) if (action.capability == previewed.capability) return action.unavailable;
             return "This capability is no longer available.";

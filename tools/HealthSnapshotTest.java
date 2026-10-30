@@ -3,8 +3,6 @@ package dev.luma.tv;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-/** Checks how HealthSnapshot classifies Android's signals. Run from the repository root:
- *    javac --release 8 -d build/test src/dev/luma/tv/HealthSnapshot.java tools/HealthSnapshotTest.java && java -cp build/test dev.luma.tv.HealthSnapshotTest */
 public final class HealthSnapshotTest {
     static int failures;
     static final HealthSnapshot.Status HEALTHY = HealthSnapshot.Status.HEALTHY, DEGRADED = HealthSnapshot.Status.DEGRADED,

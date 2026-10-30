@@ -1,9 +1,7 @@
 package dev.luma.tv;
 
-/** Converts optional speech input into the same data as text requests. */
 final class VoiceRequests {
     static final float MIN_CONFIDENCE = 0.8f;
-    /** ON_DEVICE must come from an adapter that verified a local recognizer, not an offline preference. */
     enum Availability { ON_DEVICE, UNAVAILABLE, NETWORK_ONLY, PERMISSION_DENIED }
     enum Status { READY, REJECTED, CORRECTION_REQUIRED, UNAVAILABLE, CANCELLED }
 

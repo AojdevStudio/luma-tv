@@ -4,8 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** The rules behind Settings, then Capabilities: which sections it shows and when a Health check may land. No Android
- *  classes, so tools/CapabilityPanelTest.java checks it on a computer. MainActivity.CapabilityCenter draws it. */
 final class CapabilityPanel {
     enum Section {
         ACTIONS("Actions"), ASK("Ask"), SCENES("Scenes"), HEALTH("Health");
@@ -13,15 +11,12 @@ final class CapabilityPanel {
         Section(String label) { this.label = label; }
     }
 
-    /** Scenes come only from House Control, so its section is absent without it. */
     static List<Section> sections(boolean house) {
         ArrayList<Section> sections = new ArrayList<>();
         for (Section section : Section.values()) if (house || section != Section.SCENES) sections.add(section);
         return sections;
     }
 
-    /** The Health report on screen. A refresh marks it stale at once. Only the newest refresh may replace it, and
-     *  nothing lands after the panel closes, so a slow or late check never shows as current. */
     static final class Health {
         private int requested;
         private boolean closed;

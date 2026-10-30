@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
-/** Interprets requests into data for the shared Capabilities preview path. */
 final class Commands {
+    static final String NO_SCENES = "Luma cannot start scenes from Capabilities yet. Use the scene buttons on Home.";
     enum Kind { APP, TAB, WIDGET, SCENE }
     enum Verb { LAUNCH_APP, SELECT_TAB, SHOW_WIDGET, HIDE_WIDGET, START_SCENE }
     enum Status { READY, UNSUPPORTED, AMBIGUOUS, UNINSTALLED, UNAVAILABLE, UNSAFE }
@@ -99,27 +99,28 @@ final class Commands {
                 return new Result(Status.UNSAFE, "Shell commands and chained actions are not supported.");
         }
         String text = normalize(request);
-        int prefixLength = 0;
-        for (Rule rule : RULES) if (text.startsWith(rule.prefix)) prefixLength = Math.max(prefixLength, rule.prefix.length());
-        if (prefixLength == 0) return new Result(Status.UNSUPPORTED, "Try opening an app, switching tabs, showing a widget, or starting a scene.");
-        String name = text.substring(prefixLength);
         Command matched = null;
         boolean appRequest = false;
+        boolean supported = false;
         for (Rule rule : RULES) {
-            if (rule.prefix.length() != prefixLength || !text.startsWith(rule.prefix)) continue;
+            if (!text.startsWith(rule.prefix)) continue;
+            supported = true;
+            String name = text.substring(rule.prefix.length());
             appRequest |= rule.kind == Kind.APP;
             for (Target target : registry.targets) {
                 if (target.kind != rule.kind || !(target.nameKey.equals(name) || target.idKey.equals(name))) continue;
-                if (matched != null) return new Result(Status.AMBIGUOUS, "More than one target matches. Use a specific app, tab, widget, or scene id.");
+                if (matched != null && (matched.target != target || matched.verb != rule.verb))
+                    return new Result(Status.AMBIGUOUS, "More than one match. Use the TV controls to choose, or try a more specific request.");
                 matched = new Command(rule.verb, target);
             }
         }
+        if (!supported) return new Result(Status.UNSUPPORTED, "Try opening an app, switching tabs, showing a widget, or starting a scene.");
         if (matched == null) return appRequest
             ? new Result(Status.UNINSTALLED, "No installed app or registered tab matches that name.")
             : new Result(Status.UNSUPPORTED, "No registered target matches that request.");
         if (!matched.target.available) return matched.target.kind == Kind.APP
             ? new Result(Status.UNINSTALLED, "This app is not installed or cannot be opened on this TV.")
-            : new Result(Status.UNAVAILABLE, "This target is unavailable on this TV.");
+            : new Result(Status.UNAVAILABLE, matched.target.kind == Kind.SCENE ? NO_SCENES : "This target is unavailable on this TV.");
         return new Result(matched);
     }
 

@@ -560,7 +560,6 @@ public final class MainActivity extends Activity {
         homeGreeting=false;setHero(app.pkg,app.label,app.description);
     }
 
-    /** false when Android could not open the app. */
     private boolean launch(App app) {
         try {
             Intent intent=getPackageManager().getLeanbackLaunchIntentForPackage(app.pkg);
@@ -1027,7 +1026,6 @@ public final class MainActivity extends Activity {
         targets.addAll(sceneTargets());
         return new Commands.Registry(targets);
     }
-    /** The scenes House Control last sent to Home. None can start from Capabilities yet, so each is unavailable. */
     private ArrayList<Commands.Target> sceneTargets(){
         ArrayList<Commands.Target> targets=new ArrayList<>();
         JSONObject plan=house&&lastHome!=null?lastHome.optJSONObject("plan"):null;
@@ -1084,16 +1082,14 @@ public final class MainActivity extends Activity {
             v.setSingleLine(true);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setSoundEffectsEnabled(false);v.setContentDescription(label);
             v.setOnFocusChangeListener((x,f)->paint(v));paint(v);return v;
         }
-        /** Focus is inverted. The open section keeps a darker fill while focus is in its items. */
         void paint(TextView v){boolean f=v.hasFocus();v.setBackground(shape(f?ink:v==chosenRow?chosen:rest,12));v.setTextColor(f?paper:ink);}
-        void onFocus(TextView v,int step,Runnable then){v.setOnFocusChangeListener((x,f)->{paint(v);if(!f)return;leave();navigationSound(step);then.run();});}
-        /** Focus left the buttons, so a pending action is dropped: nothing runs that is not on screen. */
-        void leave(){if(confirming)status.setText("Cancelled. Nothing ran.");pending=null;confirming=false;hideButtons();}
+        void onFocus(TextView v,int step,Runnable then){v.setOnFocusChangeListener((x,f)->{paint(v);if(!f)return;dropPending();navigationSound(step);then.run();});}
+        void dropPending(){if(confirming)status.setText("Cancelled. Nothing ran.");pending=null;confirming=false;hideButtons();}
         String lastLine(){Capabilities.Result result=Capabilities.Result.parse(prefs.getString(Capabilities.LAST,null));return result==null?"No capability has run on this TV yet.":"Last: "+result.message;}
         void select(CapabilityPanel.Section next){
             TextView was=chosenRow;chosenRow=sectionRows.get(shown.indexOf(next));if(was!=null)paint(was);paint(chosenRow);
             if(next==section){relink();return;}
-            section=next;leave();opener=null;
+            section=next;dropPending();opener=null;
             items.removeAllViews();list.removeAllViews();rows.clear();actions.clear();field=null;previewButton=null;
             switch(next){
                 case ACTIONS:items.addView(list,new FrameLayout.LayoutParams(-1,-1));fillRows(Capabilities.list(new CapabilityTv()));break;
@@ -1119,7 +1115,7 @@ public final class MainActivity extends Activity {
             field.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});field.setPadding(px(14),0,px(14),0);
             field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE|android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);field.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
             final EditText f=field;Runnable ring=()->{GradientDrawable b=shape(rest,12);if(f.hasFocus())b.setStroke(Math.max(1,px(1.5f)),ink);f.setBackground(b);};ring.run();
-            field.setOnFocusChangeListener((v,focused)->{ring.run();if(focused){leave();navigationSound(0);}});
+            field.setOnFocusChangeListener((v,focused)->{ring.run();if(focused){dropPending();navigationSound(0);}});
             field.setOnEditorActionListener((v,action,e)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){interpret();return true;}return false;});
             items.addView(field,pos(300,46,0,0));
             previewButton=control("Preview",true);onFocus(previewButton,1,()->{});previewButton.setOnClickListener(v->{sound();interpret();});items.addView(previewButton,pos(300,42,0,56));
@@ -1147,12 +1143,11 @@ public final class MainActivity extends Activity {
             clock.setVisibility(prefs.getBoolean("clock",true)?View.VISIBLE:View.GONE);
             if(section==CapabilityPanel.Section.ACTIONS)refreshActions();
             last.setText(lastLine());
-            // The result is written after focus reaches Close, so the move cannot clear it.
             buttons("Close",()->closeOverlay(true),null,null);primary.requestFocus();
             pane(ran.name,ran.preview,result.done?"Done. "+result.message:"Not run. "+result.message);
         }
         void refreshActions(){List<Capabilities.Action> fresh=Capabilities.list(new CapabilityTv());for(int i=0;i<fresh.size()&&i<rows.size();i++){actions.set(i,fresh.get(i));TextView row=rows.get(i);row.setText(fresh.get(i).name);row.setContentDescription(fresh.get(i).name);row.setAlpha(fresh.get(i).available()?1:.5f);}}
-        void cancel(){View back=opener;leave();if(back!=null)back.requestFocus();}
+        void cancel(){View back=opener;dropPending();if(back!=null)back.requestFocus();status.setText("Cancelled. Nothing ran.");}
         void buttons(String a,Runnable ra,String b,Runnable rb){
             primary.setText(a);primary.setContentDescription(a);primaryAction=ra;primary.setVisibility(View.VISIBLE);
             if(b==null)secondary.setVisibility(View.GONE);else{secondary.setText(b);secondary.setContentDescription(b);secondaryAction=rb;secondary.setVisibility(View.VISIBLE);}
@@ -1187,10 +1182,9 @@ public final class MainActivity extends Activity {
                 String[] detail=CapabilityPanel.row(reading,time.format(new Date(reading.at)),health.stale());
                 pane(detail[0],detail[1],health.stale()?"Refreshing. These values are stale.":"");
             }
-            buttons("Refresh",this::measure,"Done",()->chosenRow.requestFocus());
+            buttons("Refresh",this::measure,"Back",()->chosenRow.requestFocus());
         }
         void toggleTheme(){prefs.edit().putBoolean("capability_dark",!dark).apply();health.close();new CapabilityCenter(section,true);}
-        /** Back cancels a pending action, then returns from the items to their section, then closes the panel. */
         boolean back(){
             if(confirming){cancel();return true;}
             View focused=getCurrentFocus();

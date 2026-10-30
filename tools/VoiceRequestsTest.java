@@ -1,6 +1,5 @@
 package dev.luma.tv;
 
-/** Checks voice interpretation and correction without a microphone or Android classes. */
 public final class VoiceRequestsTest {
     static int failures;
     static void expect(boolean ok, String message) {

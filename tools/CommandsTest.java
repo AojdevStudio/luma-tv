@@ -3,7 +3,6 @@ package dev.luma.tv;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-/** Checks the command interpretation boundary without Android classes. */
 public final class CommandsTest {
     static int failures;
     static void expect(boolean ok, String message) {
@@ -49,6 +48,8 @@ public final class CommandsTest {
         refused("open Absent Player", registry, Commands.Status.UNINSTALLED);
         refused("show Inputs", registry, Commands.Status.UNAVAILABLE);
         refused("start Away", registry, Commands.Status.UNAVAILABLE);
+        expect(Commands.interpret("start Away", registry).message.contains("scene buttons on Home"),
+            "unavailable scenes explain how to continue on Home");
         refused("start Unknown Scene", registry, Commands.Status.UNSUPPORTED);
         refused("open Pl", registry, Commands.Status.UNINSTALLED);
         refused("open Plex and start Movie Night", registry, Commands.Status.UNINSTALLED);
@@ -72,6 +73,20 @@ public final class CommandsTest {
         refused("open Apps", collision, Commands.Status.AMBIGUOUS);
         command("open app Apps", collision, Commands.Verb.LAUNCH_APP, Commands.Kind.APP, "test.apps");
         command("switch to tab Apps", collision, Commands.Verb.SELECT_TAB, Commands.Kind.TAB, "apps");
+        Commands.Registry prefixedNames = new Commands.Registry(Arrays.asList(
+            target(Commands.Kind.APP, "test.appstore", "App Store", true),
+            target(Commands.Kind.TAB, "tab-switcher", "Tab Switcher", true),
+            target(Commands.Kind.WIDGET, "gallery-id", "Widget Gallery", true),
+            target(Commands.Kind.SCENE, "scene-one", "Scene 1", true)));
+        command("open App Store", prefixedNames, Commands.Verb.LAUNCH_APP, Commands.Kind.APP, "test.appstore");
+        command("switch to Tab Switcher", prefixedNames, Commands.Verb.SELECT_TAB, Commands.Kind.TAB, "tab-switcher");
+        command("show Widget Gallery", prefixedNames, Commands.Verb.SHOW_WIDGET, Commands.Kind.WIDGET, "gallery-id");
+        command("start Scene 1", prefixedNames, Commands.Verb.START_SCENE, Commands.Kind.SCENE, "scene-one");
+        command("start Scene 1", new Commands.Registry(Arrays.asList(target(Commands.Kind.SCENE, "1", "Scene 1", true))),
+            Commands.Verb.START_SCENE, Commands.Kind.SCENE, "1");
+        refused("open App Store", new Commands.Registry(Arrays.asList(
+            target(Commands.Kind.APP, "test.store", "Store", true),
+            target(Commands.Kind.APP, "test.appstore", "App Store", true))), Commands.Status.AMBIGUOUS);
         ArrayList<Commands.Target> source = new ArrayList<>();
         source.add(target(Commands.Kind.APP, "test.player", "Player", true));
         Commands.Registry snapshot = new Commands.Registry(source);

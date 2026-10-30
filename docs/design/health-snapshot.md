@@ -40,7 +40,7 @@ Luma never sets its own threshold.
 ## Rules for the Health screen
 
 - Call `HealthReader.read` off the main thread. Package and storage queries can block.
-- Open Settings, then System, then Capabilities, then Health. Keep the metric picker and selected details in separate columns. Refresh and Done are focusable, and Back returns to the Health section.
-- On Refresh, mark the shown snapshot as not current at once. Drop a result whose refresh is older than the latest one, or whose screen has closed. A request counter in the screen does this. `HealthSnapshot.at` can repeat within one millisecond.
+- Open Settings, then System, then Capabilities, then Health. Keep the metric picker and selected details in separate columns. Refresh and Back are focusable, and Back returns to the Health section.
+- On Refresh, mark the shown snapshot as not current at once. Drop a result whose refresh is older than the latest one, or whose screen has closed. A request counter in the screen does this. `HealthSnapshot.started` can repeat within one millisecond.
 - Show each reading's `at` and `source`. A kept older reading shows its own time and a stale label.
 - Prove the D-pad path and the unavailable states on the emulator, then on the TCL with `verify-luma`.
