@@ -602,6 +602,10 @@ public final class MainActivity extends Activity {
     private void setHero(String key,String title,String detail){
         if(heroTitle==null||key.equals(heroKey))return;heroKey=key;
         final TextView t=heroTitle,d=heroDescription;t.animate().cancel();d.animate().cancel();
+        boolean media=key.startsWith("upnext:")||key.startsWith("music:");
+        d.setSingleLine(!media);d.setMaxLines(media?2:1);
+        FrameLayout.LayoutParams description=(FrameLayout.LayoutParams)d.getLayoutParams();description.width=px(media?864:392);description.height=px(media?44:22);description.topMargin=px(media?50:60);d.setLayoutParams(description);
+        FrameLayout.LayoutParams heading=(FrameLayout.LayoutParams)hero.getLayoutParams();heading.height=px(media?96:88);hero.setLayoutParams(heading);
         if(!motion()){t.setText(title);d.setText(detail);t.setAlpha(1);d.setAlpha(1);t.setTranslationY(0);d.setTranslationY(0);return;}
         t.animate().alpha(0).translationY(-px(4)).setDuration(90).withEndAction(()->{
             if(heroTitle!=t||!heroKey.equals(key))return;

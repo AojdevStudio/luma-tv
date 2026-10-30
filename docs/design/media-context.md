@@ -29,9 +29,9 @@ When no description is shared, the line reads `Summary unavailable. <App> shared
 
 OK goes through the same boundary as before. A Watch Next row with an intent calls `Host.start`. Anything else calls `Host.launch(pkg)`. Demo items use Plex's package, so on a TV without Plex the launcher says `This app is not installed.` Luma never claims playback resumed. The provider app owns that.
 
-## Integration hooks for other owners
+## Integration
 
-- Home hero: the hero description is one line, about 48 characters on Home. A longer summary, or `Summary unavailable. YouTube Music shared no description.`, is cut with an ellipsis. Wrapping it to two lines for `upnext:` and `music:` hero keys would show the full text.
-- Failed resume: `Host.start` catches the failure and shows a toast, so Up Next cannot fall back to `Host.launch`. Returning a boolean from `Host.start` would let it fall back.
-- Guest and Child modes: media holds no mode rules. The mode owner hides the `upnext` and `music` widget ids to hide personal media.
-- Offline checks: the verifier does not run `MediaContextTest` yet. Add it beside `HealthSnapshotTest` in `.agents/skills/verify-luma/scripts/verify.py`.
+- Home gives `upnext:` and `music:` descriptions two lines across the header. Other Home descriptions keep their original size.
+- Failed provider links cannot currently fall back from `Host.start` to `Host.launch`. This existing boundary defect is tracked in [#22](https://github.com/AojdevStudio/luma-tv/issues/22).
+- Guest and Child modes hide the `upnext` and `music` widgets through the shared mode policy. Media holds no second mode policy.
+- The offline verifier runs `MediaContextTest` beside the Health and panel tests.
