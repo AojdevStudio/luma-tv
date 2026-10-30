@@ -1130,7 +1130,9 @@ public final class MainActivity extends Activity {
             panel.addView(text(settings?"Capabilities":shown.contains(CapabilityPanel.Section.SCENES)?"Scenes and mode":"Mode",24,ink,"sans-serif-medium"),pos(500,32,28,22));
             last=text(settings?lastLine():"",12.5f,soft,"sans-serif");last.setSingleLine(true);panel.addView(last,pos(840,18,28,58));
             sections.setOrientation(LinearLayout.VERTICAL);panel.addView(sections,pos(170,shown.size()*50,20,92));
-            for(int i=0;i<shown.size();i++){final CapabilityPanel.Section s=shown.get(i);TextView row=control(s.label,false);onFocus(row,i,()->select(s));sections.addView(row,rowParams());sectionRows.add(row);}
+            for(int i=0;i<shown.size();i++){final CapabilityPanel.Section s=shown.get(i);TextView row=control(s.label,false);onFocus(row,i,()->select(s));
+                if(s==CapabilityPanel.Section.SCENES)row.setOnClickListener(v->{sound();if(!reading){dropPending();wanted=null;opener=null;loadScenes();}});
+                sections.addView(row,rowParams());sectionRows.add(row);}
             theme=control(dark?"Dark mode   On":"Dark mode   Off",false);onFocus(theme,4,()->{});theme.setOnClickListener(v->{sound();toggleTheme();});panel.addView(theme,pos(170,44,20,416));
             theme.setVisibility(settings?View.VISIBLE:View.GONE);
             items=new FrameLayout(MainActivity.this);panel.addView(items,pos(300,370,206,92));
@@ -1139,7 +1141,7 @@ public final class MainActivity extends Activity {
             pane=new FrameLayout(MainActivity.this);pane.setBackground(shape(rest,16));panel.addView(pane,pos(358,370,522,92));
             paneTitle=text("",18,ink,"sans-serif-medium");paneTitle.setSingleLine(true);paneTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);pane.addView(paneTitle,pos(318,26,20,18));
             paneBody=text("",13.5f,ink,"sans-serif");paneBody.setLineSpacing(px(4),1);pane.addView(paneBody,pos(318,186,20,56));
-            status=text("",13,ink,"sans-serif-medium");status.setMaxLines(2);pane.addView(status,pos(318,40,20,252));
+            status=text("",13,ink,"sans-serif-medium");status.setMaxLines(3);pane.addView(status,pos(318,50,20,252));
             primary=control("",true);primary.setOnClickListener(v->{sound();primaryAction.run();});pane.addView(primary,pos(150,42,20,306));
             secondary=control("",true);secondary.setOnClickListener(v->{sound();secondaryAction.run();});pane.addView(secondary,pos(150,42,186,306));
             primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);
@@ -1391,9 +1393,9 @@ public final class MainActivity extends Activity {
     /** A settings row: either a value with a chevron, or an Apple-style switch bound to a preference. */
     private View option(LinearLayout parent,String title,java.util.function.Supplier<String> value,String toggle,Runnable action,Runnable onFocus) {
         FrameLayout row=new FrameLayout(this);row.setFocusable(true);row.setFocusableInTouchMode(true);row.setSoundEffectsEnabled(false);
-        TextView name=text(title,15,Color.WHITE,"sans-serif-medium");row.addView(name,pos(300,20,18,12));
+        TextView name=text(title,15,Color.WHITE,"sans-serif-medium");row.addView(name,pos(180,20,18,12));
         TextView detail=value==null?null:text(value.get()+(value.get().equals("")?"›":"   ›"),14,0x99FFFFFF,"sans-serif");
-        if(detail!=null){detail.setGravity(Gravity.RIGHT);row.addView(detail,pos(200,20,258,12));}
+        if(detail!=null){detail.setGravity(Gravity.RIGHT);detail.setSingleLine(true);detail.setEllipsize(android.text.TextUtils.TruncateAt.END);row.addView(detail,pos(250,20,208,12));}
         final View track=new View(this),knob=new View(this);
         if(toggle!=null){row.addView(track,pos(40,24,418,9));row.addView(knob,pos(20,20,420,11));}
         Runnable paint=()->{boolean f=row.hasFocus();row.setBackground(shape(f?0xFAFFFFFF:light?0x8CFFFFFF:0x14FFFFFF,14));name.setTextColor(f?0xFF111827:ink(0xFF));
