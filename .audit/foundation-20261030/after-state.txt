@@ -1,0 +1,1 @@
+Luma capabilities: clock=true last=1	clock	1793373053254	Showed the clock

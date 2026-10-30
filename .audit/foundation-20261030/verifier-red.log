@@ -1,0 +1,16 @@
+======================================================================
+FAIL: test_safe_run_passes_with_launcher_suite (test_verify.VerifyTest.test_safe_run_passes_with_launcher_suite)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/aojlinuxdev/luma-tv/.agents/skills/verify-luma/scripts/test_verify.py", line 119, in test_safe_run_passes_with_launcher_suite
+    self.assertEqual(set(summary["checks"]), {"source_build", "device_names", "capabilities", "weather_location", "offline_launcher", "doctor",
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                              "launch_home_and_baseline", "source_unchanged"})
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Items in the second set but not the first:
+'weather_location'
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.065s
+
+FAILED (failures=1)

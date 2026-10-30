@@ -10,3 +10,17 @@
 
 - For source builds and TCL app checks, use `.agents/skills/verify-luma/SKILL.md`.
 - For `luma.sh` state and journal changes, use `.agents/skills/verify-luma-state/SKILL.md`. Report counterexamples and UNKNOWN results without relabeling them as passes.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues for `AojdevStudio/luma-tv`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical labels `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo. See `docs/agents/domain.md`.

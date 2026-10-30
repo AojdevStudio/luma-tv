@@ -14,6 +14,7 @@ The primary surface is the TCL launcher and its remote. All live commands use th
 
 - [Source build and installation](installation.md) checks the source-built APK and the authorized installation path.
 - [Launch and Home](home.md) checks launch, the Home-key event, visible focus, and the current launcher baseline.
+- [Capabilities](capabilities.md) checks the allowlisted action center, preview and confirmation flow, local result persistence, and unavailable states.
 - [Return to the prior launcher](restore.md) checks the saved journal and the authorized restore path.
 
 The first safe run covers Launch and Home plus the offline tests. It excludes live install and live restore. Record each exclusion alongside the evidence directory. A different entry point is not a substitute for a skipped journey.

@@ -157,6 +157,16 @@ class Run:
                      "src/dev/luma/tv/Devices.java", "tools/DevicesTest.java"])
         self.command("devices-test", [JDK / "bin/java", "-cp", classes, "dev.luma.tv.DevicesTest"])
         self.summary["checks"]["device_names"] = "PASS"
+        capability_classes = self.evidence / "capability-classes"
+        self.command("capabilities-compile", [JDK / "bin/javac", "--release", "8", "-d", capability_classes,
+                     "src/dev/luma/tv/Capabilities.java", "tools/CapabilitiesTest.java"])
+        self.command("capabilities-test", [JDK / "bin/java", "-cp", capability_classes, "dev.luma.tv.CapabilitiesTest"])
+        self.summary["checks"]["capabilities"] = "PASS"
+        weather_classes = self.evidence / "weather-classes"
+        self.command("weather-compile", [JDK / "bin/javac", "--release", "8", "-d", weather_classes,
+                     "src/dev/luma/tv/WeatherLocation.java", "tools/WeatherLocationTest.java"])
+        self.command("weather-test", [JDK / "bin/java", "-cp", weather_classes, "dev.luma.tv.WeatherLocationTest"])
+        self.summary["checks"]["weather_location"] = "PASS"
         if (ROOT / "tools/test_luma.py").is_file():
             self.env["PYTHONDONTWRITEBYTECODE"] = "1"
             self.command("offline-launcher-tests", [sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_luma.py", "-v"])

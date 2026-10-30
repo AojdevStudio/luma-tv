@@ -14,8 +14,7 @@ import java.util.*;
 final class InputsWidget extends Widget {
     static final float PAD=18,GAP=12;
     static final class Input{String id,name,glyph,vendor,port="";boolean tuner,cec,made;int state,color=0xFF0A84FF;}
-    /** QA: am start -n dev.luma.tv/.MainActivity --es luma.inputs demo|off shows made-up consoles on the first ports
-     *  of a TV with inputs, to see the recognised look without the devices (not saved; switching still works). */
+    /** QA demo adds synthetic consoles and ports without saving them. Synthetic ports cannot switch hardware. */
     static volatile boolean demo;
     /** How many inputs the last look found; WidgetBoard sizes the widget by it (two or three columns). */
     static volatile int count;
@@ -68,6 +67,10 @@ final class InputsWidget extends Widget {
         String[][] made={{"PS5","0"},{"Xbox Series X","1"},{"NintendoSwitch","0"}};int i=0;
         for(Input in:out){if(in.tuner||i>=made.length)continue;Devices.Device d=Devices.identify(made[i][0],-1,Devices.PLAYBACK);
             in.port=in.cec?in.port:in.name;in.cec=true;in.made=true;in.name=d.name;in.glyph=d.glyph;in.color=d.color;in.state=Integer.parseInt(made[i][1]);i++;}
+        while(i<made.length){
+            Devices.Device d=Devices.identify(made[i][0],-1,Devices.PLAYBACK);Input in=new Input();in.id="demo:"+i;in.port="HDMI "+(i+1);
+            in.cec=true;in.made=true;in.name=d.name;in.glyph=d.glyph;in.color=d.color;in.state=Integer.parseInt(made[i][1]);out.add(in);i++;
+        }
     }
     private static boolean safeHidden(TvInputInfo info,Context c){try{return info.isHidden(c);}catch(RuntimeException e){return false;}}
     private static String label(TvInputInfo info,Context c){
@@ -117,7 +120,7 @@ final class InputsWidget extends Widget {
         }
     }
     private void open(Input in){
-        if(in.id.startsWith("promo:"))return;
+        if(in.id.startsWith("promo:")||in.id.startsWith("demo:"))return;
         Intent view=new Intent(Intent.ACTION_VIEW,TvContract.buildChannelUriForPassthroughInput(in.id));
         try{host.activity().startActivity(view);host.activity().overridePendingTransition(0,0);}
         catch(ActivityNotFoundException e){host.start(new Intent(android.provider.Settings.ACTION_SETTINGS));}

@@ -1,6 +1,6 @@
 ---
 name: verify-luma
-description: Verify Luma on the TCL test TV and run its offline checks.
+description: Verify Luma on the TCL test TV with source checks and direct screenshot proof of visible Home and Apps behavior.
 ---
 
 # Verify Luma
@@ -20,6 +20,20 @@ python3 .agents/skills/verify-luma/scripts/verify.py safe --evidence "$HOME/Back
 Read `summary.json` and inspect `screen-before.png` and `screen.png`. Ready means Luma is HOME, its window has focus, and its activity is resumed. A successful process start alone is insufficient.
 
 Build requires the existing `.signing/local.keystore`, JDK 17, Android platform 34, build-tools 36.0.0, and Python 3. The helper uses the Homebrew SDK and JDK paths. It builds source, verifies the APK signature, and records the built certificate fingerprint. It does not compare the installed APK certificate with that fingerprint.
+
+## When the user says "verify"
+
+Treat `verify` as an end-to-end proof on the real TCL, not as a build-only check.
+
+1. Run `doctor` when transport or device state is uncertain, then run `safe` with a fresh evidence directory.
+2. Require `summary.json` to report `PASS`. A running process or successful APK install alone is not proof.
+3. Inspect the fresh `screen-before.png` and `screen.png` files with an image viewer. Check the visible result against the requested behavior.
+4. For Home or content changes, capture a full-resolution TCL screenshot after launching Luma and inspect the Home card, weather card, and Home app row directly.
+5. Open the Apps tab with the TV's D-pad input, capture it, and inspect the visible app grid. Query the TV's installed packages when the claim concerns an app being present or absent. Resolve package labels from the actual TV before reporting them.
+6. If the screenshot or package evidence disagrees with the requested result, report a failed verification, fix the source, rebuild, reinstall, and repeat the full proof loop. Do not report a partial result as verified.
+7. Hand back the fresh evidence directory and the screenshots used for the conclusion. State any check that could not run.
+
+The visual check is mandatory for every `verify` request. A green `safe` summary without inspected screenshots is incomplete.
 
 ## Doctor
 
@@ -46,7 +60,7 @@ python3 .agents/skills/verify-luma/scripts/verify.py offline --evidence "$HOME/B
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .agents/skills/verify-luma/scripts -p test_verify.py -v
 ```
 
-The offline action runs DevicesTest and `tools/test_luma.py`. If the launcher suite is absent, it reports PARTIAL rather than a pass. The helper tests use fake subprocesses and temporary files. They contact no device.
+The offline action runs DevicesTest, CapabilitiesTest, WeatherLocationTest, and `tools/test_luma.py`. If the launcher suite is absent, it reports PARTIAL rather than a pass. The helper tests use fake subprocesses and temporary files. They contact no device.
 
 ## Evidence
 
