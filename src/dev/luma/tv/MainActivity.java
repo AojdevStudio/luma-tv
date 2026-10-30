@@ -233,7 +233,6 @@ public final class MainActivity extends Activity {
         // ended in EGL_BAD_ALLOC on this stick once. Paused, the colours are left as they are; onResume switches them.
         content.animate().alpha(0).setDuration(220).setInterpolator(ease).withEndAction(()->{if(!started){content.setAlpha(1);return;}showPage(page,true);content.setAlpha(0);content.animate().alpha(1).setDuration(420).setInterpolator(ease).start();}).start();
     }
-    /** Colours of the parts that stay across pages: tab bar, mode control, clock and the settings scrim. */
     private void paintChrome(){
         if(tabBar!=null)tabBar.setBackground(shape(light?0x47FFFFFF:0x1FFFFFFF,22));
         if(clock!=null){clock.setTextColor(ink(0xF2));shadow(clock,6);}

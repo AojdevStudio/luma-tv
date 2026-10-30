@@ -68,7 +68,7 @@ Settings edits only the owner's Default. While another layout is on Home, an edi
 | Content | Examples | Normal | Guest | Child |
 | --- | --- | --- | --- | --- |
 | `INFO` | weather, time | yes | yes | yes |
-| `PERSONAL` | Up Next, Now Playing, greeting name, calendar | yes | no | no |
+| `PERSONAL` | Up Next, Now Playing, greeting name | yes | no | no |
 | `SETTINGS` | Settings tab, Control widget, app menus, layout picker, capability actions that change Luma | yes | no | no |
 | `HOUSE` | Smart Home scenes and household state | yes | yes | no |
 | `INPUTS` | HDMI inputs, live TV | yes | yes | no |
