@@ -8,10 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
-/** House Control's scenes as Luma reads them from its HomeService over Binder. Code 1 replies with the home, code 2 runs a
- *  scene on the real home and code 4 on House Control's isolated demo home. HouseLink hands this class each reply as
- *  maps, lists and values, so it runs without Android. A scene's changes come from the plan it was read with: House
- *  Control merges the scene's "*" patch with each device's own patch, for every light and air conditioner in the plan. */
+/** House Control merges a scene's "*" patch with each device's own patch, for every light and air conditioner in the plan. */
 final class HouseScenes {
     enum Source {
         LIVE("House Control TV, your home."), DEMO("House Control TV, demo home. No real devices change.");
@@ -22,7 +19,6 @@ final class HouseScenes {
     static final class Scene {
         final String id, name, icon, revision;
         final Source source;
-        /** One sentence per distinct setting, lights first, such as "Desk lamp on." Empty when it changes nothing. */
         final List<String> changes;
         /** Changes to plan devices House Control has not linked to a real device. It only simulates those. */
         final List<String> simulated;
@@ -35,7 +31,6 @@ final class HouseScenes {
             this.changes = Collections.unmodifiableList(changes);
             this.simulated = Collections.unmodifiableList(simulated);
         }
-        /** Same scene from the same plan with the same changes, so its preview still says what will happen. */
         boolean same(Scene other) {
             return id.equals(other.id) && name.equals(other.name) && source == other.source && revision.equals(other.revision)
                 && changes.equals(other.changes) && simulated.equals(other.simulated);
@@ -45,7 +40,6 @@ final class HouseScenes {
     static final class Home {
         final Source source;
         final String revision;
-        /** Why House Control cannot run scenes now, or null. */
         final String blocked;
         final List<Scene> scenes;
         private Home(Source source, String revision, String blocked, List<Scene> scenes) {
@@ -60,7 +54,6 @@ final class HouseScenes {
         }
     }
 
-    /** One read: the home, or why there is none. A failed read says nothing about which scenes exist. */
     static final class Read {
         final Home home;
         final String problem;
@@ -108,7 +101,6 @@ final class HouseScenes {
         return new Read(new Home(source, revision, blocked, scenes), null);
     }
 
-    /** Why a previewed scene may not run against this read, or null. */
     static String refusal(Scene previewed, Read now) {
         if (now == null) return "House Control has not answered yet.";
         if (now.problem != null) return now.problem;
@@ -136,7 +128,6 @@ final class HouseScenes {
     }
     static Outcome notRun(String why) { return new Outcome(Capabilities.Status.NOT_RUN, why); }
 
-    /** Device names as the preview shows them. A name used more than once gets its room, such as "Ceiling in Hall". */
     private static Map<String, String> names(Map<String, Object> plan) {
         HashMap<String, String> rooms = new HashMap<>();
         for (Object item : list(plan.get("rooms"))) {

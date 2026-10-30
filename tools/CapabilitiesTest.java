@@ -19,7 +19,6 @@ public final class CapabilitiesTest {
         final ArrayList<Commands.Target> targets = new ArrayList<>();
         Profiles profile = Profiles.DEFAULT;
         String saved, opened, tab, layout;
-        /** House Control as last read, the read that readHouse fetches next, and the reply to the next scene run. */
         HouseScenes.Read house, fresh;
         Object reply = HouseScenesTest.map("ok", true, "direct", true);
         boolean lost, queued;

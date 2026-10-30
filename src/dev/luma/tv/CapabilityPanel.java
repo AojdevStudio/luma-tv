@@ -13,7 +13,6 @@ final class CapabilityPanel {
         Section(String label) { this.label = label; }
     }
 
-    /** Guest keeps House Control's scenes, so a Home scene button can ask there. Mode is always last, so Normal is reachable. */
     static List<Section> sections(boolean house, Profiles profile) {
         boolean scenes = house && profile.allows(Profiles.Content.HOUSE);
         if (!profile.allows(Profiles.Content.SETTINGS)) return scenes ? Arrays.asList(Section.SCENES, Section.MODE) : Collections.singletonList(Section.MODE);

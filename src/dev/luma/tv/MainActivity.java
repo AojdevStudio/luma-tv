@@ -44,7 +44,6 @@ public final class MainActivity extends Activity {
     private LinearLayout rows;
     private String page = "home", selectedPackage = "com.google.android.youtube.tv";
     private String homeReturnPackage = "com.google.android.youtube.tv";
-    /** House Control's latest reply, from the Home widget's polling or the link, whichever came last. Null when absent. */
     private HouseScenes.Read houseRead;
     private HouseLink houseLink;
     private TextView brand;
@@ -586,7 +585,6 @@ public final class MainActivity extends Activity {
         prefs.edit().putString("recent",String.join(",",list)).apply();
     }
     private String sceneDetail(String id){App app=appIndex.get(sceneApp(id));return "OK shows what it changes"+(app!=null&&allowsApp(app.pkg)?" · Opens "+app.label:"");}
-    /** Reads House Control through the link, so scenes need no visit to Home. done runs on the main thread. */
     private void readHouse(Runnable done){
         if(!house){done.run();return;}
         houseLink.read(read->{if(house)houseRead=read;done.run();});
@@ -1078,7 +1076,6 @@ public final class MainActivity extends Activity {
         targets.addAll(sceneTargets());
         return new Commands.Registry(targets);
     }
-    /** Listed scenes are targets. Whether one can run now is the capability's preview, which says why not. */
     private ArrayList<Commands.Target> sceneTargets(){
         ArrayList<Commands.Target> targets=new ArrayList<>();
         if(house&&houseRead!=null&&houseRead.home!=null)for(HouseScenes.Scene scene:houseRead.home.scenes)targets.add(new Commands.Target(Commands.Kind.SCENE,scene.id,scene.name,true));
@@ -1119,7 +1116,6 @@ public final class MainActivity extends Activity {
         View opener;
         boolean confirming;
         int paneChanges;
-        /** The Home scene button that opened this panel, and the scene still to preview once the scenes load. */
         final String homeScene;
         String wanted;
         int houseReads;
@@ -1147,7 +1143,6 @@ public final class MainActivity extends Activity {
             primary=control("",true);primary.setOnClickListener(v->{sound();primaryAction.run();});pane.addView(primary,pos(150,42,20,306));
             secondary=control("",true);secondary.setOnClickListener(v->{sound();secondaryAction.run();});pane.addView(secondary,pos(150,42,186,306));
             primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);
-            // Ask finds scenes by name, so the panel reads House Control as it opens, not only when Scenes is chosen.
             if(shown.contains(CapabilityPanel.Section.SCENES)&&start!=CapabilityPanel.Section.SCENES)loadScenes();
             select(shown.contains(start)?start:shown.get(0));
             final View first=focusTheme?theme:chosenRow;root.post(first::requestFocus);
@@ -1180,7 +1175,6 @@ public final class MainActivity extends Activity {
                 case MODE:modeControls();break;
             }
         }
-        /** Reads House Control afresh. An answer to an older read, or after the panel closed, is dropped. */
         void loadScenes(){
             reading=true;final int request=++houseReads;
             if(section==CapabilityPanel.Section.SCENES)drawScenes();
@@ -1248,12 +1242,10 @@ public final class MainActivity extends Activity {
         void runPending(){if(pending==null)return;Runnable change=pending;pending=null;confirming=false;change.run();}
         void runAction(Capabilities.Action ran){
             CapabilityTv tv=new CapabilityTv();
-            // A scene answers after House Control does. Focus stays on a button that does nothing until then.
             if(ran.capability==Capabilities.Capability.SCENE){buttons("Starting…",()->{},null,null);status.setText("Starting "+ran.label+"…");}
             Capabilities.run(ran,tv,System.currentTimeMillis(),result->{
                 tv.edit.apply();
                 String line=result.status.label+". "+result.message;
-                // Guest mode can run scenes but never sees the history line.
                 if(capabilityOverlay==this&&settings)last.setText(lastLine());
                 if(!shows(tv.pane)){if(started)Toast.makeText(MainActivity.this,ran.label+". "+line,Toast.LENGTH_LONG).show();return;}
                 clock.setVisibility(prefs.getBoolean("clock",true)?View.VISIBLE:View.GONE);

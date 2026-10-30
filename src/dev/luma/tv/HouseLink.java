@@ -23,7 +23,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-/** Luma's one path to House Control's HomeService for scenes, owned by the activity rather than the Home widget.
+/** Luma's one path to House Control's HomeService for scenes.
  *  Code 1 reads the home, 2 runs a scene on the real home and 4 on House Control's isolated demo home. HomeService
  *  polls its devices while a client is bound, so the link binds on demand and lets go once it has been idle a while.
  *  Answers arrive on the main thread, and none arrive after close(). */
@@ -34,10 +34,9 @@ final class HouseLink {
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    /** Requests not yet on the worker, oldest first. Each is handed the binder, or null when the connection failed. */
     private final ArrayDeque<Consumer<IBinder>> queue = new ArrayDeque<>();
     private IBinder binder;
-    private boolean bound, busy, closed;
+    private boolean bindRequested, busy, closed;
     private final Runnable release = this::unbind, timeout = this::giveUp;
     private final ServiceConnection connection = new ServiceConnection() {
         public void onServiceConnected(ComponentName name, IBinder service) { main.removeCallbacks(timeout); binder = service; next(); }
@@ -67,18 +66,16 @@ final class HouseLink {
         worker.shutdownNow();
     }
 
-    /** Converts House Control's JSON to the maps, lists and values HouseScenes reads. */
     static HouseScenes.Read read(JSONObject home) {
         try { return HouseScenes.read(tree(home)); } catch (JSONException unreadable) { return HouseScenes.read(null); }
     }
 
-    /** instead runs on the main thread just before call goes to the worker. A value from it answers in place of call. */
-    private <T> void request(Function<IBinder, T> call, Supplier<T> instead, T unreachable, Consumer<T> done) {
+    private <T> void request(Function<IBinder, T> call, Supplier<T> refusal, T unreachable, Consumer<T> done) {
         if (closed) return;
         main.removeCallbacks(release);
         queue.add(target -> {
             if (target == null) { answer(unreachable, done); return; }
-            T refused = instead.get();
+            T refused = refusal.get();
             if (refused != null) { answer(refused, done); return; }
             busy = true;
             worker.execute(() -> {
@@ -100,9 +97,9 @@ final class HouseLink {
     private void connect() {
         main.removeCallbacks(timeout);
         main.postDelayed(timeout, CONNECT_MS);
-        if (bound) return;
-        // Android asks for unbindService even when bindService fails, so bound means "asked", and giveUp releases it.
-        bound = true;
+        if (bindRequested) return;
+        // Android asks for unbindService even when bindService fails.
+        bindRequested = true;
         boolean found;
         try { found = context.bindService(new Intent().setComponent(SERVICE), connection, Context.BIND_AUTO_CREATE); }
         catch (SecurityException refused) { found = false; }
@@ -111,8 +108,8 @@ final class HouseLink {
 
     private void unbind() {
         main.removeCallbacks(timeout);
-        if (bound) try { context.unbindService(connection); } catch (IllegalArgumentException notRegistered) {}
-        bound = false;
+        if (bindRequested) try { context.unbindService(connection); } catch (IllegalArgumentException notRegistered) {}
+        bindRequested = false;
         binder = null;
     }
 
@@ -164,7 +161,6 @@ final class HouseLink {
         return error.getMessage() == null || error.getMessage().isEmpty() ? "House Control refused Luma's request." : error.getMessage();
     }
 
-    /** null when the reply is missing or is not JSON, which HouseScenes reports as unreadable. */
     private static Object parse(String reply) {
         if (reply == null) return null;
         try { return tree(new JSONTokener(reply).nextValue()); } catch (JSONException unreadable) { return null; }

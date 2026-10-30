@@ -48,8 +48,8 @@ final class HouseWidgets extends FrameLayout {
     final List<String> shortcuts;
     interface Callbacks{void up();void down(float screenX);void open();void focusHome(String title,String detail);void activate();boolean motion();String sceneDetail(String id,String name);boolean light();
         /** Left of the first scene or right of the model: the neighbouring Home page. */void edge(int direction);
-        /** OK on a scene: the capability panel previews it and asks. The widget never runs a scene itself. */void scene(String id);
-        /** Every new reply from House Control, so the panel's scenes follow the latest plan. */void read(HouseScenes.Read read);}
+        void scene(String id);
+        void read(HouseScenes.Read read);}
     final Runnable refresh=new Runnable(){public void run(){if(!attached||!active)return;fetch();handler.postDelayed(this,2000);}};
     final ServiceConnection connection=new ServiceConnection(){
         public void onServiceConnected(ComponentName name,IBinder service){binder=service;setRemoteActive(active);fetch();if(!loaded){loaded=true;model.loadUrl("http://127.0.0.1:8788/widget.html");}}
@@ -57,7 +57,6 @@ final class HouseWidgets extends FrameLayout {
         public void onBindingDied(ComponentName name){binder=null;setStatus("Open House Control to reconnect",false);}
     };
 
-    /** seed is House Control's last read, so the scene buttons appear before this widget's first reply. */
     HouseWidgets(Activity activity,float scale,List<String> shortcuts,HouseScenes.Read seed,Callbacks callbacks){
         super(activity);this.activity=activity;this.scale=scale;this.shortcuts=shortcuts;this.callbacks=callbacks;daylight=callbacks.light();setClipChildren(false);setClipToPadding(false);
         row=new LinearLayout(activity);row.setClipChildren(false);row.setClipToPadding(false);addView(row,pos(5*SCENE_W+4*SCENE_GAP,SCENE_H,SCENE_X-(SCENE_W-SCENE_D)/2,SCENE_Y));
@@ -82,7 +81,6 @@ final class HouseWidgets extends FrameLayout {
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return true;}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){String url=request.getUrl().toString();if(url.startsWith("http://127.0.0.1:8788/"))return null;return new WebResourceResponse("text/plain","utf-8",new java.io.ByteArrayInputStream(new byte[0]));}
         });
-        // The viewport stays screen-sized and is scaled down to the card; the renderer draws at its own resolution (see widget.js).
         card.addView(model,new FrameLayout.LayoutParams(screenW(),screenH()));
         model.setPivotX(0);model.setPivotY(0);resetModelTransform();
         still=new ImageView(activity);still.setScaleType(ImageView.ScaleType.FIT_XY);still.setVisibility(View.GONE);card.addView(still,new FrameLayout.LayoutParams(-1,-1));
@@ -120,7 +118,6 @@ final class HouseWidgets extends FrameLayout {
     int ink(int alpha){return (alpha<<24)|(callbacks.light()?0x1D1D1F:0xFFFFFF);}
     int screenW(){return activity.getResources().getDisplayMetrics().widthPixels;}
     int screenH(){return activity.getResources().getDisplayMetrics().heightPixels;}
-    // The renderer's buffer: the card's size on screen, a little sharper, between 60 and 100 percent of the screen.
     double widgetResolution(){return Math.min(1.0,Math.max(.6,(CARD_W*scale*1.15)/screenW()));}
     LayoutParams pos(float w,float h,float x,float y){LayoutParams p=new LayoutParams(px(w),px(h));p.leftMargin=px(x);p.topMargin=px(y);return p;}
     TextView text(String value,float size,int color){TextView t=new TextView(activity);t.setText(value);t.setTextColor(color);t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(size));t.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));t.setIncludeFontPadding(false);return t;}
@@ -200,7 +197,6 @@ final class HouseWidgets extends FrameLayout {
         // Polls change timestamps every few seconds; only a change the picture shows (lights, ACs) repaints it.
         String look=String.valueOf(state);if(!look.equals(pictured)){pictured=look;handler.removeCallbacks(repaint);handler.postDelayed(repaint,250);}
     }
-    /** Only the scenes House Control lists, at most five, in the layout's shortcut order when it names any. */
     void renderScenes(List<HouseScenes.Scene> all){
         boolean hadFocus=false;for(SceneTile t:scenes)hadFocus|=t.hasFocus();
         row.removeAllViews();scenes.clear();

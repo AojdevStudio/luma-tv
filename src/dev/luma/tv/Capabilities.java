@@ -28,7 +28,7 @@ final class Capabilities {
         /** Sends the scene to House Control unless refusal, asked on the main thread right before the send, names a reason.
          *  A refused scene answers Not run. Answers on the main thread. */
         void runScene(HouseScenes.Scene scene, Supplier<String> refusal, Consumer<HouseScenes.Outcome> done);
-        /** The app chosen in Settings, Scene apps, to open after this scene, or "" for none. */
+        /** The app to open after this scene, or "" for none. */
         String sceneApp(String scene);
         /** Why the panel that confirmed the action no longer shows it, or null while it does. A scene opens its app only then. */
         Away away();
@@ -55,7 +55,6 @@ final class Capabilities {
         }
     }
 
-    /** How a confirmed action ended. Only DONE is saved as the last result. */
     enum Status {
         DONE("Done"), NOT_RUN("Not run"), NOT_FINISHED("Not finished"), UNKNOWN("Unknown");
         final String label;
@@ -70,7 +69,7 @@ final class Capabilities {
         final String preview;
         final boolean confirm;
         final String unavailable;
-        /** The scene as previewed, or null for other capabilities and for a scene House Control no longer lists. */
+        /** The scene this preview shows, or null when it shows none. */
         final HouseScenes.Scene scene;
         private final boolean target;
         private Action(Capability capability, String id, String label, String name, String preview, String unavailable, boolean target) {
@@ -134,7 +133,6 @@ final class Capabilities {
         return actions;
     }
 
-    /** Every scene in House Control's last read, in its order. Empty when the read failed or has none. */
     static List<Action> scenes(Tv tv) {
         ArrayList<Action> actions = new ArrayList<>();
         HouseScenes.Read read = tv.house();
@@ -162,7 +160,6 @@ final class Capabilities {
         }
     }
 
-    /** The preview names what House Control changes, what the TV does after, and which home it acts on. */
     static Action scene(HouseScenes.Scene scene, Tv tv) {
         String unavailable = blocked(Capability.SCENE, tv);
         if (unavailable == null) unavailable = HouseScenes.refusal(scene, tv.house());
@@ -185,12 +182,11 @@ final class Capabilities {
         return String.join(" ", shown);
     }
 
-    /** Answers once through done. Settings, apps and tabs answer at once. A scene answers after House Control does. */
+    /** Answers once through done. */
     static void run(Action previewed, Tv tv, long now, Consumer<Result> done) {
         String refused = refusal(previewed, tv);
         if (refused != null) { done.accept(new Result(previewed.capability, Status.NOT_RUN, refused, now)); return; }
         if (previewed.capability == Capability.SCENE) {
-            // The cached read may be old. Read again, so the check at the send compares the preview with that read or a newer one.
             tv.readHouse(() -> tv.runScene(previewed.scene, () -> refusal(previewed, tv), outcome -> finish(new Result(Capability.SCENE, outcome.status,
                 outcome.status == Status.DONE ? opened(outcome.message, tv.sceneApp(previewed.id), tv) : outcome.message, now), tv, done)));
             return;
@@ -231,7 +227,6 @@ final class Capabilities {
         done.accept(result);
     }
 
-    /** A started scene opens its app only when the mode allows it and the panel that asked is still open. */
     private static String opened(String started, String pkg, Tv tv) {
         if (pkg.isEmpty()) return started;
         Commands.Target app = app(pkg, tv);
@@ -242,7 +237,6 @@ final class Capabilities {
         return started + (tv.openApp(pkg) ? ". Opened " + app.name : ". Android could not open " + app.name);
     }
 
-    /** The installed app as the registry lists it now, or null. */
     private static Commands.Target app(String pkg, Tv tv) {
         for (Commands.Target target : tv.registry().targets) if (target.kind == Commands.Kind.APP && target.id.equals(pkg)) return target;
         return null;
