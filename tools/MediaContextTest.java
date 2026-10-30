@@ -42,8 +42,14 @@ public final class MediaContextTest {
                 expect("Recap tonight.".equals(MediaContext.concise("Recap " + host + "?X-Plex-Token=scratch-secret tonight.")), "punctuated provider links are removed for " + host);
         });
         check("link rule", () -> {
-            for (String link : Arrays.asList("//plex.tv/watch?token=scratch-secret", "//plex.tv", "Ready?plex.tv/watch?token=scratch-secret", "Ready#plex.tv/watch?token=scratch-secret", "Ready/plex.tv/watch?token=scratch-secret", "Readyplex.tv/watch?token=scratch-secret"))
+            for (String link : Arrays.asList("//plex.tv/watch?token=scratch-secret", "//plex.tv", "//user@plex.tv", "Ready?plex.tv/watch?token=scratch-secret", "Ready#plex.tv/watch?token=scratch-secret", "Ready/plex.tv/watch?token=scratch-secret", "Readyplex.tv/watch?token=scratch-secret", "Ready..plex.tv/watch?token=scratch-secret"))
                 expect("Recap tonight.".equals(MediaContext.concise("Recap " + link + " tonight.")), "links are scrubbed anywhere in a token for " + link);
+            for (String glue : Arrays.asList("Ready", "Ready.", "Ready-", "Ready_"))
+                for (String host : Arrays.asList("192.168.1.5", "192.168.1.5:32400", "localhost", "localhost:32400"))
+                    expect("Recap tonight.".equals(MediaContext.concise("Recap " + glue + host + "/library?token=scratch-secret tonight.")), "a glued word does not hide the host in " + glue + host);
+            for (String host : Arrays.asList("plex.tv", "192.168.1.5", "localhost", "[::1]", "plex.tv:32400"))
+                for (String link : Arrays.asList("(//" + host + ")", "//" + host + ",", "//" + host + "-", "//" + host + "_"))
+                    expect("Recap tonight.".equals(MediaContext.concise("Recap " + link + " tonight.")), "punctuation does not hide the host after // in " + link);
             for (String prose : Arrays.asList("8:30/7:30c", "Dr.", "U.S.", "Airs Sundays at 8:30/7:30c.", "Rating:8/10 on IMDb."))
                 expect(prose.equals(MediaContext.concise(prose)), "the link rule preserves " + prose);
         });

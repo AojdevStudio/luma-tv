@@ -64,52 +64,55 @@ final class MediaContext {
         return (space>0?head.substring(0,space):head.substring(0,SUMMARY_MAX-1))+"…";
     }
 
+    /** One forward pass knows at each character whether a host ends there, so a word glued before the host cannot
+     *  hide it. A host, with one root dot or a port, is a link before a path, query or fragment. After //, it is a
+     *  link as soon as it is complete, so punctuation after it cannot hide it. */
     private static boolean link(String token){
         String lower=token.toLowerCase(Locale.ROOT);
         if(lower.contains("://")||lower.contains("www.")||lower.contains("mailto:"))return true;
-        int start=0;
-        for(int end=0;end<=token.length();end++){
-            boolean finished=end==token.length();
-            if(!finished&&"/?#".indexOf(token.charAt(end))<0)continue;
-            boolean relative=start>=2&&token.charAt(start-1)=='/'&&token.charAt(start-2)=='/';
-            if(start<end&&(!finished||relative)&&authority(token.substring(start,end)))return true;
-            start=end+1;
+        int label=0,port=-1;
+        boolean dotted=false,letters=true,host=false,bracket=false,colon=false,relative=false;
+        for(int i=0;i<token.length();i++){
+            char c=token.charAt(i);
+            if(Character.isLetterOrDigit(c)||c=='-'||c=='_'){
+                letters&=Character.isLetter(c);
+                port=port>=0&&Character.isDigit(c)?port+1:-1;
+                host=dotted&&(letters&&i>label||i-label>3&&lowerAt(token,label,"xn--"))||i>=8&&lowerAt(token,i-8,"localhost")||ipv4(token,i+1);
+            }else if(c=='.'){
+                dotted=i>label;
+                host=host&&dotted;
+                letters=true;label=i+1;port=-1;
+            }else{
+                if(c=='/'||c=='?'||c=='#'){
+                    if(host||port>0)return true;
+                    relative=c=='/'&&i>0&&token.charAt(i-1)=='/';
+                    bracket=false;
+                }
+                if(c=='['){bracket=true;colon=false;}
+                if(c==':')colon=true;
+                port=c==':'&&host?0:-1;
+                host=c==']'&&bracket&&colon;
+                dotted=false;letters=true;label=i+1;
+            }
+            if(relative&&host)return true;
         }
         return false;
     }
 
-    private static boolean authority(String token){
-        int end=token.length();
-        int digits=end;
-        while(digits>0&&Character.isDigit(token.charAt(digits-1)))digits--;
-        if(digits<end&&digits>0&&token.charAt(digits-1)==':')end=digits-1;
-        if(end>0&&token.charAt(end-1)==']'){
-            int bracket=token.lastIndexOf('[',end-1);
-            if(bracket>=0&&token.substring(bracket,end).indexOf(':')>=0)return true;
+    /** Four dot-separated groups of one to three digits end at end. Characters glued before the first group do not matter. */
+    private static boolean ipv4(String token,int end){
+        for(int group=0;group<4;group++){
+            int start=end;
+            while(start>0&&end-start<3&&Character.isDigit(token.charAt(start-1)))start--;
+            if(start==end||group<3&&(start==0||token.charAt(start-1)!='.'))return false;
+            end=start-1;
         }
-        if(end>0&&token.charAt(end-1)=='.')end--;
-        int start=end;
-        while(start>0){
-            char c=token.charAt(start-1);
-            if(!Character.isLetterOrDigit(c)&&c!='.'&&c!='-'&&c!='_')break;
-            start--;
-        }
-        if(start==end)return false;
-        String host=token.substring(start,end).toLowerCase(Locale.ROOT);
-        if(host.equals("localhost"))return true;
-        String[] labels=host.split("\\.",-1);
-        for(String label:labels)if(label.isEmpty())return false;
-        if(labels.length<2)return false;
-        String suffix=labels[labels.length-1];
-        if(suffix.startsWith("xn--")&&suffix.length()>4)return true;
-        boolean letters=suffix.length()>=2;
-        for(int i=0;i<suffix.length();i++)letters&=Character.isLetter(suffix.charAt(i));
-        if(letters)return true;
-        if(labels.length!=4)return false;
-        for(String label:labels){
-            if(label.length()>3)return false;
-            for(int i=0;i<label.length();i++)if(!Character.isDigit(label.charAt(i)))return false;
-        }
+        return true;
+    }
+
+    /** Lower-cases as Locale.ROOT does for these ASCII words. regionMatches(true,...) would also read ſ as s. */
+    private static boolean lowerAt(String token,int at,String word){
+        for(int i=0;i<word.length();i++)if(Character.toLowerCase(token.charAt(at+i))!=word.charAt(i))return false;
         return true;
     }
 

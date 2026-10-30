@@ -22,7 +22,7 @@ When no description is shared, the line reads `Summary unavailable. <App> shared
 ## Privacy
 
 - Summaries come only from metadata the app published for display. `MediaListener` still reads no notifications.
-- `MediaContext.concise` removes a whole whitespace-separated token when it contains a link, including glued words and query values. A link has a scheme, `www.` or `mailto:`, or a domain, IP address or `localhost` followed by a path, query or fragment. Protocol-relative `//` links also count without a path. The scan checks every candidate in the token without a network request.
+- `MediaContext.concise` removes a whole whitespace-separated token when it contains a link, including glued words and query values. A link has a scheme, `www.` or `mailto:`, or a domain, IP address or `localhost` followed by a path, query or fragment. Protocol-relative `//` links also count without a path. The host counts wherever it ends in the token, so a glued word, a `user@` part or punctuation around the link does not hide it. The scan is linear in the token length and makes no network request.
 - Punctuation and a port number alone do not establish a link. TV times such as `8:30/7:30c`, abbreviations such as `Dr.` and `U.S.`, and slash-separated abbreviations stay. A bare single-label form such as `Rating:8/10` stays too.
 - Long summaries stop at a word within 140 characters. An abbreviation or episode tag does not end the summary.
 - The model holds no intent, link, or package token. Up Next keeps the Watch Next intent on its own `Item`, as before.
