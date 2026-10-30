@@ -48,9 +48,12 @@ public final class CapabilityPanelTest {
             "without House Control the panel has no Scenes section");
         expect(CapabilityPanel.sections(true, normal).equals(Arrays.asList(CapabilityPanel.Section.ACTIONS, CapabilityPanel.Section.ASK, CapabilityPanel.Section.LAYOUTS, CapabilityPanel.Section.SCENES, CapabilityPanel.Section.HEALTH, CapabilityPanel.Section.MODE)),
             "with House Control the panel adds Scenes");
-        for (Profiles.Mode mode : new Profiles.Mode[]{Profiles.Mode.GUEST, Profiles.Mode.CHILD})
-            expect(CapabilityPanel.sections(true, normal.enter(mode)).equals(Collections.singletonList(CapabilityPanel.Section.MODE)),
-                mode.name + " mode opens only the Mode section");
+        expect(CapabilityPanel.sections(true, normal.enter(Profiles.Mode.GUEST)).equals(Arrays.asList(CapabilityPanel.Section.SCENES, CapabilityPanel.Section.MODE)),
+            "Guest mode keeps House Control's scenes beside Mode");
+        expect(CapabilityPanel.sections(false, normal.enter(Profiles.Mode.GUEST)).equals(Collections.singletonList(CapabilityPanel.Section.MODE)),
+            "Guest mode without House Control opens only the Mode section");
+        expect(CapabilityPanel.sections(true, normal.enter(Profiles.Mode.CHILD)).equals(Collections.singletonList(CapabilityPanel.Section.MODE)),
+            "Child mode opens only the Mode section, with no scenes");
 
         Names names = new Names();
         names.apps.put("com.disney.disneyplus", "Disney+");

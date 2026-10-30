@@ -1,6 +1,7 @@
 package dev.luma.tv;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -13,9 +14,10 @@ final class CapabilityPanel {
     }
 
     static List<Section> sections(boolean house, Profiles profile) {
-        if (!profile.allows(Profiles.Content.SETTINGS)) return Collections.singletonList(Section.MODE);
+        boolean scenes = house && profile.allows(Profiles.Content.HOUSE);
+        if (!profile.allows(Profiles.Content.SETTINGS)) return scenes ? Arrays.asList(Section.SCENES, Section.MODE) : Collections.singletonList(Section.MODE);
         ArrayList<Section> sections = new ArrayList<>();
-        for (Section section : Section.values()) if (house || section != Section.SCENES) sections.add(section);
+        for (Section section : Section.values()) if (scenes || section != Section.SCENES) sections.add(section);
         return sections;
     }
 

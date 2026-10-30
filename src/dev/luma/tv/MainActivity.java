@@ -44,10 +44,9 @@ public final class MainActivity extends Activity {
     private LinearLayout rows;
     private String page = "home", selectedPackage = "com.google.android.youtube.tv";
     private String homeReturnPackage = "com.google.android.youtube.tv";
-    private JSONObject lastHome;
-    private View sceneVeil;
+    private HouseScenes.Read houseRead;
+    private HouseLink houseLink;
     private TextView brand;
-    private boolean sceneTransition;
     /** The wallpaper is pale (Silver by day): text and glyphs turn dark and glass turns white. */
     private boolean light;
     private Daylight daylight;
@@ -109,6 +108,7 @@ public final class MainActivity extends Activity {
         if(!prefs.getBoolean("silver_default",false))prefs.edit().putInt("wallpaper",SILVER).putBoolean("silver_default",true).apply();
         light=pale(variant(wallpaperStyle()));
         house=houseInstalled();
+        houseLink=new HouseLink(this);
         IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_PACKAGE_ADDED);filter.addAction(Intent.ACTION_PACKAGE_REMOVED);filter.addAction(Intent.ACTION_PACKAGE_CHANGED);filter.addDataScheme("package");
         registerReceiver(packages,filter);
         createShell();
@@ -119,7 +119,6 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         started = true;
-        resetSceneTransition();
         handler.removeCallbacks(clockTick);
         handler.post(clockTick);
         if(loaded && page.equals("home")){selectedPackage="com.google.android.youtube.tv";showGreeting();root.post(()->{holdGreeting=true;focusFirst();});}
@@ -134,12 +133,12 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onPause() {
         super.onPause(); if(houseWidgets!=null)houseWidgets.setActive(false); if(board!=null)board.setActive(false); started = false; handler.removeCallbacks(clockTick); handler.removeCallbacks(daylightTick);
-        if(!sceneTransition){content.animate().cancel();content.setAlpha(1);}
+        content.animate().cancel();content.setAlpha(1);
         for(Tile tile:tiles) tile.movement.snap();
         wallpaper.pauseAmbient();wallpaper.rest();
     }
     @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused);if(wallpaper!=null)wallpaper.syncAmbient(); }
-    @Override protected void onDestroy() { try{unregisterReceiver(packages);}catch(IllegalArgumentException ignored){} if(wallpaper!=null){wallpaper.pauseAmbient();wallpaper.surfaceThread.quitSafely();}super.onDestroy(); handler.removeCallbacksAndMessages(null); loader.shutdownNow(); healthReads.shutdownNow(); if(sonic!=null)sonic.release(); }
+    @Override protected void onDestroy() { try{unregisterReceiver(packages);}catch(IllegalArgumentException ignored){} if(wallpaper!=null){wallpaper.pauseAmbient();wallpaper.surfaceThread.quitSafely();}super.onDestroy(); handler.removeCallbacksAndMessages(null); loader.shutdownNow(); healthReads.shutdownNow(); houseLink.close(); if(sonic!=null)sonic.release(); }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         String look=intent.getStringExtra("luma.daylight");
@@ -165,12 +164,15 @@ public final class MainActivity extends Activity {
             writer.println(prefix+"Luma daylight: zone="+TimeZone.getDefault().getID()+" sunrise="+f.format(new Date(sun[0]))+" sunset="+f.format(new Date(sun[1]))+" day="+daylight.isDay(now)+" next="+f.format(new Date(daylight.nextChange(now)))+" light="+light);}
         writer.println(prefix+"Luma capabilities: clock="+prefs.getBoolean("clock",true)+" last="+prefs.getString(Capabilities.LAST,"") );
         writer.println(prefix+"Luma home: mode="+profiles.mode.id+" layout="+presets.active.name()+" saved="+(presets.choices().size()-HomePresets.BuiltIn.values().length-1));
+        HouseScenes.Read read=house?houseRead:null;
+        writer.println(prefix+"Luma scenes: house="+house+" read="+(read==null?"none":read.home==null?"failed":read.home.source.name().toLowerCase(Locale.ROOT))
+            +" scenes="+(read==null||read.home==null?0:read.home.scenes.size())+" ready="+(read!=null&&read.home!=null&&read.home.blocked==null));
     }
     private boolean houseInstalled(){try{return getPackageManager().getApplicationInfo(HOUSE_CONTROL,0).enabled;}catch(PackageManager.NameNotFoundException e){return false;}}
     /** Rebuilds Home when House Control TV is installed, removed, switched on or off. */
     private void syncHouse(){
         boolean now=houseInstalled();if(now==house)return;house=now;
-        if(!now)lastHome=null;
+        if(!now)houseRead=null;
         if(page.equals("home"))showPage("home",started);
     }
     private int px(float value) { return Math.round(value * unit); }
@@ -227,7 +229,7 @@ public final class MainActivity extends Activity {
         wallpaper.update();
         boolean next=pale(variant(wallpaperStyle()));
         if(next==light)return;
-        if(!motion()||sceneTransition){showPage(page,true);return;}
+        if(!motion()){showPage(page,true);return;}
         content.animate().cancel();
         // Not while another app starts: a new page (and its WebView) then competes with it for GPU memory, which
         // ended in EGL_BAD_ALLOC on this stick once. Paused, the colours are left as they are; onResume switches them.
@@ -252,7 +254,7 @@ public final class MainActivity extends Activity {
         if(widget!=null)widget.requestFocus();else if(page.equals("settings"))controlsFocus(0);else focusFirst();
     }
     private void modeCenter(){
-        CapabilityCenter center=new CapabilityCenter(CapabilityPanel.Section.MODE,false);
+        CapabilityCenter center=new CapabilityCenter(CapabilityPanel.Section.MODE,false,null);
         root.post(()->{if(capabilityOverlay==center&&!center.rows.isEmpty())center.rows.get(0).requestFocus();});
     }
 
@@ -382,7 +384,6 @@ public final class MainActivity extends Activity {
         for(Animator animation:pageAnimations)animation.cancel();pageAnimations.clear();
         for(Tile tile:tiles) tile.movement.stop();
         content.animate().cancel();content.setAlpha(1);content.setTranslationX(0);
-        if(houseWidgets!=null&&houseWidgets.current!=null)lastHome=houseWidgets.current;
         if(board!=null)homePage=board.index;
         content.removeAllViews();houseWidgets=null;board=null;content.setTag(null);
         page=next;homeGreeting=page.equals("home");heroPackage=homeGreeting?"@greeting":"";tiles.clear();
@@ -409,13 +410,14 @@ public final class MainActivity extends Activity {
         content.addView(hero,pos(864,88,48,home?(!layout.isEmpty()?96:272):100));
         heroKey=home?"@greeting":"";
         if(home&&housePage){
-            houseWidgets=new HouseWidgets(this,unit,shown.scenes,new HouseWidgets.Callbacks(){
+            houseWidgets=new HouseWidgets(this,unit,shown.scenes,houseRead,new HouseWidgets.Callbacks(){
                 public void up(){tabs.get(0).requestFocus();}
                 public void down(float x){focusNearestTile(x);}
                 public void open(){if(!allowsApp("dev.housecontrol.tv")){Toast.makeText(MainActivity.this,profiles.mode.name+" mode does not open House Control.",Toast.LENGTH_SHORT).show();return;}try{startActivity(new Intent().setComponent(new ComponentName("dev.housecontrol.tv","dev.housecontrol.tv.MainActivity")));overridePendingTransition(0,0);}catch(Exception e){Toast.makeText(MainActivity.this,"Install House Control to connect your home.",Toast.LENGTH_SHORT).show();}}
                 public void focusHome(String title,String detail){holdGreeting=false;homeGreeting=false;setHero("@home:"+title,title,detail);navigationSound(2);}
                 public void activate(){sound();}
-                public boolean sceneApplied(String id){return MainActivity.this.sceneApplied(id);}
+                public void scene(String id){if(overlay==null)new CapabilityCenter(CapabilityPanel.Section.SCENES,false,id);}
+                public void read(HouseScenes.Read read){if(house)houseRead=read;}
                 public boolean motion(){return MainActivity.this.motion();}
                 public String sceneDetail(String id,String name){return MainActivity.this.sceneDetail(id);}
                 public boolean light(){return light;}
@@ -582,16 +584,10 @@ public final class MainActivity extends Activity {
         for(String e:prefs.getString("recent","").split(","))if(!e.isEmpty()&&!e.startsWith(pkg+":")&&list.size()<12)list.add(e);
         prefs.edit().putString("recent",String.join(",",list)).apply();
     }
-    private String sceneDetail(String id){
-        String app=sceneApp(id),opens=app.isEmpty()?"":" · Opens "+appLabel(app);
-        switch(id){
-            case "bright":return "Every light, full brightness"+opens;
-            case "cozy":return "Warm, low light for the evening"+opens;
-            case "movie":return "Lights down, warm glow behind the TV"+opens;
-            case "night":return "Only the bedside lamps"+opens;
-            case "away":return "Everything off while you are out"+opens;
-            default:return "Set the mood in one press"+opens;
-        }
+    private String sceneDetail(String id){App app=appIndex.get(sceneApp(id));return "OK shows what it changes"+(app!=null&&allowsApp(app.pkg)?" · Opens "+app.label:"");}
+    private void readHouse(Runnable done){
+        if(!house){done.run();return;}
+        houseLink.read(read->{if(house)houseRead=read;done.run();});
     }
     private void showGreeting() {
         homeGreeting=true;
@@ -812,42 +808,22 @@ public final class MainActivity extends Activity {
     }
     private void sceneApps(){
         if(!house){notice("Scene apps","Scenes come from House Control TV. Install it to control your lights from Home.");return;}
-        JSONArray scenes=lastHome==null?null:lastHome.optJSONObject("plan").optJSONArray("scenes");
-        if(scenes==null||scenes.length()==0){notice("Scene apps","Open Home once so Luma can load your scenes from House Control.");return;}
-        ArrayList<String> ids=new ArrayList<>(),names=new ArrayList<>();for(int i=0;i<scenes.length();i++){JSONObject scene=scenes.optJSONObject(i);ids.add(scene.optString("id"));names.add(scene.optString("name")+"   →   "+appLabel(sceneApp(scene.optString("id"))));}
-        menu("Open an app after a scene",names.toArray(new String[0]),-1,index->{
-            ArrayList<String> labels=new ArrayList<>();labels.add("None — stay on Home");int current=0;String chosen=sceneApp(ids.get(index));
-            for(int i=0;i<apps.size();i++){labels.add(apps.get(i).label);if(apps.get(i).pkg.equals(chosen))current=i+1;}
-            menu("After "+scenes.optJSONObject(index).optString("name"),labels.toArray(new String[0]),current,choice->{
-                try{JSONObject saved=new JSONObject(prefs.getString("scene_app_packages","{}"));saved.put(ids.get(index),choice==0?"":apps.get(choice-1).pkg);prefs.edit().putString("scene_app_packages",saved.toString()).apply();}catch(Exception ignored){}
-                root.post(this::sceneApps);
+        readHouse(()->{
+            if(!started||overlay!=null||!page.equals("settings"))return;
+            HouseScenes.Read read=houseRead;
+            if(read==null||read.home==null||read.home.scenes.isEmpty()){notice("Scene apps",read!=null&&read.problem!=null?read.problem:"House Control lists no scenes for this home.");return;}
+            List<HouseScenes.Scene> scenes=read.home.scenes;
+            ArrayList<String> names=new ArrayList<>();for(HouseScenes.Scene scene:scenes)names.add(scene.name+"   →   "+appLabel(sceneApp(scene.id)));
+            menu("Open an app after a scene",names.toArray(new String[0]),-1,index->{
+                HouseScenes.Scene scene=scenes.get(index);
+                ArrayList<String> labels=new ArrayList<>();labels.add("None — stay on Home");int current=0;String chosen=sceneApp(scene.id);
+                for(int i=0;i<apps.size();i++){labels.add(apps.get(i).label);if(apps.get(i).pkg.equals(chosen))current=i+1;}
+                menu("After "+scene.name,labels.toArray(new String[0]),current,choice->{
+                    try{JSONObject saved=new JSONObject(prefs.getString("scene_app_packages","{}"));saved.put(scene.id,choice==0?"":apps.get(choice-1).pkg);prefs.edit().putString("scene_app_packages",saved.toString()).apply();}catch(Exception ignored){}
+                    root.post(this::sceneApps);
+                });
             });
         });
-    }
-    /** true when the scene opens an app: the 3D card becomes the screen and flies into the modelled TV. */
-    private boolean sceneApplied(String id){
-        String pkg=sceneApp(id);if(pkg.isEmpty()||sceneTransition)return false;App target=null;for(App app:apps)if(app.pkg.equals(pkg))target=app;
-        if(target==null){Toast.makeText(this,"The scene app is not installed.",Toast.LENGTH_SHORT).show();return false;}
-        if(!allowsApp(pkg)){Toast.makeText(this,"The scene ran. "+profiles.mode.name+" mode does not open "+target.label+".",Toast.LENGTH_SHORT).show();return false;}
-        final App selected=target;if(!motion()||houseWidgets==null){launch(selected);return false;}
-        sceneTransition=true;content.setTranslationZ(px(40));
-        sceneVeil=new View(this);sceneVeil.setBackgroundColor(Color.BLACK);sceneVeil.setAlpha(0);sceneVeil.setFocusable(true);sceneVeil.setFocusableInTouchMode(true);sceneVeil.setOnKeyListener((v,k,e)->true);sceneVeil.setTranslationZ(px(200));root.addView(sceneVeil,new FrameLayout.LayoutParams(-1,-1));sceneVeil.requestFocus();
-        final int flight=1500;
-        wallpaper.pauseAmbient();
-        hero.animate().alpha(0).translationY(-px(6)).setDuration(360).setInterpolator(ease).withLayer().start();
-        for(Tile t:tiles)t.animate().alpha(0).translationY(px(14)).setDuration(420).setInterpolator(ease).withLayer().start();
-        nav().animate().alpha(0).setDuration(320).withLayer().start();
-        if(clock!=null)clock.animate().alpha(0).setDuration(320).start();
-        brand.animate().alpha(0).setDuration(320).start();
-        if(board!=null)board.dots.animate().alpha(0).setDuration(260).start();
-        houseWidgets.fadeControls(260);houseWidgets.portalToTV(flight);
-        sceneVeil.animate().alpha(1).setStartDelay(flight-420).setDuration(420).setInterpolator(new PathInterpolator(.5f,0f,1f,1f)).start();
-        // Delays follow the system animation scale, like the animations themselves.
-        handler.postDelayed(()->{if(sceneTransition&&started&&!launch(selected))resetSceneTransition();},Math.round((flight+40)*Math.max(.01f,ValueAnimator.getDurationScale())));
-        return true;
-    }
-    private void resetSceneTransition(){
-        sceneTransition=false;if(sceneVeil!=null){sceneVeil.animate().cancel();root.removeView(sceneVeil);sceneVeil=null;}if(content!=null)content.setTranslationZ(0);if(hero!=null){hero.animate().cancel();hero.setAlpha(1);hero.setTranslationY(0);}nav().animate().cancel();nav().setAlpha(1);if(clock!=null){clock.animate().cancel();clock.setAlpha(1);}if(brand!=null){brand.animate().cancel();brand.setAlpha(1);}if(sceneryShade!=null){sceneryShade.animate().cancel();sceneryShade.setAlpha(page.equals("settings")?1:0);}for(Tile t:tiles){t.animate().cancel();t.setAlpha(1);t.setTranslationY(0);}if(board!=null){board.dots.animate().cancel();board.dots.setAlpha(1);}if(houseWidgets!=null)houseWidgets.resetPortal();
     }
 
     private void appMenu(App app) {
@@ -903,7 +879,7 @@ public final class MainActivity extends Activity {
             ()->preview(0,"Your name","Home greets you by name. It is saved only on this TV.")));
         controls.add(option(list,"Clock",null,"clock",()->{},()->preview(0,"Clock","Shows the time in the top-right corner of every page.")));
         caption(list,"Motion and sound",false);
-        controls.add(option(list,"Fluid motion",null,"motion",()->{},()->preview(0,"Fluid motion","Springy focus, depth and the 3D flight into your TV. Turn off for a calmer, simpler screen.")));
+        controls.add(option(list,"Fluid motion",null,"motion",()->{},()->preview(0,"Fluid motion","Springy focus and depth. Turn off for a calmer, simpler screen.")));
         controls.add(option(list,"Living wallpaper",null,"ambient",()->wallpaper.syncAmbient(),()->preview(THUMBS[wallpaperStyle()],"Living wallpaper","Clouds drift and water moves very slowly. Pauses whenever an app is open.")));
         controls.add(option(list,"Navigation sounds",null,"sound",()->{},()->preview(0,"Navigation sounds","Soft, quiet feedback as you move and open apps.")));
         caption(list,"Home",false);
@@ -1073,6 +1049,9 @@ public final class MainActivity extends Activity {
     }
     private final class CapabilityTv implements Capabilities.Tv {
         final SharedPreferences.Editor edit=prefs.edit();
+        /** The panel and its pane as this was built. runAction builds one as the action starts, so a late result knows whether the panel still shows that action. */
+        final CapabilityCenter center=capabilityOverlay;
+        final int pane=center==null?0:center.paneChanges;
         public boolean clockShown(){return prefs.getBoolean("clock",true);}
         public boolean hasInputs(){return !InputsWidget.list(MainActivity.this).isEmpty();}
         public boolean widgetOn(String id){return WidgetBoard.on(prefs,id);}
@@ -1084,6 +1063,11 @@ public final class MainActivity extends Activity {
         public void selectTab(String id){showPage(id,false);}
         public Profiles profile(){return profiles;}
         public String homeLayout(){return MainActivity.this.homeLayout();}
+        public HouseScenes.Read house(){return house?houseRead:HouseScenes.Read.failed("House Control TV is not installed or is turned off.");}
+        public void readHouse(Runnable done){MainActivity.this.readHouse(done);}
+        public void runScene(HouseScenes.Scene scene,java.util.function.Supplier<String> refusal,java.util.function.Consumer<HouseScenes.Outcome> done){houseLink.run(scene,refusal,done);}
+        public String sceneApp(String scene){return MainActivity.this.sceneApp(scene);}
+        public Capabilities.Away away(){return center==null||capabilityOverlay!=center?Capabilities.Away.CLOSED:!center.shows(pane)?Capabilities.Away.MOVED_ON:!started?Capabilities.Away.OFF_SCREEN:null;}
     }
     private Commands.Registry commandRegistry(){
         ArrayList<Commands.Target> targets=new ArrayList<>();
@@ -1098,11 +1082,7 @@ public final class MainActivity extends Activity {
     }
     private ArrayList<Commands.Target> sceneTargets(){
         ArrayList<Commands.Target> targets=new ArrayList<>();
-        JSONObject home=houseWidgets!=null&&houseWidgets.current!=null?houseWidgets.current:lastHome;
-        JSONObject plan=house&&home!=null?home.optJSONObject("plan"):null;
-        JSONArray scenes=plan==null?null:plan.optJSONArray("scenes");
-        for(int i=0;scenes!=null&&i<scenes.length();i++){JSONObject scene=scenes.optJSONObject(i);if(scene==null)continue;
-            String id=scene.optString("id").trim(),name=scene.optString("name").trim();if(!id.isEmpty()&&!name.isEmpty())targets.add(new Commands.Target(Commands.Kind.SCENE,id,name,false));}
+        if(house&&houseRead!=null&&houseRead.home!=null)for(HouseScenes.Scene scene:houseRead.home.scenes)targets.add(new Commands.Target(Commands.Kind.SCENE,scene.id,scene.name,true));
         return targets;
     }
     private final HomePresets.Tv homeTv=new HomePresets.Tv(){
@@ -1117,7 +1097,8 @@ public final class MainActivity extends Activity {
         public String wallpaper(int index){return WALLPAPERS[Math.max(0,Math.min(WALLPAPERS.length-1,index))];}
         public boolean house(){return house;}
     };
-    private void capabilityCenter(){new CapabilityCenter(CapabilityPanel.Section.ACTIONS,false);}
+    private void capabilityCenter(){new CapabilityCenter(CapabilityPanel.Section.ACTIONS,false,null);}
+    private void focusHomeScene(String id){if(houseWidgets!=null)for(HouseWidgets.SceneTile tile:houseWidgets.scenes)if(tile.id.equals(id))tile.requestFocus();}
     private final class CapabilityCenter {
         final boolean dark=prefs.getBoolean("capability_dark",false);
         final int paper=dark?Color.BLACK:Color.WHITE,ink=dark?Color.WHITE:0xFF1D1D1F,soft=dark?0xB3FFFFFF:0xFF5B6472,rest=dark?0x1FFFFFFF:0x0F000000,chosen=dark?0x4DFFFFFF:0x29000000;
@@ -1138,16 +1119,24 @@ public final class MainActivity extends Activity {
         Runnable pending;
         View opener;
         boolean confirming;
-        CapabilityCenter(CapabilityPanel.Section start,boolean focusTheme){
-            capabilityOverlay=this;
+        int paneChanges;
+        final String homeScene;
+        String wanted;
+        int houseReads;
+        boolean reading;
+        CapabilityCenter(CapabilityPanel.Section start,boolean focusTheme,String scene){
+            capabilityOverlay=this;homeScene=scene;wanted=scene;
             FrameLayout o=openOverlay(0xB3000000);
-            overlayCancel=()->{capabilityOverlay=null;health.close();if(page.equals("settings")){showPage("settings",false);controlsFocus(capabilitiesRow);}else showPage(page,true);};
+            overlayCancel=()->{capabilityOverlay=null;health.close();if(page.equals("settings")){showPage("settings",false);controlsFocus(capabilitiesRow);}
+                else{showPage(page,true);if(homeScene!=null)root.post(()->focusHomeScene(homeScene));}};
             panel=new FrameLayout(MainActivity.this);GradientDrawable bg=shape(paper,24);if(dark)bg.setStroke(Math.max(1,px(1)),0x40FFFFFF);panel.setBackground(bg);panel.setElevation(px(24));
             o.addView(panel,new FrameLayout.LayoutParams(px(900),px(480),Gravity.CENTER));
-            panel.addView(text(settings?"Capabilities":"Mode",24,ink,"sans-serif-medium"),pos(500,32,28,22));
+            panel.addView(text(settings?"Capabilities":shown.contains(CapabilityPanel.Section.SCENES)?"Scenes and mode":"Mode",24,ink,"sans-serif-medium"),pos(500,32,28,22));
             last=text(settings?lastLine():"",12.5f,soft,"sans-serif");last.setSingleLine(true);panel.addView(last,pos(840,18,28,58));
             sections.setOrientation(LinearLayout.VERTICAL);panel.addView(sections,pos(170,shown.size()*50,20,92));
-            for(int i=0;i<shown.size();i++){final CapabilityPanel.Section s=shown.get(i);TextView row=control(s.label,false);onFocus(row,i,()->select(s));sections.addView(row,rowParams());sectionRows.add(row);}
+            for(int i=0;i<shown.size();i++){final CapabilityPanel.Section s=shown.get(i);TextView row=control(s.label,false);onFocus(row,i,()->select(s));
+                if(s==CapabilityPanel.Section.SCENES)row.setOnClickListener(v->{sound();if(!reading){dropPending();wanted=null;opener=null;loadScenes();}});
+                sections.addView(row,rowParams());sectionRows.add(row);}
             theme=control(dark?"Dark mode   On":"Dark mode   Off",false);onFocus(theme,4,()->{});theme.setOnClickListener(v->{sound();toggleTheme();});panel.addView(theme,pos(170,44,20,416));
             theme.setVisibility(settings?View.VISIBLE:View.GONE);
             items=new FrameLayout(MainActivity.this);panel.addView(items,pos(300,370,206,92));
@@ -1156,10 +1145,11 @@ public final class MainActivity extends Activity {
             pane=new FrameLayout(MainActivity.this);pane.setBackground(shape(rest,16));panel.addView(pane,pos(358,370,522,92));
             paneTitle=text("",18,ink,"sans-serif-medium");paneTitle.setSingleLine(true);paneTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);pane.addView(paneTitle,pos(318,26,20,18));
             paneBody=text("",13.5f,ink,"sans-serif");paneBody.setLineSpacing(px(4),1);pane.addView(paneBody,pos(318,186,20,56));
-            status=text("",13,ink,"sans-serif-medium");status.setMaxLines(2);pane.addView(status,pos(318,40,20,252));
+            status=text("",13,ink,"sans-serif-medium");status.setMaxLines(3);pane.addView(status,pos(318,50,20,252));
             primary=control("",true);primary.setOnClickListener(v->{sound();primaryAction.run();});pane.addView(primary,pos(150,42,20,306));
             secondary=control("",true);secondary.setOnClickListener(v->{sound();secondaryAction.run();});pane.addView(secondary,pos(150,42,186,306));
             primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);
+            if(shown.contains(CapabilityPanel.Section.SCENES)&&start!=CapabilityPanel.Section.SCENES)loadScenes();
             select(shown.contains(start)?start:shown.get(0));
             final View first=focusTheme?theme:chosenRow;root.post(first::requestFocus);
         }
@@ -1176,6 +1166,7 @@ public final class MainActivity extends Activity {
         void select(CapabilityPanel.Section next){
             TextView was=chosenRow;chosenRow=sectionRows.get(shown.indexOf(next));if(was!=null)paint(was);paint(chosenRow);
             if(next==section){relink();return;}
+            if(section==CapabilityPanel.Section.SCENES)wanted=null;
             section=next;dropPending();opener=null;
             refill();relink();
         }
@@ -1185,20 +1176,36 @@ public final class MainActivity extends Activity {
                 case ACTIONS:items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));fillRows(Capabilities.list(new CapabilityTv()));break;
                 case ASK:askControls();break;
                 case LAYOUTS:layoutControls();break;
-                case SCENES:{
-                    ArrayList<Capabilities.Action> scenes=new ArrayList<>();for(Commands.Target scene:sceneTargets())scenes.add(Capabilities.scene(scene));
-                    if(!scenes.isEmpty()){items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));fillRows(scenes);break;}
-                    TextView note=text("Open Home once so Luma can load your scenes from House Control.",13,soft,"sans-serif");note.setLineSpacing(px(4),1);items.addView(note,pos(290,80,6,8));
-                    pane("Scenes","Scenes come from House Control TV.","");break;
-                }
+                case SCENES:loadScenes();break;
                 case HEALTH:healthControls();break;
                 case MODE:modeControls();break;
             }
         }
+        void loadScenes(){
+            reading=true;final int request=++houseReads;
+            if(section==CapabilityPanel.Section.SCENES)drawScenes();
+            readHouse(()->{if(capabilityOverlay!=this||request!=houseReads)return;reading=false;if(section==CapabilityPanel.Section.SCENES)drawScenes();});
+        }
+        void drawScenes(){
+            items.removeAllViews();list.removeAllViews();rows.clear();actions.clear();scroller.scrollTo(0,0);
+            HouseScenes.Read read=new CapabilityTv().house();
+            String note=reading?"Reading scenes from House Control…":read==null?"House Control has not answered yet.":read.problem!=null?read.problem
+                :read.home.scenes.isEmpty()?"House Control lists no scenes for this home.":null;
+            if(note!=null){
+                TextView line=text(note,13,soft,"sans-serif");line.setLineSpacing(px(4),1);items.addView(line,pos(290,80,6,8));
+                pane("Scenes",note,"");relink();return;
+            }
+            items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));
+            fillRows(Capabilities.scenes(new CapabilityTv()));relink();
+            if(wanted==null)return;
+            String id=wanted;wanted=null;
+            for(int i=0;i<actions.size();i++)if(actions.get(i).id.equals(id)){rows.get(i).requestFocus();choose(actions.get(i),rows.get(i),false);return;}
+            status.setText("That scene is no longer in House Control.");
+        }
         void fillRows(List<Capabilities.Action> from){
             actions.addAll(from);
             for(int i=0;i<actions.size();i++){final int index=i;Capabilities.Action action=actions.get(i);TextView row=control(action.name,false);row.setAlpha(action.available()?1:.5f);
-                onFocus(row,i,()->showAction(actions.get(index)));row.setOnClickListener(v->{sound();choose(actions.get(index),row);});list.addView(row,rowParams());rows.add(row);}
+                onFocus(row,i,()->showAction(actions.get(index)));row.setOnClickListener(v->{sound();choose(actions.get(index),row,section==CapabilityPanel.Section.SCENES);});list.addView(row,rowParams());rows.add(row);}
             showAction(actions.get(0));
         }
         EditText entry(String hint,int length,Runnable focused,Runnable done){
@@ -1220,14 +1227,17 @@ public final class MainActivity extends Activity {
         void interpret(){
             ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(field.getWindowToken(),0);
             Commands.Result result=Commands.interpret(field.getText().toString(),commandRegistry());
-            if(result.status==Commands.Status.READY){choose(Capabilities.of(result.command),previewButton);return;}
+            if(result.status==Commands.Status.READY){choose(Capabilities.of(result.command,new CapabilityTv()),previewButton,false);return;}
             opener=previewButton;pane("Not run",result.message,"Nothing ran. Edit the request, or cancel it.");
             buttons("Edit",()->field.requestFocus(),"Cancel",()->{field.setText("");field.requestFocus();status.setText("Cancelled. Nothing ran.");});primary.requestFocus();
         }
-        void pane(String title,String body,String state){paneTitle.setText(title);paneBody.setText(body);status.setText(state);}
+        void pane(String title,String body,String state){paneChanges++;paneTitle.setText(title);paneBody.setText(body);status.setText(state);}
+        boolean shows(int pane){return capabilityOverlay==this&&paneChanges==pane&&primary.hasFocus();}
         void showAction(Capabilities.Action action){pane(action.name,action.available()?action.preview:action.unavailable,action.available()?"Asks before it runs.":"Unavailable");}
-        void choose(Capabilities.Action action,View from){
+        /** A Scenes row keeps the action it was built with. With reread, a refused one reads House Control again and asks with the scene as it is now. */
+        void choose(Capabilities.Action action,View from,boolean reread){
             String refused=action.available()?Capabilities.refusal(action,new CapabilityTv()):action.unavailable;
+            if(refused!=null&&reread){wanted=action.id;chosenRow.requestFocus();loadScenes();return;}
             if(refused!=null){opener=from;pane(action.name,refused,"Not run. Nothing changed.");return;}
             ask(action.name,action.preview,"Confirm this change.",from,()->runAction(action));
         }
@@ -1237,12 +1247,18 @@ public final class MainActivity extends Activity {
         }
         void runPending(){if(pending==null)return;Runnable change=pending;pending=null;confirming=false;change.run();}
         void runAction(Capabilities.Action ran){
-            CapabilityTv tv=new CapabilityTv();Capabilities.Result result=Capabilities.run(ran,tv,System.currentTimeMillis());tv.edit.apply();
-            clock.setVisibility(prefs.getBoolean("clock",true)?View.VISIBLE:View.GONE);
-            if(section==CapabilityPanel.Section.ACTIONS)refreshActions();
-            last.setText(lastLine());
-            buttons("Close",()->closeOverlay(true),null,null);primary.requestFocus();
-            pane(ran.name,ran.preview,result.done?"Done. "+result.message:"Not run. "+result.message);
+            CapabilityTv tv=new CapabilityTv();
+            if(ran.capability==Capabilities.Capability.SCENE){buttons("Starting…",()->{},null,null);status.setText("Starting "+ran.label+"…");}
+            Capabilities.run(ran,tv,System.currentTimeMillis(),result->{
+                tv.edit.apply();
+                String line=result.status.label+". "+result.message;
+                if(capabilityOverlay==this&&settings)last.setText(lastLine());
+                if(!shows(tv.pane)){if(started)Toast.makeText(MainActivity.this,ran.label+". "+line,Toast.LENGTH_LONG).show();return;}
+                clock.setVisibility(prefs.getBoolean("clock",true)?View.VISIBLE:View.GONE);
+                if(section==CapabilityPanel.Section.ACTIONS)refreshActions();
+                buttons("Close",()->closeOverlay(true),null,null);primary.requestFocus();
+                pane(ran.name,ran.preview,line);
+            });
         }
         void refreshActions(){List<Capabilities.Action> fresh=Capabilities.list(new CapabilityTv());for(int i=0;i<fresh.size()&&i<rows.size();i++){actions.set(i,fresh.get(i));TextView row=rows.get(i);row.setText(fresh.get(i).name);row.setContentDescription(fresh.get(i).name);row.setAlpha(fresh.get(i).available()?1:.5f);}}
         void cancel(){View back=opener;if(back!=null)back.requestFocus();dropPending();status.setText("Cancelled. Nothing ran.");}
@@ -1356,7 +1372,7 @@ public final class MainActivity extends Activity {
             }
             buttons("Refresh",this::measure,"Back",()->chosenRow.requestFocus());
         }
-        void toggleTheme(){prefs.edit().putBoolean("capability_dark",!dark).apply();health.close();new CapabilityCenter(section,true);}
+        void toggleTheme(){prefs.edit().putBoolean("capability_dark",!dark).apply();health.close();new CapabilityCenter(section,true,null);}
         boolean back(){
             if(confirming){cancel();return true;}
             View focused=getCurrentFocus();
@@ -1381,9 +1397,9 @@ public final class MainActivity extends Activity {
     /** A settings row: either a value with a chevron, or an Apple-style switch bound to a preference. */
     private View option(LinearLayout parent,String title,java.util.function.Supplier<String> value,String toggle,Runnable action,Runnable onFocus) {
         FrameLayout row=new FrameLayout(this);row.setFocusable(true);row.setFocusableInTouchMode(true);row.setSoundEffectsEnabled(false);
-        TextView name=text(title,15,Color.WHITE,"sans-serif-medium");row.addView(name,pos(300,20,18,12));
+        TextView name=text(title,15,Color.WHITE,"sans-serif-medium");row.addView(name,pos(180,20,18,12));
         TextView detail=value==null?null:text(value.get()+(value.get().equals("")?"›":"   ›"),14,0x99FFFFFF,"sans-serif");
-        if(detail!=null){detail.setGravity(Gravity.RIGHT);row.addView(detail,pos(200,20,258,12));}
+        if(detail!=null){detail.setGravity(Gravity.RIGHT);detail.setSingleLine(true);detail.setEllipsize(android.text.TextUtils.TruncateAt.END);row.addView(detail,pos(250,20,208,12));}
         final View track=new View(this),knob=new View(this);
         if(toggle!=null){row.addView(track,pos(40,24,418,9));row.addView(knob,pos(20,20,420,11));}
         Runnable paint=()->{boolean f=row.hasFocus();row.setBackground(shape(f?0xFAFFFFFF:light?0x8CFFFFFF:0x14FFFFFF,14));name.setTextColor(f?0xFF111827:ink(0xFF));

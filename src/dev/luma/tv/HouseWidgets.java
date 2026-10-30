@@ -31,24 +31,25 @@ final class HouseWidgets extends FrameLayout {
     final FrameLayout card;
     final LinearLayout row,statusRow;
     final TextView status,openHint;
-    final View dot,cover,backdrop,ground;
+    final View dot,cover,ground;
     final WebView model;
     final ImageView still,after;
     final PathInterpolator ease=new PathInterpolator(.22f,1f,.36f,1f);
     final android.view.animation.Interpolator spring=t->{if(t>=1)return 1;double time=t*.42,f=24,d=.7,w=f*Math.sqrt(1-d*d);return (float)(1-Math.exp(-d*f*time)*(Math.cos(w*time)+d*f/w*Math.sin(w*time)));};
     /** The last picture of the model by day [1] and by night [0], kept across page rebuilds: Home shows the house at
      *  once while WebGL starts again, also after sunset once a night picture exists. */
-    static final Bitmap[] lastPicture=new Bitmap[2];static float lastTvX=.5f,lastTvY=.5f;
+    static final Bitmap[] lastPicture=new Bitmap[2];
     volatile String snapshot="{}";
     volatile boolean daylight;
-    IBinder binder;boolean bound=false,attached=false,active=true,commandBusy=false,loaded=false,fetching=false,portal=false,shown=false,live=false;
-    String revision="",title="Your home",pictured="";JSONObject current;
-    long warningUntil=0;
+    IBinder binder;boolean bound=false,attached=false,active=true,loaded=false,fetching=false,shown=false,live=false;
+    String revision="",title="Your home",pictured="";
     final Callbacks callbacks;
     /** The layout's scene shortcuts, in order. Empty shows House Control's own scenes. */
     final List<String> shortcuts;
-    interface Callbacks{void up();void down(float screenX);void open();void focusHome(String title,String detail);void activate();boolean sceneApplied(String id);boolean motion();String sceneDetail(String id,String name);boolean light();
-        /** Left of the first scene or right of the model: the neighbouring Home page. */void edge(int direction);}
+    interface Callbacks{void up();void down(float screenX);void open();void focusHome(String title,String detail);void activate();boolean motion();String sceneDetail(String id,String name);boolean light();
+        /** Left of the first scene or right of the model: the neighbouring Home page. */void edge(int direction);
+        void scene(String id);
+        void read(HouseScenes.Read read);}
     final Runnable refresh=new Runnable(){public void run(){if(!attached||!active)return;fetch();handler.postDelayed(this,2000);}};
     final ServiceConnection connection=new ServiceConnection(){
         public void onServiceConnected(ComponentName name,IBinder service){binder=service;setRemoteActive(active);fetch();if(!loaded){loaded=true;model.loadUrl("http://127.0.0.1:8788/widget.html");}}
@@ -56,7 +57,7 @@ final class HouseWidgets extends FrameLayout {
         public void onBindingDied(ComponentName name){binder=null;setStatus("Open House Control to reconnect",false);}
     };
 
-    HouseWidgets(Activity activity,float scale,List<String> shortcuts,Callbacks callbacks){
+    HouseWidgets(Activity activity,float scale,List<String> shortcuts,HouseScenes.Read seed,Callbacks callbacks){
         super(activity);this.activity=activity;this.scale=scale;this.shortcuts=shortcuts;this.callbacks=callbacks;daylight=callbacks.light();setClipChildren(false);setClipToPadding(false);
         row=new LinearLayout(activity);row.setClipChildren(false);row.setClipToPadding(false);addView(row,pos(5*SCENE_W+4*SCENE_GAP,SCENE_H,SCENE_X-(SCENE_W-SCENE_D)/2,SCENE_Y));
 
@@ -66,7 +67,6 @@ final class HouseWidgets extends FrameLayout {
         addView(ground,pos(CARD_W*.8f,CARD_W*.8f,CARD_X+CARD_W*.1f,CARD_Y+H*.72f-CARD_W*.4f));
 
         card=new FrameLayout(activity);card.setClipChildren(true);addView(card,pos(CARD_W,H,CARD_X,CARD_Y));
-        backdrop=new View(activity);backdrop.setBackgroundColor(0xFF0B0B0D);backdrop.setAlpha(0);card.addView(backdrop,new FrameLayout.LayoutParams(-1,-1));
         model=new WebView(activity);model.setBackgroundColor(Color.TRANSPARENT);model.setFocusable(false);model.setFocusableInTouchMode(false);
         model.setAlpha(0); // an off-screen renderer: the pictures in still/after are what Home shows
         WebSettings settings=model.getSettings();settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(false);settings.setAllowFileAccess(false);settings.setAllowContentAccess(false);settings.setSupportZoom(false);
@@ -81,8 +81,6 @@ final class HouseWidgets extends FrameLayout {
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return true;}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){String url=request.getUrl().toString();if(url.startsWith("http://127.0.0.1:8788/"))return null;return new WebResourceResponse("text/plain","utf-8",new java.io.ByteArrayInputStream(new byte[0]));}
         });
-        // The viewport stays screen-sized so the portal can fill the screen without reflowing;
-        // while it is small the renderer draws at its own resolution (see widget.js).
         card.addView(model,new FrameLayout.LayoutParams(screenW(),screenH()));
         model.setPivotX(0);model.setPivotY(0);resetModelTransform();
         still=new ImageView(activity);still.setScaleType(ImageView.ScaleType.FIT_XY);still.setVisibility(View.GONE);card.addView(still,new FrameLayout.LayoutParams(-1,-1));
@@ -100,7 +98,7 @@ final class HouseWidgets extends FrameLayout {
 
         card.setPivotX(px(CARD_W/2));card.setPivotY(px(H*.62f));
         Bitmap kept=lastPicture[callbacks.light()?1:0];
-        if(kept!=null){shown=true;still.setImageBitmap(kept);still.setVisibility(View.VISIBLE);tvX=lastTvX;tvY=lastTvY;}
+        if(kept!=null){shown=true;still.setImageBitmap(kept);still.setVisibility(View.VISIBLE);}
         cover.setOnClickListener(v->{callbacks.activate();callbacks.open();});
         cover.setOnFocusChangeListener((v,focus)->{
             if(focus)callbacks.focusHome(title,status.getText().toString());
@@ -114,13 +112,12 @@ final class HouseWidgets extends FrameLayout {
             } else {card.setScaleX(s);card.setScaleY(s);openHint.setAlpha(focus?1:0);statusRow.setAlpha(focus?0:1);}
         });
         cover.setOnKeyListener((v,key,event)->{if(event.getAction()!=KeyEvent.ACTION_DOWN)return false;if(key==KeyEvent.KEYCODE_DPAD_DOWN){callbacks.down(centerX(card));return true;}if(key==KeyEvent.KEYCODE_DPAD_UP){callbacks.up();return true;}if(key==KeyEvent.KEYCODE_DPAD_LEFT){focusLastScene();return true;}if(key==KeyEvent.KEYCODE_DPAD_RIGHT){callbacks.edge(1);return true;}return false;});
-        renderScenes(null);
+        if(seed!=null&&seed.home!=null){revision=seed.home.revision;renderScenes(seed.home.scenes);}
     }
     int px(float x){return Math.round(x*scale);}
     int ink(int alpha){return (alpha<<24)|(callbacks.light()?0x1D1D1F:0xFFFFFF);}
     int screenW(){return activity.getResources().getDisplayMetrics().widthPixels;}
     int screenH(){return activity.getResources().getDisplayMetrics().heightPixels;}
-    // One buffer size for the model and the flight: no reallocation (and no stall) when the portal starts.
     double widgetResolution(){return Math.min(1.0,Math.max(.6,(CARD_W*scale*1.15)/screenW()));}
     LayoutParams pos(float w,float h,float x,float y){LayoutParams p=new LayoutParams(px(w),px(h));p.leftMargin=px(x);p.topMargin=px(y);return p;}
     TextView text(String value,float size,int color){TextView t=new TextView(activity);t.setText(value);t.setTextColor(color);t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(size));t.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));t.setIncludeFontPadding(false);return t;}
@@ -130,7 +127,7 @@ final class HouseWidgets extends FrameLayout {
     void modelReady(){
         if(!attached)return;
         capture(true,b->{
-            if(b==null||portal)return;
+            if(b==null)return;
             if(shown){crossfade(b,500);return;}
             shown=true;still.setImageBitmap(b);still.setVisibility(View.VISIBLE);still.animate().cancel();
             if(callbacks.motion()){still.setAlpha(0f);still.setTranslationY(px(10));still.animate().alpha(1).translationY(0).setDuration(700).setInterpolator(ease).start();}
@@ -138,7 +135,7 @@ final class HouseWidgets extends FrameLayout {
         });
     }
     /** The lights changed: a new picture of the settled model replaces the old one. */
-    final Runnable repaint=()->{if(!attached||!shown||portal||commandBusy)return;capture(true,b->{if(b!=null&&!portal&&!commandBusy)crossfade(b,600);});};
+    final Runnable repaint=()->{if(!attached||!shown)return;capture(true,b->{if(b!=null)crossfade(b,600);});};
     void crossfade(Bitmap b,int ms){
         after.animate().cancel();after.setImageBitmap(b);after.setAlpha(0f);after.setVisibility(View.VISIBLE);
         after.animate().alpha(1).setDuration(callbacks.motion()?ms:0).setInterpolator(ease).withEndAction(()->{still.setImageBitmap(b);after.setVisibility(View.GONE);}).start();
@@ -160,7 +157,7 @@ final class HouseWidgets extends FrameLayout {
                 animate().cancel();float s=f?1.14f:1;if(callbacks.motion())animate().scaleX(s).scaleY(s).setDuration(f?460:300).setInterpolator(f?spring:ease).start();else{setScaleX(s);setScaleY(s);}
                 // A raised view draws over its flat siblings: the glyph rises with the disc to stay on top of it.
                 disc.setElevation(px(f?12:0));glyph.setElevation(px(f?12.5f:0));});
-            setOnClickListener(v->{callbacks.activate();press();runScene(id,name);});
+            setOnClickListener(v->{callbacks.activate();press();callbacks.scene(id);});
         }
         void press(){if(!callbacks.motion())return;animate().cancel();animate().scaleX(1.04f).scaleY(1.04f).setDuration(70).setInterpolator(ease).withEndAction(()->animate().scaleX(focused?1.14f:1).scaleY(focused?1.14f:1).setDuration(420).setInterpolator(spring).start()).start();}
         void paint(){
@@ -171,7 +168,6 @@ final class HouseWidgets extends FrameLayout {
             disc.setBackground(bg);
             int glyphInk=focused?(light?Color.WHITE:0xFF1D1D1F):selected?(light?0xFFB0640A:0xFFFFC46B):ink(0xF2);glyph.setColor(glyphInk);
             label.setTextColor(selected&&!focused?(light?0xFFA35A06:0xFFFFD08A):ink(focused?0xFF:0xD9));
-            setAlpha(commandBusy&&!focused?.55f:1);
         }
     }
 
@@ -179,49 +175,43 @@ final class HouseWidgets extends FrameLayout {
     @Override protected void onDetachedFromWindow(){attached=false;handler.removeCallbacksAndMessages(null);if(bound){try{activity.unbindService(connection);}catch(Exception ignored){}bound=false;}binder=null;model.removeJavascriptInterface("HouseWidget");model.destroy();worker.shutdownNow();super.onDetachedFromWindow();}
     void setActive(boolean value){active=value;setRemoteActive(value);handler.removeCallbacks(refresh);if(value&&attached){model.onResume();model.evaluateJavascript("window.widgetRunning && window.widgetRunning(true)",null);handler.post(refresh);}else{model.evaluateJavascript("window.widgetRunning && window.widgetRunning(false)",null);model.onPause();}}
     void setRemoteActive(boolean value){if(binder==null||worker.isShutdown())return;worker.execute(()->{IBinder target=binder;if(target==null)return;Parcel in=Parcel.obtain(),out=Parcel.obtain();try{in.writeInt(value?1:0);target.transact(3,in,out,0);out.readException();}catch(Exception ignored){}finally{in.recycle();out.recycle();}});}
-    JSONObject transact(int code,String scene)throws Exception{
-        IBinder target=binder;if(target==null)throw new IllegalStateException("Open House Control to connect your home.");Parcel in=Parcel.obtain(),out=Parcel.obtain();try{if(scene!=null)in.writeString(scene);if(!target.transact(code,in,out,0))throw new IllegalStateException("Update House Control for home widgets.");out.readException();return new JSONObject(out.readString());}finally{in.recycle();out.recycle();}
+    JSONObject transact(int code)throws Exception{
+        IBinder target=binder;if(target==null)throw new IllegalStateException("Open House Control to connect your home.");Parcel in=Parcel.obtain(),out=Parcel.obtain();try{if(!target.transact(code,in,out,0))throw new IllegalStateException("Update House Control for home widgets.");out.readException();return new JSONObject(out.readString());}finally{in.recycle();out.recycle();}
     }
-    void fetch(){if(fetching||binder==null||commandBusy)return;fetching=true;worker.execute(()->{try{JSONObject home=transact(1,null);String raw=home.toString();handler.post(()->{if(!attached)return;boolean changed=!raw.equals(snapshot);snapshot=raw;if(changed)update(home);});}catch(Exception error){handler.post(()->{if(attached)setStatus("Open House Control to reconnect",false);});}finally{fetching=false;}});}
+    void fetch(){if(fetching||binder==null)return;fetching=true;worker.execute(()->{try{JSONObject home=transact(1);String raw=home.toString();handler.post(()->{if(!attached)return;boolean changed=!raw.equals(snapshot);snapshot=raw;if(changed)update(home);});}catch(Exception error){handler.post(()->{if(attached)setStatus("Open House Control to reconnect",false);});}finally{fetching=false;}});}
     void setStatus(String value,boolean ok){if(!value.contentEquals(status.getText()))status.setText(value);if(ok!=live||dot.getBackground()==null){live=ok;dot.setBackground(round(ok?0xFF34C759:0xFFF0A94A,3));}}
     void update(JSONObject home){
-        if(home.has("error")){setStatus(home.optString("error"),false);return;}current=home;
+        HouseScenes.Read read=HouseLink.read(home);callbacks.read(read);
+        if(home.has("error")){setStatus(home.optString("error"),false);return;}
         String name=home.optJSONObject("plan")==null?"":home.optJSONObject("plan").optString("name");
         title=home.optBoolean("demo")?(name.isEmpty()?"Demo home":name):"Your home";
         JSONObject state=home.optJSONObject("state"),lights=state==null?null:state.optJSONObject("lights");int on=0,total=lights==null?0:lights.length();if(lights!=null){Iterator<String> keys=lights.keys();while(keys.hasNext())if(lights.optJSONObject(keys.next()).optBoolean("on"))on++;}
         boolean ready=home.optBoolean("controlReady");String lit=on==0?"All lights off":on+" of "+total+" lights on";
-        if(System.currentTimeMillis()<warningUntil)setStatus("Some devices did not respond",false);
-        else if(!ready)setStatus("Connect Smart Life in House Control",false);
+        if(!ready)setStatus("Connect Smart Life in House Control",false);
         else if(!home.optString("cloudError").isEmpty())setStatus(lit+" · Reconnecting",false);
         else if(home.optLong("lastPoll")==0)setStatus("Updating from Smart Life…",true);
         else setStatus(home.optBoolean("demo")?lit+" · Demo":lit,true);
-        if(!revision.equals(home.optString("revision"))){revision=home.optString("revision");renderScenes(home.optJSONObject("plan"));}
+        if(read.home!=null&&!revision.equals(read.home.revision)){revision=read.home.revision;renderScenes(read.home.scenes);}
         String selected=state==null?"":state.optString("scene");for(SceneTile t:scenes){boolean s=t.id.equals(selected);if(s!=t.selected){t.selected=s;t.paint();}}
         model.evaluateJavascript("window.widgetRefresh && window.widgetRefresh()",null);
         // Polls change timestamps every few seconds; only a change the picture shows (lights, ACs) repaints it.
         String look=String.valueOf(state);if(!look.equals(pictured)){pictured=look;handler.removeCallbacks(repaint);handler.postDelayed(repaint,250);}
     }
-    void renderScenes(JSONObject plan){
+    void renderScenes(List<HouseScenes.Scene> all){
         boolean hadFocus=false;for(SceneTile t:scenes)hadFocus|=t.hasFocus();
-        row.removeAllViews();scenes.clear();JSONArray list=plan==null?null:plan.optJSONArray("scenes");
-        ArrayList<String[]> all=new ArrayList<>(),shown=new ArrayList<>();
-        if(list==null||list.length()==0)all.addAll(Arrays.asList(new String[][]{{"bright","Bright","sun"},{"cozy","Cozy","sofa"},{"movie","Movie","film"},{"night","Night","moon"},{"away","Away","door"}}));
-        else for(int i=0;i<list.length();i++){JSONObject s=list.optJSONObject(i);all.add(new String[]{s.optString("id"),s.optString("name",s.optString("id")),s.optString("icon","sun")});}
-        if(shortcuts.isEmpty())shown=all;else for(String id:shortcuts)for(String[] s:all)if(s[0].equals(id))shown.add(s);
-        for(int i=0;i<Math.min(5,shown.size());i++)addScene(shown.get(i)[0],shown.get(i)[1],shown.get(i)[2]);
+        row.removeAllViews();scenes.clear();
+        ArrayList<HouseScenes.Scene> shown=new ArrayList<>();
+        if(shortcuts.isEmpty())shown.addAll(all);else for(String id:shortcuts)for(HouseScenes.Scene s:all)if(s.id.equals(id))shown.add(s);
+        for(int i=0;i<Math.min(5,shown.size());i++){HouseScenes.Scene s=shown.get(i);addScene(s.id,s.name,s.icon.isEmpty()?"sun":s.icon);}
         for(int i=0;i<scenes.size();i++){final int index=i;SceneTile t=scenes.get(i);t.setOnKeyListener((v,key,event)->{if(event.getAction()!=KeyEvent.ACTION_DOWN)return false;
             if(key==KeyEvent.KEYCODE_DPAD_UP){callbacks.up();return true;}
             if(key==KeyEvent.KEYCODE_DPAD_DOWN){callbacks.down(centerX(t));return true;}
             if(key==KeyEvent.KEYCODE_DPAD_LEFT){if(index>0)scenes.get(index-1).requestFocus();else callbacks.edge(-1);return true;}
             if(key==KeyEvent.KEYCODE_DPAD_RIGHT){if(index+1<scenes.size())scenes.get(index+1).requestFocus();else cover.requestFocus();return true;}
             return false;});}
-        if(hadFocus&&!scenes.isEmpty())scenes.get(0).requestFocus();
+        if(hadFocus)focusFirstScene();
     }
     void addScene(String id,String name,String icon){SceneTile t=new SceneTile(id,name,icon);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(px(SCENE_W),px(SCENE_H));if(!scenes.isEmpty())lp.leftMargin=px(SCENE_GAP);row.addView(t,lp);scenes.add(t);}
-    void runScene(String id,String name){if(commandBusy)return;if(current==null||!current.optBoolean("controlReady")){callbacks.open();return;}commandBusy=true;for(SceneTile t:scenes)t.paint();setStatus("Setting "+name+"…",true);
-        final boolean demo=current.optBoolean("demo");worker.execute(()->{try{JSONObject result=transact(demo?4:2,id);handler.post(()->{if(!attached)return;commandBusy=false;if(result.has("error")){warningUntil=System.currentTimeMillis()+15000;setStatus("Some devices did not respond",false);Toast.makeText(activity,result.optString("error"),Toast.LENGTH_LONG).show();}else{warningUntil=0;JSONObject home=result.optJSONObject("home");if(home!=null){snapshot=home.toString();update(home);}handler.removeCallbacks(repaint);reveal(()->callbacks.sceneApplied(id));}for(SceneTile t:scenes)t.paint();if(result.has("error"))handler.post(repaint);fetch();});}catch(Exception error){handler.post(()->{commandBusy=false;for(SceneTile t:scenes)t.paint();if(attached)Toast.makeText(activity,"Could not apply scene. Open House Control.",Toast.LENGTH_LONG).show();});}});
-    }
-    float tvX=.5f,tvY=.5f;
     /** Reads the model as a picture (with transparency). settled=true jumps light fades to their end first. */
     void capture(boolean settled,java.util.function.Consumer<Bitmap> done){
         model.evaluateJavascript("window.widgetSnapshot && window.widgetSnapshot("+settled+")",value->{
@@ -229,44 +219,12 @@ final class HouseWidgets extends FrameLayout {
             worker.execute(()->{Bitmap bitmap=null;try{
                 JSONObject o=new JSONObject(new JSONTokener(value).nextValue().toString());
                 String data=o.optString("image");byte[] bytes=android.util.Base64.decode(data.substring(data.indexOf(',')+1),android.util.Base64.DEFAULT);
-                bitmap=BitmapFactory.decodeByteArray(bytes,0,bytes.length);JSONObject tv=o.optJSONObject("tv");
-                if(tv!=null){tvX=(float)tv.optDouble("x",.5);tvY=(float)tv.optDouble("y",.5);}
+                bitmap=BitmapFactory.decodeByteArray(bytes,0,bytes.length);
             }catch(Exception ignored){}final Bitmap result=bitmap;
-            handler.post(()->{if(attached&&result!=null){lastPicture[callbacks.light()?1:0]=result;lastTvX=tvX;lastTvY=tvY;}done.accept(attached?result:null);});});
+            handler.post(()->{if(attached&&result!=null)lastPicture[callbacks.light()?1:0]=result;done.accept(attached?result:null);});});
         });
     }
-    /** Shows the scene's light state with a soft cross-fade; done once it has landed. */
-    void reveal(Runnable done){
-        if(!shown){done.run();return;}
-        capture(true,b->{if(b==null){done.run();return;}
-            after.animate().cancel();after.setImageBitmap(b);after.setAlpha(0f);after.setVisibility(View.VISIBLE);
-            after.animate().alpha(1).setDuration(callbacks.motion()?650:0).setInterpolator(ease).withEndAction(()->{still.setImageBitmap(b);after.setVisibility(View.GONE);done.run();}).start();});
-    }
-    /** The model's frame becomes the screen and pushes in toward the modelled TV; a dark room fades in behind it. */
-    void portalToTV(int duration){
-        portal=true;
-        card.animate().cancel();card.setScaleX(1);card.setScaleY(1);card.setTranslationY(0);
-        int[] location=new int[2];card.getLocationOnScreen(location);setTranslationZ(px(60));card.setPivotX(0);card.setPivotY(0);
-        openHint.animate().alpha(0).setDuration(160).start();statusRow.animate().alpha(0).setDuration(160).start();ground.animate().alpha(0).setDuration(240).start();
-        PathInterpolator glide=new PathInterpolator(.6f,0f,.2f,1f);
-        float sx=screenW()/(float)card.getWidth(),sy=screenH()/(float)card.getHeight();
-        backdrop.animate().alpha(1).setDuration(Math.round(duration*.45f)).setInterpolator(ease).start();
-        still.setPivotX(tvX*card.getWidth());still.setPivotY(tvY*card.getHeight());
-        still.animate().scaleX(2.4f).scaleY(2.4f).setDuration(duration).setInterpolator(new PathInterpolator(.5f,0f,.3f,1f)).withLayer().start();
-        card.animate().translationX(-location[0]).translationY(-location[1]).scaleX(sx).scaleY(sy).setDuration(duration).setInterpolator(glide).withLayer().start();
-    }
-    /** Scenes and status step back while the model takes the screen. */
-    void fadeControls(int ms){for(View v:new View[]{row,statusRow})v.animate().alpha(0).setDuration(ms).withLayer().start();}
     void resetModelTransform(){model.animate().cancel();model.setScaleX(px(CARD_W)/(float)screenW());model.setScaleY(px(H)/(float)screenH());model.setTranslationY(0);}
-    void resetPortal(){
-        portal=false;still.animate().cancel();still.setScaleX(1);still.setScaleY(1);still.setAlpha(1f);still.setTranslationY(0);after.setVisibility(View.GONE);
-        for(View v:new View[]{row,statusRow,ground}){v.animate().cancel();v.setAlpha(1);}
-        backdrop.animate().cancel();backdrop.setAlpha(0);
-        card.animate().cancel();card.setScaleX(1);card.setScaleY(1);card.setTranslationX(0);card.setTranslationY(0);card.setPivotX(px(CARD_W/2));card.setPivotY(px(H*.62f));
-        setTranslationZ(0);resetModelTransform();openHint.setAlpha(0);
-        if(cover.hasFocus()){card.setScaleX(1.06f);card.setScaleY(1.06f);card.setTranslationY(-px(4));openHint.setAlpha(1);statusRow.setAlpha(0);}
-        model.evaluateJavascript("window.widgetResetCamera && window.widgetResetCamera()",null);
-    }
     void focusCover(){cover.requestFocus();}
     void focusFirstScene(){if(!scenes.isEmpty())scenes.get(0).requestFocus();else cover.requestFocus();}
     void focusLastScene(){if(!scenes.isEmpty())scenes.get(scenes.size()-1).requestFocus();}
