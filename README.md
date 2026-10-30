@@ -28,7 +28,7 @@ works on any Android TV.
   there. Moving to an app shows its name and a line about it; hold OK on any app to show it on Home, move it or
   hide it.
 - **Home widgets, page by page.** Above your apps, Home can show *Up Next* (the shows and videos you were
-  watching, from the Continue watching list that YouTube, Netflix and other apps share with Android TV: OK
+  watching, from the Continue watching list that YouTube, Plex and other apps share with Android TV: OK
   resumes where you stopped), *Weather* (now, the next hours or the coming days), *Now Playing* (music playing on
   the TV, with play, pause and skip), *Inputs* (on a TV: its HDMI ports and live TV; a PlayStation, Xbox, Nintendo
   Switch, Apple TV, Chromecast, Fire TV, soundbar and more are recognised over HDMI-CEC and shown under their own
@@ -47,7 +47,7 @@ works on any Android TV.
 - **Your smart home, if you have one.** The scene block appears only when
   [House Control TV](https://github.com/0xProbabillity/house-control-tv) is installed: Home then also shows five
   round scene buttons and a live 3D model of your home floating on the wallpaper, and a scene can open an app as
-  the lights go down (*Movie* starts Netflix). Without it, Home is just your greeting and favourites over the wallpaper, and Luma picks House
+  the lights go down (*Movie* starts Plex). Without it, Home is just your greeting and favourites over the wallpaper, and Luma picks House
   Control up as soon as you install it.
 - **Easy to leave.** Settings → *Home screen* hands Home back to your TV's own launcher, and
   `./luma.sh restore` undoes everything the installer changed.

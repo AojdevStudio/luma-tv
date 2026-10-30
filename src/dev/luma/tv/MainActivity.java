@@ -22,6 +22,8 @@ import org.json.*;
 /** An offline, remote-first home screen. No network, analytics, or accessibility service. */
 public final class MainActivity extends Activity {
     private final ExecutorService loader = Executors.newSingleThreadExecutor();
+    /** Health checks run here, never on the main thread: package and storage queries can block. */
+    private final ExecutorService healthReads = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<App> apps = new ArrayList<>();
     private final ArrayList<View> tabs = new ArrayList<>();
@@ -86,7 +88,7 @@ public final class MainActivity extends Activity {
             handler.postDelayed(this, 15000);
         }
     };
-    private static final String[] FIRST = {"com.google.android.youtube.tv", "com.netflix.ninja", "com.amazon.amazonvideo.livingroom", "com.disney.disneyplus", "com.spotify.tv.android", "com.google.android.youtube.tvmusic"};
+    private static final String[] FIRST = {"com.google.android.youtube.tv", "com.plexapp.android", "com.amazon.amazonvideo.livingroom", "com.disney.disneyplus", "com.spotify.tv.android", "com.google.android.youtube.tvmusic"};
     private static final String[] DEFAULT_HIDDEN = {"tv.pluto.android", "com.tcl.videoplayer", "com.google.android.play.games", "com.tcl.waterfall.overseas", "com.haystack.android"};
 
     @Override public void onCreate(Bundle state) {
@@ -132,7 +134,7 @@ public final class MainActivity extends Activity {
         wallpaper.pauseAmbient();wallpaper.rest();
     }
     @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused);if(wallpaper!=null)wallpaper.syncAmbient(); }
-    @Override protected void onDestroy() { try{unregisterReceiver(packages);}catch(IllegalArgumentException ignored){} if(wallpaper!=null){wallpaper.pauseAmbient();wallpaper.surfaceThread.quitSafely();}super.onDestroy(); handler.removeCallbacksAndMessages(null); loader.shutdownNow(); if(sonic!=null)sonic.release(); }
+    @Override protected void onDestroy() { try{unregisterReceiver(packages);}catch(IllegalArgumentException ignored){} if(wallpaper!=null){wallpaper.pauseAmbient();wallpaper.surfaceThread.quitSafely();}super.onDestroy(); handler.removeCallbacksAndMessages(null); loader.shutdownNow(); healthReads.shutdownNow(); if(sonic!=null)sonic.release(); }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         String look=intent.getStringExtra("luma.daylight");
@@ -558,16 +560,17 @@ public final class MainActivity extends Activity {
         homeGreeting=false;setHero(app.pkg,app.label,app.description);
     }
 
-    private void launch(App app) {
+    private boolean launch(App app) {
         try {
             Intent intent=getPackageManager().getLeanbackLaunchIntentForPackage(app.pkg);
             if (intent==null) intent=getPackageManager().getLaunchIntentForPackage(app.pkg);
             if (intent==null) throw new ActivityNotFoundException();
             sound(); startActivity(intent);overridePendingTransition(0,0);remember(app.pkg);
-        } catch (RuntimeException error) { Toast.makeText(this,"Could not open this app. It may be updating.",Toast.LENGTH_SHORT).show(); discover(); }
+            return true;
+        } catch (RuntimeException error) { Toast.makeText(this,"Could not open this app. It may be updating.",Toast.LENGTH_SHORT).show(); discover(); return false; }
     }
 
-    private String sceneApp(String scene){try{JSONObject saved=new JSONObject(prefs.getString("scene_app_packages","{}"));if(saved.has(scene))return saved.optString(scene);}catch(Exception ignored){}return scene.equals("movie")?"com.netflix.ninja":"";}
+    private String sceneApp(String scene){try{JSONObject saved=new JSONObject(prefs.getString("scene_app_packages","{}"));if(saved.has(scene))return saved.optString(scene);}catch(Exception ignored){}return scene.equals("movie")?"com.plexapp.android":"";}
     private String appLabel(String pkg){if(pkg.isEmpty())return "None";for(App app:apps)if(app.pkg.equals(pkg))return app.label;return pkg;}
     /* ---------- overlays: menus, notices and the wallpaper picker (no stock dialogs) ---------- */
     private View nav(){return (View)tabs.get(0).getParent().getParent();}
@@ -842,13 +845,13 @@ public final class MainActivity extends Activity {
             ()->preview(0,"Home widgets","Choose what Home shows above your apps — "+(house?"Smart Home, ":"")+"Up Next, Weather, "+(InputsWidget.count>0?"Inputs, ":"")+"Now Playing and Control — and their order. Left and Right turn the pages.")));
         controls.add(option(list,"Temperature",()->new String[]{"Automatic","Celsius","Fahrenheit"}[unitIndex()],null,this::temperatureMenu,
             ()->preview(0,"Temperature","Weather in Celsius or Fahrenheit. Automatic follows the TV's region. The forecast uses your saved location when set. Otherwise it uses the TV's time zone.")));
-        if(house)controls.add(option(list,"Scene apps",()->"Choose",null,this::sceneApps,()->preview(0,"Scene apps","Open an app after a scene — Movie can start Netflix as the lights go down.")));
+        if(house)controls.add(option(list,"Scene apps",()->"Choose",null,this::sceneApps,()->preview(0,"Scene apps","Open an app after a scene — Movie can start Plex as the lights go down.")));
         controls.add(option(list,"Home screen",()->lumaIsHome()?"Luma":"TV default",null,this::homeScreen,
             ()->preview(0,"Home screen",lumaIsHome()?"Luma opens when you press Home. Choose to return to your TV's own home screen.":"Your TV's own home screen opens when you press Home.")));
         caption(list,"System",false);
         capabilitiesRow=controls.size();
         controls.add(option(list,"Capabilities",this::capabilitySummary,null,this::capabilityCenter,
-            ()->preview(0,"Capabilities","Safe TV actions with a preview, confirmation and a local result.")));
+            ()->preview(0,"Capabilities","Safe TV actions, plain requests and the TV's health. Every action shows a preview and asks first.")));
         controls.add(option(list,"Device settings",()->"",null,()->startActivity(new Intent(Settings.ACTION_SETTINGS)),()->preview(0,"Device settings","Network, picture, sound and accounts.")));
         controls.add(option(list,"Support the author",()->"",null,this::supportScreen,()->preview(0,"Support the author","Luma is free and has no ads. A tip in crypto helps it grow.")));
         controls.add(option(list,"About Luma",()->"",null,this::aboutScreen,()->preview(0,"About Luma","Version "+version()+" · made by "+about("author"))));
@@ -1009,47 +1012,198 @@ public final class MainActivity extends Activity {
         public void showClock(boolean shown){edit.putBoolean("clock",shown);}
         public void showWidget(String id,boolean on){HashSet<String> off=new HashSet<>();for(String value:prefs.getString("widget_off","").split(","))if(!value.isEmpty())off.add(value);if(on)off.remove(id);else off.add(id);edit.putString("widget_off",String.join(",",off));}
         public void remember(String line){edit.putString(Capabilities.LAST,line);}
+        public Commands.Registry registry(){return commandRegistry();}
+        public boolean openApp(String pkg){App app=appIndex.get(pkg);return app!=null&&launch(app);}
+        public void selectTab(String id){showPage(id,false);}
     }
-    private void capabilityCenter(){new CapabilityCenter();}
+    private Commands.Registry commandRegistry(){
+        ArrayList<Commands.Target> targets=new ArrayList<>();
+        for(App app:appIndex.values())if(!app.label.trim().isEmpty())targets.add(new Commands.Target(Commands.Kind.APP,app.pkg,app.label,true));
+        String[] tabIds={"home","apps","settings"},tabNames={"Home","Apps","Settings"};
+        for(int i=0;i<tabIds.length;i++)targets.add(new Commands.Target(Commands.Kind.TAB,tabIds[i],tabNames[i],true));
+        boolean inputs=!InputsWidget.list(this).isEmpty();
+        for(String id:WidgetBoard.IDS)targets.add(new Commands.Target(Commands.Kind.WIDGET,id,WidgetBoard.title(id),id.equals("house")?house:!id.equals("inputs")||inputs));
+        targets.addAll(sceneTargets());
+        return new Commands.Registry(targets);
+    }
+    private ArrayList<Commands.Target> sceneTargets(){
+        ArrayList<Commands.Target> targets=new ArrayList<>();
+        JSONObject plan=house&&lastHome!=null?lastHome.optJSONObject("plan"):null;
+        JSONArray scenes=plan==null?null:plan.optJSONArray("scenes");
+        for(int i=0;scenes!=null&&i<scenes.length();i++){JSONObject scene=scenes.optJSONObject(i);if(scene==null)continue;
+            String id=scene.optString("id").trim(),name=scene.optString("name").trim();if(!id.isEmpty()&&!name.isEmpty())targets.add(new Commands.Target(Commands.Kind.SCENE,id,name,false));}
+        return targets;
+    }
+    private void capabilityCenter(){new CapabilityCenter(CapabilityPanel.Section.ACTIONS,false);}
     private final class CapabilityCenter {
-        final FrameLayout panel,pane;
-        final LinearLayout list;
-        final TextView paneTitle,paneBody,status,last;
+        final boolean dark=prefs.getBoolean("capability_dark",false);
+        final int paper=dark?Color.BLACK:Color.WHITE,ink=dark?Color.WHITE:0xFF1D1D1F,soft=dark?0xB3FFFFFF:0xFF5B6472,rest=dark?0x1FFFFFFF:0x0F000000,chosen=dark?0x4DFFFFFF:0x29000000;
+        final List<CapabilityPanel.Section> shown=CapabilityPanel.sections(house);
+        final CapabilityPanel.Health health=new CapabilityPanel.Health();
+        final FrameLayout panel,items,pane;
+        final LinearLayout sections=new LinearLayout(MainActivity.this),list=new LinearLayout(MainActivity.this);
+        final TextView last,theme,paneTitle,paneBody,status,primary,secondary;
+        final ArrayList<TextView> sectionRows=new ArrayList<>(),rows=new ArrayList<>();
         final ArrayList<Capabilities.Action> actions=new ArrayList<>();
-        final ArrayList<TextView> rows=new ArrayList<>();
-        TextView confirm,cancel,close;
+        CapabilityPanel.Section section;
+        HealthSnapshot.Metric selectedMetric=HealthSnapshot.Metric.MEMORY;
+        TextView chosenRow,previewButton;
+        EditText field;
+        Runnable primaryAction,secondaryAction;
         Capabilities.Action pending;
+        View opener;
         boolean confirming;
-        int selected;
-        CapabilityCenter(){
+        CapabilityCenter(CapabilityPanel.Section start,boolean focusTheme){
             capabilityOverlay=this;
             FrameLayout o=openOverlay(0xB3000000);
-            overlayCancel=()->{capabilityOverlay=null;showPage("settings",false);controlsFocus(capabilitiesRow);};
-            panel=new FrameLayout(MainActivity.this);panel.setBackground(shape(0xF51C1C1E,24));panel.setElevation(px(24));panel.setClipChildren(false);o.addView(panel,new FrameLayout.LayoutParams(px(820),px(420),Gravity.CENTER));
-            panel.addView(text("Capabilities",24,Color.WHITE,"sans-serif-medium"),pos(400,32,28,24));
-            last=text(lastLine(),12.5f,0xB3FFFFFF,"sans-serif");last.setSingleLine(true);panel.addView(last,pos(760,20,28,59));
-            list=new LinearLayout(MainActivity.this);list.setOrientation(LinearLayout.VERTICAL);list.setPadding(px(8),0,px(8),0);list.setClipChildren(false);list.setClipToPadding(false);panel.addView(list,pos(330,250,24,94));
-            pane=new FrameLayout(MainActivity.this);pane.setBackground(shape(0x18FFFFFF,16));pane.setClipToOutline(true);panel.addView(pane,pos(430,300,370,94));
-            paneTitle=text("",18,Color.WHITE,"sans-serif-medium");pane.addView(paneTitle,pos(390,28,20,18));
-            paneBody=text("",13,0xC7FFFFFF,"sans-serif");paneBody.setLineSpacing(px(4),1);pane.addView(paneBody,pos(380,86,20,58));
-            status=text("",13,0xFF8FD6A3,"sans-serif-medium");status.setSingleLine(true);pane.addView(status,pos(380,26,20,194));
-            fill();
-            root.post(()->{if(!rows.isEmpty())rows.get(0).requestFocus();});
+            overlayCancel=()->{capabilityOverlay=null;health.close();if(page.equals("settings")){showPage("settings",false);controlsFocus(capabilitiesRow);}else showPage(page,true);};
+            panel=new FrameLayout(MainActivity.this);GradientDrawable bg=shape(paper,24);if(dark)bg.setStroke(Math.max(1,px(1)),0x40FFFFFF);panel.setBackground(bg);panel.setElevation(px(24));
+            o.addView(panel,new FrameLayout.LayoutParams(px(900),px(480),Gravity.CENTER));
+            panel.addView(text("Capabilities",24,ink,"sans-serif-medium"),pos(500,32,28,22));
+            last=text(lastLine(),12.5f,soft,"sans-serif");last.setSingleLine(true);panel.addView(last,pos(840,18,28,58));
+            sections.setOrientation(LinearLayout.VERTICAL);panel.addView(sections,pos(170,shown.size()*50,20,92));
+            for(int i=0;i<shown.size();i++){final CapabilityPanel.Section s=shown.get(i);TextView row=control(s.label,false);onFocus(row,i,()->select(s));sections.addView(row,rowParams());sectionRows.add(row);}
+            theme=control(dark?"Dark mode   On":"Dark mode   Off",false);onFocus(theme,4,()->{});theme.setOnClickListener(v->{sound();toggleTheme();});panel.addView(theme,pos(170,44,20,416));
+            items=new FrameLayout(MainActivity.this);panel.addView(items,pos(300,370,206,92));
+            list.setOrientation(LinearLayout.VERTICAL);
+            pane=new FrameLayout(MainActivity.this);pane.setBackground(shape(rest,16));panel.addView(pane,pos(358,370,522,92));
+            paneTitle=text("",18,ink,"sans-serif-medium");paneTitle.setSingleLine(true);paneTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);pane.addView(paneTitle,pos(318,26,20,18));
+            paneBody=text("",13.5f,ink,"sans-serif");paneBody.setLineSpacing(px(4),1);pane.addView(paneBody,pos(318,150,20,56));
+            status=text("",13,ink,"sans-serif-medium");status.setMaxLines(2);pane.addView(status,pos(318,40,20,220));
+            primary=control("",true);primary.setOnClickListener(v->{sound();primaryAction.run();});pane.addView(primary,pos(150,42,20,306));
+            secondary=control("",true);secondary.setOnClickListener(v->{sound();secondaryAction.run();});pane.addView(secondary,pos(150,42,186,306));
+            primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);
+            select(shown.contains(start)?start:shown.get(0));
+            final View first=focusTheme?theme:chosenRow;root.post(first::requestFocus);
         }
+        LinearLayout.LayoutParams rowParams(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,px(44));p.bottomMargin=px(6);return p;}
+        TextView control(String label,boolean center){
+            TextView v=text(label,14,ink,"sans-serif-medium");v.setGravity(center?Gravity.CENTER:Gravity.CENTER_VERTICAL);if(!center)v.setPadding(px(14),0,px(10),0);
+            v.setSingleLine(true);v.setEllipsize(android.text.TextUtils.TruncateAt.END);v.setFocusable(true);v.setFocusableInTouchMode(true);v.setSoundEffectsEnabled(false);v.setContentDescription(label);
+            v.setOnFocusChangeListener((x,f)->paint(v));paint(v);return v;
+        }
+        void paint(TextView v){boolean f=v.hasFocus();v.setBackground(shape(f?ink:v==chosenRow?chosen:rest,12));v.setTextColor(f?paper:ink);}
+        void onFocus(TextView v,int step,Runnable then){v.setOnFocusChangeListener((x,f)->{paint(v);if(!f)return;dropPending();navigationSound(step);then.run();});}
+        void dropPending(){if(confirming)status.setText("Cancelled. Nothing ran.");pending=null;confirming=false;hideButtons();}
         String lastLine(){Capabilities.Result result=Capabilities.Result.parse(prefs.getString(Capabilities.LAST,null));return result==null?"No capability has run on this TV yet.":"Last: "+result.message;}
-        void fill(){
-            list.removeAllViews();rows.clear();actions.clear();actions.addAll(Capabilities.list(new CapabilityTv()));
-            for(int i=0;i<actions.size();i++){final int index=i;Capabilities.Action action=actions.get(i);TextView row=text(action.name,14.5f,Color.WHITE,"sans-serif-medium");row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(px(16),0,px(12),0);row.setFocusable(true);row.setFocusableInTouchMode(true);row.setAlpha(action.available()?1:.5f);row.setContentDescription(action.name);row.setBackground(shape(0x14FFFFFF,12));row.setOnFocusChangeListener((v,f)->{row.setBackground(shape(f?0xFAFFFFFF:0x14FFFFFF,12));row.setTextColor(f?0xFF111827:Color.WHITE);if(f){selected=index;showAction(actions.get(index));navigationSound(index);}});row.setOnClickListener(v->{sound();Capabilities.Action current=actions.get(index);if(!current.available()){showUnavailable(current);return;}ask(current);});list.addView(row,new LinearLayout.LayoutParams(-1,px(54)));rows.add(row);}
-            if(!actions.isEmpty())showAction(actions.get(0));
+        void select(CapabilityPanel.Section next){
+            TextView was=chosenRow;chosenRow=sectionRows.get(shown.indexOf(next));if(was!=null)paint(was);paint(chosenRow);
+            if(next==section){relink();return;}
+            section=next;dropPending();opener=null;
+            items.removeAllViews();list.removeAllViews();rows.clear();actions.clear();field=null;previewButton=null;
+            switch(next){
+                case ACTIONS:items.addView(list,new FrameLayout.LayoutParams(-1,-1));fillRows(Capabilities.list(new CapabilityTv()));break;
+                case ASK:askControls();break;
+                case SCENES:{
+                    ArrayList<Capabilities.Action> scenes=new ArrayList<>();for(Commands.Target scene:sceneTargets())scenes.add(Capabilities.scene(scene));
+                    if(!scenes.isEmpty()){items.addView(list,new FrameLayout.LayoutParams(-1,-1));fillRows(scenes);break;}
+                    TextView note=text("Open Home once so Luma can load your scenes from House Control.",13,soft,"sans-serif");note.setLineSpacing(px(4),1);items.addView(note,pos(290,80,6,8));
+                    pane("Scenes","Scenes come from House Control TV.","");break;
+                }
+                case HEALTH:healthControls();break;
+            }
+            relink();
         }
-        void showAction(Capabilities.Action action){paneTitle.setText(action.name);paneBody.setText(action.available()?action.preview:action.unavailable);status.setText(action.available()?"Asks before it runs.":"Unavailable");confirming=false;hideButtons();}
-        void showUnavailable(Capabilities.Action action){paneTitle.setText(action.name);paneBody.setText(action.unavailable);status.setText("Not run. Nothing changed.");hideButtons();}
-        void ask(Capabilities.Action action){pending=action;confirming=true;paneTitle.setText(action.name);paneBody.setText(action.preview);status.setText("Confirm this change.");if(confirm==null){confirm=button("Confirm",this::runPending);cancel=button("Cancel",this::cancel);pane.addView(confirm,pos(150,42,20,242));pane.addView(cancel,pos(150,42,190,242));}confirm.setVisibility(View.VISIBLE);cancel.setVisibility(View.VISIBLE);if(close!=null)close.setVisibility(View.GONE);confirm.requestFocus();}
-        TextView button(String label,Runnable action){TextView b=text(label,13.5f,Color.WHITE,"sans-serif-medium");b.setGravity(Gravity.CENTER);b.setFocusable(true);b.setFocusableInTouchMode(true);b.setBackground(shape(0x2EFFFFFF,12));b.setOnFocusChangeListener((v,f)->{b.setBackground(shape(f?0xFAFFFFFF:0x2EFFFFFF,12));b.setTextColor(f?0xFF111827:Color.WHITE);});b.setOnClickListener(v->{sound();action.run();});return b;}
-        void hideButtons(){if(confirm!=null)confirm.setVisibility(View.GONE);if(cancel!=null)cancel.setVisibility(View.GONE);if(close!=null)close.setVisibility(View.GONE);}
-        void runPending(){if(pending==null)return;CapabilityTv tv=new CapabilityTv();Capabilities.Result result=Capabilities.run(pending,tv,System.currentTimeMillis());tv.edit.apply();clock.setVisibility(prefs.getBoolean("clock",true)?View.VISIBLE:View.GONE);refreshActions();last.setText(lastLine());confirming=false;if(confirm!=null)confirm.setVisibility(View.GONE);if(cancel!=null)cancel.setVisibility(View.GONE);if(close==null){close=button("Close",()->closeOverlay(true));pane.addView(close,pos(150,42,105,242));}close.setVisibility(View.VISIBLE);close.requestFocus();paneTitle.setText(pending.name);paneBody.setText(pending.preview);status.setText(result.done?"Done. "+result.message:"Not run. "+result.message);}
-        void refreshActions(){ArrayList<Capabilities.Action> fresh=new ArrayList<>(Capabilities.list(new CapabilityTv()));for(int i=0;i<fresh.size()&&i<rows.size();i++){actions.set(i,fresh.get(i));TextView row=rows.get(i);row.setText(fresh.get(i).name);row.setContentDescription(fresh.get(i).name);row.setAlpha(fresh.get(i).available()?1:.5f);}}
-        void cancel(){if(!confirming)return;pending=null;confirming=false;showAction(actions.get(selected));if(selected<rows.size())rows.get(selected).requestFocus();}
+        void fillRows(List<Capabilities.Action> from){
+            actions.addAll(from);
+            for(int i=0;i<actions.size();i++){final int index=i;Capabilities.Action action=actions.get(i);TextView row=control(action.name,false);row.setAlpha(action.available()?1:.5f);
+                onFocus(row,i,()->showAction(actions.get(index)));row.setOnClickListener(v->{sound();choose(actions.get(index),row);});list.addView(row,rowParams());rows.add(row);}
+            showAction(actions.get(0));
+        }
+        void askControls(){
+            field=new EditText(MainActivity.this);field.setSingleLine(true);field.setHint("open Plex");field.setHintTextColor(soft);field.setTextColor(ink);field.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(15));
+            field.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});field.setPadding(px(14),0,px(14),0);
+            field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE|android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);field.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+            final EditText f=field;Runnable ring=()->{GradientDrawable b=shape(rest,12);if(f.hasFocus())b.setStroke(Math.max(1,px(1.5f)),ink);f.setBackground(b);};ring.run();
+            field.setOnFocusChangeListener((v,focused)->{ring.run();if(focused){dropPending();navigationSound(0);}});
+            field.setOnEditorActionListener((v,action,e)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){interpret();return true;}return false;});
+            items.addView(field,pos(300,46,0,0));
+            previewButton=control("Preview",true);onFocus(previewButton,1,()->{});previewButton.setOnClickListener(v->{sound();interpret();});items.addView(previewButton,pos(300,42,0,56));
+            TextView hint=text("Try open Plex, switch to Apps, show Weather or hide Inputs. OK on the line opens the keyboard.",12.5f,soft,"sans-serif");hint.setLineSpacing(px(4),1);items.addView(hint,pos(296,80,2,114));
+            pane("Ask","Type a short request. Luma shows what it understood and asks before anything runs.","");
+        }
+        void interpret(){
+            ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(field.getWindowToken(),0);
+            Commands.Result result=Commands.interpret(field.getText().toString(),commandRegistry());
+            if(result.status==Commands.Status.READY){choose(Capabilities.of(result.command),previewButton);return;}
+            opener=previewButton;pane("Not run",result.message,"Nothing ran. Edit the request, or cancel it.");
+            buttons("Edit",()->field.requestFocus(),"Cancel",()->{field.setText("");field.requestFocus();status.setText("Cancelled. Nothing ran.");});primary.requestFocus();
+        }
+        void pane(String title,String body,String state){paneTitle.setText(title);paneBody.setText(body);status.setText(state);}
+        void showAction(Capabilities.Action action){pane(action.name,action.available()?action.preview:action.unavailable,action.available()?"Asks before it runs.":"Unavailable");}
+        void choose(Capabilities.Action action,View from){
+            opener=from;
+            if(!action.available()){pane(action.name,action.unavailable,"Not run. Nothing changed.");return;}
+            pending=action;confirming=true;pane(action.name,action.preview,"Confirm this change.");
+            buttons("Confirm",this::runPending,"Cancel",this::cancel);primary.requestFocus();
+        }
+        void runPending(){
+            if(pending==null)return;Capabilities.Action ran=pending;pending=null;confirming=false;
+            CapabilityTv tv=new CapabilityTv();Capabilities.Result result=Capabilities.run(ran,tv,System.currentTimeMillis());tv.edit.apply();
+            clock.setVisibility(prefs.getBoolean("clock",true)?View.VISIBLE:View.GONE);
+            if(section==CapabilityPanel.Section.ACTIONS)refreshActions();
+            last.setText(lastLine());
+            buttons("Close",()->closeOverlay(true),null,null);primary.requestFocus();
+            pane(ran.name,ran.preview,result.done?"Done. "+result.message:"Not run. "+result.message);
+        }
+        void refreshActions(){List<Capabilities.Action> fresh=Capabilities.list(new CapabilityTv());for(int i=0;i<fresh.size()&&i<rows.size();i++){actions.set(i,fresh.get(i));TextView row=rows.get(i);row.setText(fresh.get(i).name);row.setContentDescription(fresh.get(i).name);row.setAlpha(fresh.get(i).available()?1:.5f);}}
+        void cancel(){View back=opener;if(back!=null)back.requestFocus();dropPending();status.setText("Cancelled. Nothing ran.");}
+        void buttons(String a,Runnable ra,String b,Runnable rb){
+            primary.setText(a);primary.setContentDescription(a);primaryAction=ra;primary.setVisibility(View.VISIBLE);
+            if(b==null)secondary.setVisibility(View.GONE);else{secondary.setText(b);secondary.setContentDescription(b);secondaryAction=rb;secondary.setVisibility(View.VISIBLE);}
+            relink();
+        }
+        void hideButtons(){primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);relink();}
+        void healthControls(){
+            items.addView(list,new FrameLayout.LayoutParams(-1,-1));
+            for(HealthSnapshot.Metric metric:HealthSnapshot.Metric.values()){
+                TextView row=control(metric.label,false);
+                onFocus(row,metric.ordinal(),()->{selectedMetric=metric;drawHealth();});
+                row.setOnClickListener(v->{sound();primary.requestFocus();});
+                list.addView(row,rowParams());rows.add(row);
+            }
+            if(health.shown()==null&&!health.stale())measure();else drawHealth();
+        }
+        void measure(){
+            final int request=health.refresh();drawHealth();final Context app=getApplicationContext();
+            healthReads.execute(()->{HealthSnapshot snapshot=HealthReader.read(app);handler.post(()->{if(health.accept(request,snapshot)&&section==CapabilityPanel.Section.HEALTH)drawHealth();});});
+        }
+        void drawHealth(){
+            HealthSnapshot snapshot=health.shown();SimpleDateFormat time=new SimpleDateFormat("HH:mm:ss",Locale.getDefault());
+            for(int i=0;i<rows.size();i++){
+                String state=snapshot==null?"Measuring":health.stale()?"Stale":CapabilityPanel.status(snapshot.readings.get(i).status);
+                String label=HealthSnapshot.Metric.values()[i].label+"   "+state;
+                rows.get(i).setText(label);rows.get(i).setContentDescription(label);
+            }
+            opener=rows.get(selectedMetric.ordinal());
+            if(snapshot==null)pane(selectedMetric.label,"Waiting for Android's measurement.","Measuring…");
+            else{
+                HealthSnapshot.Reading reading=snapshot.readings.get(selectedMetric.ordinal());
+                String[] detail=CapabilityPanel.row(reading,time.format(new Date(reading.at)),health.stale());
+                pane(detail[0],detail[1],health.stale()?"Refreshing. These values are stale.":"");
+            }
+            buttons("Refresh",this::measure,"Back",()->chosenRow.requestFocus());
+        }
+        void toggleTheme(){prefs.edit().putBoolean("capability_dark",!dark).apply();health.close();new CapabilityCenter(section,true);}
+        boolean back(){
+            if(confirming){cancel();return true;}
+            View focused=getCurrentFocus();
+            if(focused==null||sectionRows.contains(focused)||focused==theme)return false;
+            chosenRow.requestFocus();return true;
+        }
+        ArrayList<View> column(){ArrayList<View> column=new ArrayList<>(rows);if(field!=null){column.add(field);column.add(previewButton);}return column;}
+        void relink(){
+            ArrayList<View> column=column();View entry=column.isEmpty()?null:column.get(0);
+            for(int i=0;i<sectionRows.size();i++){View row=sectionRows.get(i);link(row,row,entry==null?row:entry,i==0?row:sectionRows.get(i-1),i+1<sectionRows.size()?sectionRows.get(i+1):theme);}
+            link(theme,theme,entry==null?theme:entry,sectionRows.get(sectionRows.size()-1),theme);
+            boolean buttonsShown=primary.getVisibility()==View.VISIBLE;
+            for(int i=0;i<column.size();i++){View v=column.get(i);link(v,chosenRow,buttonsShown?primary:v,i==0?v:column.get(i-1),i+1<column.size()?column.get(i+1):v);}
+            View back=opener!=null?opener:column.isEmpty()?chosenRow:column.get(0);
+            link(primary,back,secondary.getVisibility()==View.VISIBLE?secondary:primary,primary,primary);
+            link(secondary,primary,secondary,secondary,secondary);
+        }
+        void link(View v,View left,View right,View up,View down){v.setNextFocusLeftId(id(left));v.setNextFocusRightId(id(right));v.setNextFocusUpId(id(up));v.setNextFocusDownId(id(down));}
+        int id(View v){if(v.getId()==View.NO_ID)v.setId(View.generateViewId());return v.getId();}
     }
     @SuppressWarnings("unchecked") private void controlsFocus(int i) { root.post(()-> { Object tag=content.getTag(); if(tag instanceof ArrayList) ((ArrayList<View>)tag).get(i).requestFocus(); }); }
     /** A settings row: either a value with a chevron, or an Apple-style switch bound to a preference. */
@@ -1075,7 +1229,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,px(44));lp.bottomMargin=px(6);parent.addView(row,lp);return row;
     }
     @Override public void onBackPressed() {
-        if (overlay!=null) { if(capabilityOverlay!=null&&capabilityOverlay.confirming){capabilityOverlay.cancel();return;} closeOverlay(true); return; }
+        if (overlay!=null) { if(capabilityOverlay!=null&&capabilityOverlay.back())return; closeOverlay(true); return; }
         if (!page.equals("home")) showPage("home",true);
         else if (board!=null && board.index>0) {board.showPage(0);tabs.get(0).requestFocus();}
         else if (scroll!=null && scroll.getScrollY()>0) {scroll.smoothScrollTo(0,0);if(!tiles.isEmpty())tiles.get(0).requestFocus();}

@@ -159,7 +159,7 @@ class Run:
         self.summary["checks"]["device_names"] = "PASS"
         capability_classes = self.evidence / "capability-classes"
         self.command("capabilities-compile", [JDK / "bin/javac", "--release", "8", "-d", capability_classes,
-                     "src/dev/luma/tv/Capabilities.java", "tools/CapabilitiesTest.java"])
+                     "src/dev/luma/tv/Commands.java", "src/dev/luma/tv/Capabilities.java", "tools/CapabilitiesTest.java"])
         self.command("capabilities-test", [JDK / "bin/java", "-cp", capability_classes, "dev.luma.tv.CapabilitiesTest"])
         self.summary["checks"]["capabilities"] = "PASS"
         weather_classes = self.evidence / "weather-classes"
@@ -167,6 +167,22 @@ class Run:
                      "src/dev/luma/tv/WeatherLocation.java", "tools/WeatherLocationTest.java"])
         self.command("weather-test", [JDK / "bin/java", "-cp", weather_classes, "dev.luma.tv.WeatherLocationTest"])
         self.summary["checks"]["weather_location"] = "PASS"
+        request_classes = self.evidence / "request-classes"
+        self.command("requests-compile", [JDK / "bin/javac", "--release", "8", "-d", request_classes,
+                     "src/dev/luma/tv/Commands.java", "src/dev/luma/tv/VoiceRequests.java",
+                     "tools/CommandsTest.java", "tools/VoiceRequestsTest.java"])
+        self.command("commands-test", [JDK / "bin/java", "-cp", request_classes, "dev.luma.tv.CommandsTest"])
+        self.summary["checks"]["commands"] = "PASS"
+        self.command("voice-test", [JDK / "bin/java", "-cp", request_classes, "dev.luma.tv.VoiceRequestsTest"])
+        self.summary["checks"]["voice_requests"] = "PASS"
+        panel_classes = self.evidence / "panel-classes"
+        self.command("panel-compile", [JDK / "bin/javac", "--release", "8", "-d", panel_classes,
+                     "src/dev/luma/tv/HealthSnapshot.java", "src/dev/luma/tv/CapabilityPanel.java",
+                     "tools/HealthSnapshotTest.java", "tools/CapabilityPanelTest.java"])
+        self.command("health-test", [JDK / "bin/java", "-cp", panel_classes, "dev.luma.tv.HealthSnapshotTest"])
+        self.summary["checks"]["health_snapshot"] = "PASS"
+        self.command("panel-test", [JDK / "bin/java", "-cp", panel_classes, "dev.luma.tv.CapabilityPanelTest"])
+        self.summary["checks"]["capability_panel"] = "PASS"
         if (ROOT / "tools/test_luma.py").is_file():
             self.env["PYTHONDONTWRITEBYTECODE"] = "1"
             self.command("offline-launcher-tests", [sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_luma.py", "-v"])

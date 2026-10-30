@@ -60,7 +60,7 @@ python3 .agents/skills/verify-luma/scripts/verify.py offline --evidence "$HOME/B
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .agents/skills/verify-luma/scripts -p test_verify.py -v
 ```
 
-The offline action runs DevicesTest, CapabilitiesTest, WeatherLocationTest, and `tools/test_luma.py`. If the launcher suite is absent, it reports PARTIAL rather than a pass. The helper tests use fake subprocesses and temporary files. They contact no device.
+The offline action runs DevicesTest, CapabilitiesTest, WeatherLocationTest, CommandsTest, VoiceRequestsTest, HealthSnapshotTest, CapabilityPanelTest, and `tools/test_luma.py`. If the launcher suite is absent, it reports PARTIAL rather than a pass. The helper tests use fake subprocesses and temporary files. They contact no device.
 
 ## Evidence
 
