@@ -1165,6 +1165,7 @@ public final class MainActivity extends Activity {
         void select(CapabilityPanel.Section next){
             TextView was=chosenRow;chosenRow=sectionRows.get(shown.indexOf(next));if(was!=null)paint(was);paint(chosenRow);
             if(next==section){relink();return;}
+            if(section==CapabilityPanel.Section.SCENES)wanted=null;
             section=next;dropPending();opener=null;
             refill();relink();
         }
@@ -1198,13 +1199,13 @@ public final class MainActivity extends Activity {
             fillRows(Capabilities.scenes(new CapabilityTv()));relink();
             if(wanted==null)return;
             String id=wanted;wanted=null;
-            for(int i=0;i<actions.size();i++)if(actions.get(i).id.equals(id)){rows.get(i).requestFocus();choose(actions.get(i),rows.get(i));return;}
+            for(int i=0;i<actions.size();i++)if(actions.get(i).id.equals(id)){rows.get(i).requestFocus();choose(actions.get(i),rows.get(i),false);return;}
             status.setText("That scene is no longer in House Control.");
         }
         void fillRows(List<Capabilities.Action> from){
             actions.addAll(from);
             for(int i=0;i<actions.size();i++){final int index=i;Capabilities.Action action=actions.get(i);TextView row=control(action.name,false);row.setAlpha(action.available()?1:.5f);
-                onFocus(row,i,()->showAction(actions.get(index)));row.setOnClickListener(v->{sound();choose(actions.get(index),row);});list.addView(row,rowParams());rows.add(row);}
+                onFocus(row,i,()->showAction(actions.get(index)));row.setOnClickListener(v->{sound();choose(actions.get(index),row,section==CapabilityPanel.Section.SCENES);});list.addView(row,rowParams());rows.add(row);}
             showAction(actions.get(0));
         }
         EditText entry(String hint,int length,Runnable focused,Runnable done){
@@ -1226,15 +1227,17 @@ public final class MainActivity extends Activity {
         void interpret(){
             ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(field.getWindowToken(),0);
             Commands.Result result=Commands.interpret(field.getText().toString(),commandRegistry());
-            if(result.status==Commands.Status.READY){choose(Capabilities.of(result.command,new CapabilityTv()),previewButton);return;}
+            if(result.status==Commands.Status.READY){choose(Capabilities.of(result.command,new CapabilityTv()),previewButton,false);return;}
             opener=previewButton;pane("Not run",result.message,"Nothing ran. Edit the request, or cancel it.");
             buttons("Edit",()->field.requestFocus(),"Cancel",()->{field.setText("");field.requestFocus();status.setText("Cancelled. Nothing ran.");});primary.requestFocus();
         }
         void pane(String title,String body,String state){paneChanges++;paneTitle.setText(title);paneBody.setText(body);status.setText(state);}
         boolean shows(int pane){return capabilityOverlay==this&&paneChanges==pane&&primary.hasFocus();}
         void showAction(Capabilities.Action action){pane(action.name,action.available()?action.preview:action.unavailable,action.available()?"Asks before it runs.":"Unavailable");}
-        void choose(Capabilities.Action action,View from){
+        /** A Scenes row keeps the action it was built with. With reread, a refused one reads House Control again and asks with the scene as it is now. */
+        void choose(Capabilities.Action action,View from,boolean reread){
             String refused=action.available()?Capabilities.refusal(action,new CapabilityTv()):action.unavailable;
+            if(refused!=null&&reread){wanted=action.id;chosenRow.requestFocus();loadScenes();return;}
             if(refused!=null){opener=from;pane(action.name,refused,"Not run. Nothing changed.");return;}
             ask(action.name,action.preview,"Confirm this change.",from,()->runAction(action));
         }
