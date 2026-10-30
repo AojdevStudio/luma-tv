@@ -16,7 +16,6 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import org.json.*;
 
-/** Open-Meteo forecasts for a manual location or the time zone city, cached for offline Home. */
 final class WeatherWidget extends Widget {
     static final long FRESH=30*60000L;
     static final float PAD=18,SLOTS_Y=114;

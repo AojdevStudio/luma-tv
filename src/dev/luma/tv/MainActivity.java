@@ -1011,7 +1011,6 @@ public final class MainActivity extends Activity {
         public void remember(String line){edit.putString(Capabilities.LAST,line);}
     }
     private void capabilityCenter(){new CapabilityCenter();}
-    /** Settings → Capabilities. Every action shows its effect before confirmation and keeps its last result local. */
     private final class CapabilityCenter {
         final FrameLayout panel,pane;
         final LinearLayout list;

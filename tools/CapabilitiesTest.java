@@ -2,7 +2,6 @@ package dev.luma.tv;
 
 import java.util.List;
 
-/** Checks the user-visible capability policy without Android classes. */
 public final class CapabilitiesTest {
     static int failures;
     static final class FakeTv implements Capabilities.Tv {

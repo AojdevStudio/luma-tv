@@ -3,7 +3,6 @@ package dev.luma.tv;
 import java.util.ArrayList;
 import java.util.List;
 
-/** The user-space allowlist for Luma actions. It has no Android dependency so offline tests can run it directly. */
 final class Capabilities {
     static final String LAST = "capability_last";
 
