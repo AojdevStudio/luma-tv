@@ -1,5 +1,7 @@
 package dev.luma.tv;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Locale;
@@ -46,12 +48,38 @@ final class MediaContext {
 
     static String concise(String raw){
         if(raw==null)return null;
-        String text=raw.replaceAll("(?i)\\S*(?:://|www\\.|mailto:|[a-z0-9.-]+\\.[a-z]{2,}(?::[0-9]+)?[/?#])\\S*"," ").replaceAll("[\\s\\p{Cntrl}]+"," ").trim();
-        if(text.isEmpty())return null;
+        StringBuilder clean=new StringBuilder();
+        int start=0;
+        for(int end=0;end<=raw.length();end++){
+            if(end<raw.length()&&!Character.isWhitespace(raw.charAt(end))&&!Character.isISOControl(raw.charAt(end)))continue;
+            if(start<end){
+                String token=raw.substring(start,end);
+                if(!link(token)){if(clean.length()>0)clean.append(' ');clean.append(token);}
+            }
+            start=end+1;
+        }
+        if(clean.length()==0)return null;
+        String text=clean.toString();
         if(text.length()<=SUMMARY_MAX)return text;
         String head=text.substring(0,SUMMARY_MAX);
         int space=head.lastIndexOf(' ',SUMMARY_MAX-1);
         return (space>0?head.substring(0,space):head.substring(0,SUMMARY_MAX-1))+"…";
+    }
+
+    private static boolean link(String token){
+        String lower=token.toLowerCase(Locale.ROOT);
+        if(lower.contains("://")||lower.contains("www.")||lower.contains("mailto:"))return true;
+        int end=0;
+        while(end<token.length()&&"/?#".indexOf(token.charAt(end))<0)end++;
+        if(end==token.length())return false;
+        int start=0;
+        while(start<end&&"(\"'<{".indexOf(token.charAt(start))>=0)start++;
+        if(start==end)return false;
+        try{
+            URI address=new URI("https://"+token.substring(start,end));
+            String host=address.getHost();
+            return host!=null&&(host.indexOf('.')>=0||host.equalsIgnoreCase("localhost")||address.getPort()>=0||host.startsWith("["));
+        }catch(URISyntaxException invalid){return false;}
     }
 
     static final class Demo {

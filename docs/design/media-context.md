@@ -22,7 +22,7 @@ When no description is shared, the line reads `Summary unavailable. <App> shared
 ## Privacy
 
 - Summaries come only from metadata the app published for display. `MediaListener` still reads no notifications.
-- `MediaContext.concise` removes scheme URLs, `www.` links, `mailto:` links and bare domain paths with their query values. It collapses whitespace and cuts long text at a word within 140 characters. An abbreviation or episode tag does not end the summary.
+- `MediaContext.concise` scans whitespace-separated tokens. It removes scheme URLs, `www.` links, `mailto:` links and provider authority paths with their query values. Java's URI parser recognizes domain, IP and localhost authorities without a network request. Ordinary punctuation remains text. Long summaries stop at a word within 140 characters. An abbreviation or episode tag does not end the summary.
 - The model holds no intent, link, or package token. Up Next keeps the Watch Next intent on its own `Item`, as before.
 
 ## Resume

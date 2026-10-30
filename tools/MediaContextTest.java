@@ -36,6 +36,8 @@ public final class MediaContextTest {
             expect(MediaContext.concise("https://plex.example/?X-Plex-Token=abc123") == null, "a description that is only a link is unavailable");
             expect("Recap at tonight.".equals(MediaContext.watched("Plex", MediaContext.Data.LIVE, 0, 0, "Recap at WWW.example.invalid/?X-Plex-Token=scratch-secret tonight.").summaryText()), "uppercase WWW links and their tokens are removed from published summaries");
             expect("See and".equals(MediaContext.concise("See plex.tv/watch?X-Plex-Token=example and mailto:viewer@example.invalid?token=example")), "scheme-less provider links and mailto links are removed with their query values");
+            for (String host : Arrays.asList("192.168.1.5:32400/library", "localhost:32400/", "plex.example.xn--p1ai/"))
+                expect("Recap tonight.".equals(MediaContext.concise("Recap " + host + "?X-Plex-Token=scratch-secret tonight.")), "provider authority links are removed for " + host);
         });
         check("concise", () -> {
             String longText = "First sentence is here. " + String.join(" ", Collections.nCopies(60, "word")) + ".";
@@ -48,6 +50,9 @@ public final class MediaContextTest {
             }
             String run = MediaContext.concise(String.join(" ", Collections.nCopies(60, "word")));
             expect(run.length() <= MediaContext.SUMMARY_MAX && run.endsWith("…") && !run.contains("wor…"), "a long run-on description ends at a whole word");
+            expect("Wait...what? No.".equals(MediaContext.concise("Wait...what? No.")), "ordinary punctuation is not mistaken for a domain link");
+            String unspaced = String.join("", Collections.nCopies(8000, "a"));
+            expect((unspaced.substring(0, MediaContext.SUMMARY_MAX - 1) + "…").equals(MediaContext.concise(unspaced)), "long unspaced metadata produces the bounded summary");
         });
         check("source", () -> {
             expect("Plex · Demo".equals(MediaContext.watched("Plex", MediaContext.Data.DEMO, 0, 0, null).label()), "the label names the source and demo state");
