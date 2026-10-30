@@ -67,13 +67,22 @@ final class MediaContext {
     private static boolean link(String token){
         String lower=token.toLowerCase(Locale.ROOT);
         if(lower.contains("://")||lower.contains("www.")||lower.contains("mailto:"))return true;
-        int end=0;
-        while(end<token.length()&&"/?#".indexOf(token.charAt(end))<0)end++;
-        if(end==token.length())return false;
+        int start=0;
+        for(int end=0;end<=token.length();end++){
+            boolean finished=end==token.length();
+            if(!finished&&"/?#".indexOf(token.charAt(end))<0)continue;
+            boolean relative=start>=2&&token.charAt(start-1)=='/'&&token.charAt(start-2)=='/';
+            if(start<end&&(!finished||relative)&&authority(token.substring(start,end)))return true;
+            start=end+1;
+        }
+        return false;
+    }
+
+    private static boolean authority(String token){
+        int end=token.length();
         int digits=end;
         while(digits>0&&Character.isDigit(token.charAt(digits-1)))digits--;
-        boolean port=digits<end&&digits>0&&token.charAt(digits-1)==':';
-        if(port)end=digits-1;
+        if(digits<end&&digits>0&&token.charAt(digits-1)==':')end=digits-1;
         if(end>0&&token.charAt(end-1)==']'){
             int bracket=token.lastIndexOf('[',end-1);
             if(bracket>=0&&token.substring(bracket,end).indexOf(':')>=0)return true;
@@ -90,7 +99,6 @@ final class MediaContext {
         if(host.equals("localhost"))return true;
         String[] labels=host.split("\\.",-1);
         for(String label:labels)if(label.isEmpty())return false;
-        if(port)return true;
         if(labels.length<2)return false;
         String suffix=labels[labels.length-1];
         if(suffix.startsWith("xn--")&&suffix.length()>4)return true;

@@ -41,6 +41,12 @@ public final class MediaContextTest {
             for (String host : Arrays.asList("“plex.tv/watch", "[plex.tv/watch", "link:plex.tv/watch", "url=plex.tv/watch", "link:192.168.1.5:32400/library", "my_server.local/library", "bücher.example/library"))
                 expect("Recap tonight.".equals(MediaContext.concise("Recap " + host + "?X-Plex-Token=scratch-secret tonight.")), "punctuated provider links are removed for " + host);
         });
+        check("link rule", () -> {
+            for (String link : Arrays.asList("//plex.tv/watch?token=scratch-secret", "//plex.tv", "Ready?plex.tv/watch?token=scratch-secret", "Ready#plex.tv/watch?token=scratch-secret", "Ready/plex.tv/watch?token=scratch-secret", "Readyplex.tv/watch?token=scratch-secret"))
+                expect("Recap tonight.".equals(MediaContext.concise("Recap " + link + " tonight.")), "links are scrubbed anywhere in a token for " + link);
+            for (String prose : Arrays.asList("8:30/7:30c", "Dr.", "U.S.", "Airs Sundays at 8:30/7:30c.", "Rating:8/10 on IMDb."))
+                expect(prose.equals(MediaContext.concise(prose)), "the link rule preserves " + prose);
+        });
         check("concise", () -> {
             String longText = "First sentence is here. " + String.join(" ", Collections.nCopies(60, "word")) + ".";
             String cut = MediaContext.concise(longText);
