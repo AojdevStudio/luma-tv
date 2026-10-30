@@ -29,6 +29,9 @@ public final class MainActivity extends Activity {
     private final ArrayList<View> tabs = new ArrayList<>();
     private final ArrayList<Tile> tiles = new ArrayList<>();
     private SharedPreferences prefs;
+    /** The layout over Home (HomePresets) and the mode (Profiles). Both are read before the first Home render. */
+    private HomePresets presets;
+    private Profiles profiles;
     private SonicFeedback sonic;
     private HouseWidgets houseWidgets;
     private FrameLayout root, content, hero;
@@ -94,6 +97,8 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = getSharedPreferences("luma", MODE_PRIVATE);
+        HomePresets savedPresets=HomePresets.parse(prefs.getString(HomePresets.KEY,null));presets=savedPresets==null?HomePresets.EMPTY:savedPresets;
+        Profiles savedProfile=Profiles.parse(prefs.getString(Profiles.KEY,null));profiles=savedProfile==null?Profiles.DEFAULT:savedProfile;
         hideDefaultApps();
         unit = getResources().getDisplayMetrics().widthPixels / 960f;
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
@@ -1015,6 +1020,8 @@ public final class MainActivity extends Activity {
         public Commands.Registry registry(){return commandRegistry();}
         public boolean openApp(String pkg){App app=appIndex.get(pkg);return app!=null&&launch(app);}
         public void selectTab(String id){showPage(id,false);}
+        public Profiles profile(){return profiles;}
+        public String homeLayout(){return presets.active.equals(HomePresets.Selection.DEFAULT)?null:presets.active.name();}
     }
     private Commands.Registry commandRegistry(){
         ArrayList<Commands.Target> targets=new ArrayList<>();

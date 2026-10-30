@@ -16,14 +16,22 @@ final class Capabilities {
         Commands.Registry registry();
         boolean openApp(String pkg);
         void selectTab(String id);
+        Profiles profile();
+        /** The layout Home shows instead of the owner's own, or null on Default. Widget changes edit Default only. */
+        String homeLayout();
     }
 
+    /** Apps and tabs are checked through the registry. content is what the mode must allow, and home marks a change
+     *  to the owner's Home widgets, which a layout over Home would hide. */
     enum Capability {
-        CLOCK("clock", null), INPUTS("inputs", null), APP("app", Commands.Kind.APP), TAB("tab", Commands.Kind.TAB),
-        WIDGET("widget", Commands.Kind.WIDGET), SCENE("scene", Commands.Kind.SCENE);
+        CLOCK("clock", null, Profiles.Content.SETTINGS, false), INPUTS("inputs", null, Profiles.Content.SETTINGS, true),
+        APP("app", Commands.Kind.APP, null, false), TAB("tab", Commands.Kind.TAB, null, false),
+        WIDGET("widget", Commands.Kind.WIDGET, Profiles.Content.SETTINGS, true), SCENE("scene", Commands.Kind.SCENE, Profiles.Content.HOUSE, false);
         final String id;
         final Commands.Kind kind;
-        Capability(String id, Commands.Kind kind) { this.id = id; this.kind = kind; }
+        final Profiles.Content content;
+        final boolean home;
+        Capability(String id, Commands.Kind kind, Profiles.Content content, boolean home) { this.id = id; this.kind = kind; this.content = content; this.home = home; }
         static Capability of(String id) {
             for (Capability capability : values()) if (capability.id.equals(id)) return capability;
             return null;
@@ -82,7 +90,7 @@ final class Capabilities {
         boolean clock = tv.clockShown();
         actions.add(new Action(Capability.CLOCK, "clock", "Clock", clock ? "Hide the clock" : "Show the clock",
             clock ? "Hides the clock in the top-right corner of every page." : "Shows the clock in the top-right corner of every page.",
-            null, !clock));
+            blocked(Capability.CLOCK, tv), !clock));
         if (!tv.hasInputs()) {
             actions.add(new Action(Capability.INPUTS, "inputs", "Inputs", "Show Inputs on Home",
                 "Shows HDMI inputs on Home when the TV reports them.",
@@ -90,7 +98,7 @@ final class Capabilities {
         } else {
             boolean inputs = tv.widgetOn("inputs");
             actions.add(new Action(Capability.INPUTS, "inputs", "Inputs", inputs ? "Hide Inputs from Home" : "Show Inputs on Home",
-                inputs ? "Hides the Inputs widget from Home." : "Shows the Inputs widget on Home.", null, !inputs));
+                inputs ? "Hides the Inputs widget from Home." : "Shows the Inputs widget on Home.", blocked(Capability.INPUTS, tv), !inputs));
         }
         return actions;
     }
@@ -148,8 +156,20 @@ final class Capabilities {
         return result;
     }
 
-    private static String refusal(Action previewed, Tv tv) {
+    /** Why the mode or a layout over Home stops this capability now, or null. */
+    private static String blocked(Capability capability, Tv tv) {
+        Profiles profile = tv.profile();
+        if (capability.content != null && !profile.allows(capability.content)) return profile.mode.name + " mode does not allow this. Return to Normal mode first.";
+        String layout = tv.homeLayout();
+        if (capability.home && layout != null) return "Home shows the " + layout + " layout. Choose Default in Layouts to change Home widgets.";
+        return null;
+    }
+
+    /** Why a previewed action may not run now, or null. run asks this again right before it acts. */
+    static String refusal(Action previewed, Tv tv) {
         if (previewed.capability == Capability.SCENE) return Commands.NO_SCENES;
+        String blocked = blocked(previewed.capability, tv);
+        if (blocked != null) return blocked;
         if (previewed.capability.kind == null) {
             for (Action action : list(tv)) if (action.capability == previewed.capability) return action.unavailable;
             return "This capability is no longer available.";
