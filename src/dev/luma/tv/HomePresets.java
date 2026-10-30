@@ -11,8 +11,7 @@ import java.util.Objects;
 
 /** Home layouts. Each one chooses a wallpaper, Home widgets, Home apps and scene shortcuts together. The owner's own Home stays in
  *  its existing settings and is never written here, so choosing Default always brings it back. A layout is previewed
- *  before it applies, and parts the TV lacks are reported, not dropped. It has no Android dependency so offline tests
- *  can run it directly. */
+ *  before it applies, and parts the TV lacks are reported, not dropped. */
 final class HomePresets {
     static final String KEY = "home_presets";
     static final String PLEX = "com.plexapp.android";
@@ -27,7 +26,6 @@ final class HomePresets {
     }
 
     static final class Layout {
-        /** An index into the launcher's wallpapers. */
         final int wallpaper;
         final List<String> widgets;
         final List<String> apps;
@@ -46,7 +44,6 @@ final class HomePresets {
         @Override public int hashCode() { return Objects.hash(wallpaper, widgets, apps, scenes); }
     }
 
-    /** Activity layouts built from the existing widgets and the owner's current wallpaper. */
     enum BuiltIn {
         MOVIES("movies", "Movies", new String[]{"house", "upnext", "music"},
             new String[]{PLEX, "com.disney.disneyplus", "com.amazon.amazonvideo.livingroom"}, new String[]{"movie"}),
@@ -71,7 +68,6 @@ final class HomePresets {
         Layout layout(Layout owner) { return new Layout(owner.wallpaper, Arrays.asList(widgets), Arrays.asList(apps), Arrays.asList(scenes)); }
     }
 
-    /** Default (the owner's Home), a built-in layout, or a saved one by name. */
     static final class Selection {
         static final Selection DEFAULT = new Selection(null, null);
         final BuiltIn builtIn;
@@ -93,7 +89,6 @@ final class HomePresets {
         private Missing(Part part, String id) { this.part = part; this.id = id; }
     }
 
-    /** A layout shown before it applies. Missing parts stay in the layout so they return once installed. */
     static final class Proposal {
         final Selection source;
         final Layout layout;
@@ -122,7 +117,6 @@ final class HomePresets {
         return choices;
     }
 
-    /** The Home to show now. owner is the Home the existing settings describe. */
     Layout current(Layout owner) { return layout(active, owner); }
 
     Proposal preview(Selection choice, Layout owner, Tv tv) {

@@ -3,8 +3,6 @@ package dev.luma.tv;
 import java.util.Arrays;
 import java.util.List;
 
-/** Checks the Normal, Guest and Child policy without Android classes. Run from the repository root:
- *    javac --release 8 -d build/test src/dev/luma/tv/Profiles.java tools/ProfilesTest.java && java -cp build/test dev.luma.tv.ProfilesTest */
 public final class ProfilesTest {
     static int failures;
     static final String YOUTUBE = "com.google.android.youtube.tv", PLEX = "com.plexapp.android", KIDS = "com.example.kids";

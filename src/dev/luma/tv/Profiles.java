@@ -8,19 +8,17 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** The active mode (Normal, Guest or Child) and the one policy Home, Apps, the capability center, personal media and
- *  Ambient ask before they show or run anything. It is a launcher presentation policy, not an account or an OS
- *  sandbox. Entering Normal is never gated, so the remote can always return. It has no Android dependency so offline
- *  tests can run it directly. */
+/** The active mode (Normal, Guest or Child) and the policy Home, Apps, the capability center and personal media ask
+ *  before they show or run anything. It is a launcher presentation policy, not an account or an OS sandbox.
+ *  Entering Normal is never gated, so the remote can always return. */
 final class Profiles {
     static final String KEY = "profile";
     static final Profiles DEFAULT = new Profiles(Mode.NORMAL, Collections.<String>emptyList());
 
-    /** What an item shows or does. Each Home, Apps, command and Ambient item names one. */
     enum Content {
         /** Weather, time and other information that says nothing about the household. */
         INFO,
-        /** The owner's watch history, what is playing, the greeting name and calendar. */
+        /** The owner's watch history, what is playing and the greeting name. */
         PERSONAL,
         /** Settings, the Control widget, app menus and anything that changes Luma or the TV. */
         SETTINGS,
@@ -45,7 +43,6 @@ final class Profiles {
     }
 
     final Mode mode;
-    /** Child mode's apps in Home order. Only Normal changes them, and an empty list approves nothing. */
     final List<String> childApps;
 
     private Profiles(Mode mode, List<String> childApps) {
@@ -57,7 +54,6 @@ final class Profiles {
     Profiles approve(List<String> apps) { return mode == Mode.NORMAL ? new Profiles(mode, apps) : this; }
 
     boolean allows(Content content) { return mode.allowed.contains(content); }
-    /** The apps Home shows, in order. Child mode shows its approved apps instead of the Home apps. */
     List<String> home(List<String> homeApps) { return mode == Mode.CHILD ? childApps : homeApps; }
     /** Whether an app may be listed or opened from anywhere in Luma. Guest keeps the apps on Home. */
     boolean allowsApp(String pkg, boolean onHome) {
@@ -67,12 +63,10 @@ final class Profiles {
             default: return childApps.contains(pkg);
         }
     }
-    /** Whether a Home widget may show. A widget this policy does not know shows only in Normal. */
     boolean allowsWidget(String id) {
         Content content = widget(id);
         return content == null ? mode == Mode.NORMAL : allows(content);
     }
-    /** Child mode with nothing approved. Home says so instead of guessing an app. */
     boolean noApps() { return mode == Mode.CHILD && childApps.isEmpty(); }
 
     static Content widget(String id) {

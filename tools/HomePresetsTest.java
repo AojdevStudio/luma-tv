@@ -6,8 +6,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Checks Home layout presets without Android classes. Run from the repository root:
- *    javac --release 8 -d build/test src/dev/luma/tv/HomePresets.java tools/HomePresetsTest.java && java -cp build/test dev.luma.tv.HomePresetsTest */
 public final class HomePresetsTest {
     static int failures;
     static final String PLEX = "com.plexapp.android", NETFLIX = "com.netflix.ninja", YOUTUBE = "com.google.android.youtube.tv";

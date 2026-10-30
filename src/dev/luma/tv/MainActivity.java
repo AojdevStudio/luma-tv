@@ -29,7 +29,6 @@ public final class MainActivity extends Activity {
     private final ArrayList<View> tabs = new ArrayList<>();
     private final ArrayList<Tile> tiles = new ArrayList<>();
     private SharedPreferences prefs;
-    /** The layout over Home (HomePresets) and the mode (Profiles). Both are read before the first Home render. */
     private HomePresets presets;
     private Profiles profiles;
     private SonicFeedback sonic;
@@ -198,23 +197,18 @@ public final class MainActivity extends Activity {
     /** Unfocused glass: frosted white on a pale wallpaper, a faint white veil on dark ones. */
     private int glass(){return light?0x8CFFFFFF:0x1FFFFFFF;}
     private void shadow(TextView t,float radius){if(light)t.setShadowLayer(0,0,0,0);else t.setShadowLayer(px(radius),0,px(1),0x55000000);}
-    /** The wallpaper Home shows: the owner's, or a saved layout's own. */
     private int wallpaperStyle(){return Math.max(0,Math.min(WALLPAPERS.length-1,layout().wallpaper));}
-    /** The owner's own Home, read from the existing keys. Default shows it, and no layout ever writes it. */
     private HomePresets.Layout owner(){
         ArrayList<String> homeApps=new ArrayList<>();for(App app:visibleApps(false))homeApps.add(app.pkg);
         return new HomePresets.Layout(prefs.getInt("wallpaper",SILVER),WidgetBoard.enabled(prefs),homeApps,Collections.<String>emptyList());
     }
-    /** The Home to show now, before the mode filters it. */
     private HomePresets.Layout layout(){return presets.current(owner());}
     private List<String> homeApps(){
         ArrayList<String> shown=new ArrayList<>();
         for(String pkg:profiles.home(layout().apps))if(appIndex.containsKey(pkg)){shown.add(pkg);if(shown.size()==6)break;}
         return shown;
     }
-    /** Every app launch asks this. Guest keeps the apps on the Home now shown, Child only its approved apps. */
     private boolean allowsApp(String pkg){return profiles.allowsApp(pkg,homeApps().contains(pkg));}
-    /** The layout over Home, or null on Default. Settings edits Default only, so it stops them while one is shown. */
     private String homeLayout(){return presets.active.equals(HomePresets.Selection.DEFAULT)?null:presets.active.name();}
     private String lockedLine(){return "Home shows the "+homeLayout()+" layout. To change your own Home, choose Default in Settings, Capabilities, Layouts.";}
     /** Silver shows its light picture between sunrise and sunset and its dark one at night. */
@@ -244,23 +238,20 @@ public final class MainActivity extends Activity {
         if(tabBar!=null)tabBar.setBackground(shape(light?0x47FFFFFF:0x1FFFFFFF,22));
         if(clock!=null){clock.setTextColor(ink(0xF2));shadow(clock,6);}
         if(sceneryShade!=null)sceneryShade.setBackgroundColor(light?0x73F2F2F5:0x80000000);
+        tabs.get(2).setVisibility(profiles.allows(Profiles.Content.SETTINGS)?View.VISIBLE:View.GONE);
         paintMode();
     }
-    /** Also hides the Settings tab outside Normal. */
     private void paintMode(){
         if(modeChip==null)return;
         boolean f=modeChip.hasFocus();String label=profiles.mode.name+" mode";
         modeChip.setText(label);modeChip.setContentDescription(label+". OK changes the mode.");
         GradientDrawable ring=shape(f?(light?0xFF1D1D1F:0xF5FFFFFF):Color.TRANSPARENT,18);if(!f)ring.setStroke(Math.max(1,px(1)),ink(0x66));
         modeChip.setBackground(ring);modeChip.setTextColor(f?(light?Color.WHITE:0xFF17202B):ink(0xFF));
-        tabs.get(2).setVisibility(profiles.allows(Profiles.Content.SETTINGS)?View.VISIBLE:View.GONE);
     }
-    /** Down from the tab bar: the first widget on Home, the first row in Settings, else the first app. */
     private void focusPage(){
         View widget=page.equals("home")&&board!=null?board.first():null;
         if(widget!=null)widget.requestFocus();else if(page.equals("settings"))controlsFocus(0);else focusFirst();
     }
-    /** The mode control opens the panel at Mode with Normal focused, so returning to Normal is one more OK. */
     private void modeCenter(){
         CapabilityCenter center=new CapabilityCenter(CapabilityPanel.Section.MODE,false);
         root.post(()->{if(capabilityOverlay==center&&!center.rows.isEmpty())center.rows.get(0).requestFocus();});
@@ -276,7 +267,6 @@ public final class MainActivity extends Activity {
         brand = text("luma", 23, Color.WHITE, "sans-serif-medium"); brand.setVisibility(View.GONE);
         root.addView(brand, pos(120, 32, 48, 29));
         LinearLayout navigation = new LinearLayout(this); navigation.setGravity(Gravity.CENTER);
-        // The mode control sits in the bar on every page and in every mode, so Normal is always one OK away.
         modeChip = text("", 14, Color.WHITE, "sans-serif-medium"); modeChip.setId(View.generateViewId());
         modeChip.setPadding(px(14), 0, px(14), 0); modeChip.setGravity(Gravity.CENTER);
         modeChip.setFocusable(true); modeChip.setFocusableInTouchMode(true); modeChip.setSoundEffectsEnabled(false);
@@ -316,7 +306,6 @@ public final class MainActivity extends Activity {
         bar.addView(navigation, new FrameLayout.LayoutParams(-2, -1));
         bar.setPadding(px(4),px(2),px(4),px(2)); bar.setBackground(shape(0x1FFFFFFF,22));
         root.addView(bar, pos(-2, 40, 0, 26));
-        // The bar re-centres whenever its width changes: the mode's name, and Settings hidden outside Normal.
         bar.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob) -> { if(r-l!=or-ol) bar.post(()->{ bar.setTranslationX((getResources().getDisplayMetrics().widthPixels-bar.getWidth())/2f); moveTabIndicator(false); }); });
         clock = text("", 18, 0xF2FFFFFF, "sans-serif-medium"); clock.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL); clock.setLetterSpacing(.01f);
         root.addView(clock, pos(130, 36, 782, 28));
@@ -505,7 +494,7 @@ public final class MainActivity extends Activity {
     /** Under the greeting: today's date, quietly. */
     private String greetingLine(){return today();}
     /** "Hello, <name>" with the name saved in Settings, else the build's greeting: "Hello", or LUMA_GREETING /
-     *  .local/greeting.txt (see build.sh). Guest and Child mode hide both, as either can name the owner. */
+     *  .local/greeting.txt (see build.sh). */
     private String welcome(){if(!profiles.allows(Profiles.Content.PERSONAL))return greeting();String name=prefs.getString("name","").trim();return name.isEmpty()?getString(R.string.greeting):"Hello, "+name;}
     /** Settings → Your name: typed with the TV keyboard and kept only in this app's storage on the TV. */
     private void nameEditor(){
@@ -568,7 +557,6 @@ public final class MainActivity extends Activity {
         public View art(String pkg){App a=appIndex.get(pkg);return a==null?null:new Art(a);}
         public void launch(String pkg){App a=appIndex.get(pkg);if(a!=null)MainActivity.this.launch(a);else Toast.makeText(MainActivity.this,"This app is not installed.",Toast.LENGTH_SHORT).show();}
         public void start(Intent intent){
-            // Normal opens anything. Guest and Child open only an app they allow, so an intent Luma cannot resolve stays shut.
             ComponentName target=intent.resolveActivity(getPackageManager());
             if(profiles.mode!=Profiles.Mode.NORMAL&&(target==null||!allowsApp(target.getPackageName()))){Toast.makeText(MainActivity.this,profiles.mode.name+" mode does not open this.",Toast.LENGTH_SHORT).show();return;}
             try{startActivity(intent);overridePendingTransition(0,0);}catch(RuntimeException e){Toast.makeText(MainActivity.this,"This can't be opened on this TV.",Toast.LENGTH_SHORT).show();}}
@@ -852,7 +840,6 @@ public final class MainActivity extends Activity {
         houseWidgets.fadeControls(260);houseWidgets.portalToTV(flight);
         sceneVeil.animate().alpha(1).setStartDelay(flight-420).setDuration(420).setInterpolator(new PathInterpolator(.5f,0f,1f,1f)).start();
         // Delays follow the system animation scale, like the animations themselves.
-        // launch() asks the mode again; a refusal lifts the veil instead of leaving Home black.
         handler.postDelayed(()->{if(sceneTransition&&started&&!launch(selected))resetSceneTransition();},Math.round((flight+40)*Math.max(.01f,ValueAnimator.getDurationScale())));
         return true;
     }
@@ -1097,7 +1084,6 @@ public final class MainActivity extends Activity {
     }
     private Commands.Registry commandRegistry(){
         ArrayList<Commands.Target> targets=new ArrayList<>();
-        // The mode decides availability here too, so a request names an app or tab and still cannot reach it.
         List<String> home=homeApps();
         for(App app:appIndex.values())if(!app.label.trim().isEmpty())targets.add(new Commands.Target(Commands.Kind.APP,app.pkg,app.label,profiles.allowsApp(app.pkg,home.contains(app.pkg))));
         String[] tabIds={"home","apps","settings"},tabNames={"Home","Apps","Settings"};
@@ -1116,7 +1102,6 @@ public final class MainActivity extends Activity {
             String id=scene.optString("id").trim(),name=scene.optString("name").trim();if(!id.isEmpty()&&!name.isEmpty())targets.add(new Commands.Target(Commands.Kind.SCENE,id,name,false));}
         return targets;
     }
-    /** What this TV has, for layout previews. Scenes are the ones House Control last sent to Home. */
     private final HomePresets.Tv homeTv=new HomePresets.Tv(){
         public boolean hasApp(String pkg){return appIndex.containsKey(pkg);}
         public boolean hasWidget(String id){return id.equals("house")?house:id.equals("inputs")?!InputsWidget.list(MainActivity.this).isEmpty():Arrays.asList(WidgetBoard.IDS).contains(id);}
@@ -1133,13 +1118,11 @@ public final class MainActivity extends Activity {
     private final class CapabilityCenter {
         final boolean dark=prefs.getBoolean("capability_dark",false);
         final int paper=dark?Color.BLACK:Color.WHITE,ink=dark?Color.WHITE:0xFF1D1D1F,soft=dark?0xB3FFFFFF:0xFF5B6472,rest=dark?0x1FFFFFFF:0x0F000000,chosen=dark?0x4DFFFFFF:0x29000000;
-        /** Guest and Child see Mode alone: no settings, history or theme switch. */
         final boolean settings=profiles.allows(Profiles.Content.SETTINGS);
         final List<CapabilityPanel.Section> shown=CapabilityPanel.sections(house,profiles);
         final CapabilityPanel.Health health=new CapabilityPanel.Health();
         final FrameLayout panel,items,pane;
         final LinearLayout sections=new LinearLayout(MainActivity.this),list=new LinearLayout(MainActivity.this);
-        /** The middle column scrolls, for the saved layouts and the Child apps list. */
         final ScrollView scroller=new ScrollView(MainActivity.this);
         final TextView last,theme,paneTitle,paneBody,status,primary,secondary;
         final ArrayList<TextView> sectionRows=new ArrayList<>(),rows=new ArrayList<>();
@@ -1149,7 +1132,6 @@ public final class MainActivity extends Activity {
         TextView chosenRow,previewButton;
         EditText field;
         Runnable primaryAction,secondaryAction;
-        /** The previewed change that Confirm runs: a capability, a layout, a saved layout or a mode. */
         Runnable pending;
         View opener;
         boolean confirming;
@@ -1194,7 +1176,6 @@ public final class MainActivity extends Activity {
             section=next;dropPending();opener=null;
             refill();relink();
         }
-        /** Builds the middle column of the open section again, after a change it shows. */
         void refill(){
             items.removeAllViews();list.removeAllViews();rows.clear();actions.clear();field=null;previewButton=null;scroller.scrollTo(0,0);
             switch(section){
@@ -1217,7 +1198,6 @@ public final class MainActivity extends Activity {
                 onFocus(row,i,()->showAction(actions.get(index)));row.setOnClickListener(v->{sound();choose(actions.get(index),row);});list.addView(row,rowParams());rows.add(row);}
             showAction(actions.get(0));
         }
-        /** A one-line text field for the TV keyboard. done runs on the keyboard's Done key. */
         EditText entry(String hint,int length,Runnable focused,Runnable done){
             EditText f=new EditText(MainActivity.this);f.setSingleLine(true);f.setHint(hint);f.setHintTextColor(soft);f.setTextColor(ink);f.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(15));
             f.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(length)});f.setPadding(px(14),0,px(14),0);
@@ -1243,13 +1223,11 @@ public final class MainActivity extends Activity {
         }
         void pane(String title,String body,String state){paneTitle.setText(title);paneBody.setText(body);status.setText(state);}
         void showAction(Capabilities.Action action){pane(action.name,action.available()?action.preview:action.unavailable,action.available()?"Asks before it runs.":"Unavailable");}
-        /** A refusal shows before Confirm, so a change Home would not show is never offered. */
         void choose(Capabilities.Action action,View from){
             String refused=action.available()?Capabilities.refusal(action,new CapabilityTv()):action.unavailable;
             if(refused!=null){opener=from;pane(action.name,refused,"Not run. Nothing changed.");return;}
             ask(action.name,action.preview,"Confirm this change.",from,()->runAction(action));
         }
-        /** The shared confirmation: a preview, then Confirm runs change and Cancel or Back runs nothing. */
         void ask(String title,String body,String note,View from,Runnable change){
             opener=from;pending=change;confirming=true;pane(title,body,note);
             buttons("Confirm",this::runPending,"Cancel",this::cancel);primary.requestFocus();
@@ -1271,8 +1249,6 @@ public final class MainActivity extends Activity {
             relink();
         }
         void hideButtons(){primary.setVisibility(View.GONE);secondary.setVisibility(View.GONE);relink();}
-        /** Layouts: Default, the built-in layouts and saved ones, then a name and Save for the Home shown now.
-         *  Focus previews in the pane and writes nothing. Apply and Save go through ask. */
         void layoutControls(){
             items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));
             List<HomePresets.Selection> choices=presets.choices();
@@ -1317,7 +1293,6 @@ public final class MainActivity extends Activity {
             for(int i=0;i<choices.size();i++)if(choices.get(i).name().equals(name))rows.get(i).requestFocus();
             status.setText("Saved "+name+". OK applies it.");
         }
-        /** Mode: Normal, Guest and Child. Normal also lists every app, and OK approves or removes it for Child mode. */
         void modeControls(){
             items.addView(scroller,new FrameLayout.LayoutParams(-1,-1));
             for(Profiles.Mode mode:Profiles.Mode.values()){TextView row=control(mode.name+" mode"+(mode==profiles.mode?"   On":""),false);
@@ -1339,7 +1314,6 @@ public final class MainActivity extends Activity {
             profiles=changed;prefs.edit().putString(Profiles.KEY,profiles.line()).apply();
             String label=approval(app);row.setText(label);row.setContentDescription(label);showApproval(app);
         }
-        /** Entering Normal is never gated. Guest and Child show what they hide and ask first. */
         void chooseMode(Profiles.Mode mode,View row){
             if(mode==profiles.mode){opener=row;pane(mode.name+" mode",CapabilityPanel.mode(mode,approved()),"Already on. Nothing changed.");return;}
             if(mode==Profiles.Mode.NORMAL){enterMode(mode);return;}

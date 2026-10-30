@@ -21,8 +21,6 @@ final class Capabilities {
         String homeLayout();
     }
 
-    /** Apps and tabs are checked through the registry. content is what the mode must allow, and home marks a change
-     *  to the owner's Home widgets, which a layout over Home would hide. */
     enum Capability {
         CLOCK("clock", null, Profiles.Content.SETTINGS, false), INPUTS("inputs", null, Profiles.Content.SETTINGS, true),
         APP("app", Commands.Kind.APP, null, false), TAB("tab", Commands.Kind.TAB, null, false),
@@ -156,7 +154,6 @@ final class Capabilities {
         return result;
     }
 
-    /** Why the mode or a layout over Home stops this capability now, or null. */
     private static String blocked(Capability capability, Tv tv) {
         Profiles profile = tv.profile();
         if (capability.content != null && !profile.allows(capability.content)) return profile.mode.name + " mode does not allow this. Return to Normal mode first.";
@@ -165,7 +162,7 @@ final class Capabilities {
         return null;
     }
 
-    /** Why a previewed action may not run now, or null. run asks this again right before it acts. */
+    /** Why a previewed action may not run now, or null. */
     static String refusal(Action previewed, Tv tv) {
         if (previewed.capability == Capability.SCENE) return Commands.NO_SCENES;
         String blocked = blocked(previewed.capability, tv);

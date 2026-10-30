@@ -12,7 +12,6 @@ final class CapabilityPanel {
         Section(String label) { this.label = label; }
     }
 
-    /** Every section but Mode changes or reads Luma's settings, so Guest and Child mode open Mode alone. */
     static List<Section> sections(boolean house, Profiles profile) {
         if (!profile.allows(Profiles.Content.SETTINGS)) return Collections.singletonList(Section.MODE);
         ArrayList<Section> sections = new ArrayList<>();
@@ -29,8 +28,6 @@ final class CapabilityPanel {
         boolean house();
     }
 
-    /** A layout preview: its widgets, apps, scenes and wallpaper, then every part the TV lacks. A missing app shows
-     *  its package because the TV has no name for it. */
     static String layout(HomePresets.Proposal proposal, Names names) {
         HomePresets.Layout layout = proposal.layout;
         ArrayList<String> widgets = new ArrayList<>(), apps = new ArrayList<>(), scenes = new ArrayList<>(), missing = new ArrayList<>();
@@ -54,7 +51,6 @@ final class CapabilityPanel {
         return text.toString();
     }
 
-    /** What a mode shows and hides. approved names Child mode's apps. */
     static String mode(Profiles.Mode mode, List<String> approved) {
         switch (mode) {
             case GUEST: return "Hides Up Next, Now Playing, your name and Settings. Keeps the apps on Home, Weather, Smart Home and Inputs.\n\nThe mode button on Home returns to Normal. It needs no PIN.";
