@@ -213,13 +213,19 @@ public final class CapabilitiesTest {
 
         FakeTv demo = house(true);
         demo.house = HouseScenes.read(HouseScenesTest.map("demo", true, "controlReady", true, "revision", "demo-1",
-            "plan", HouseScenesTest.map("lights", HouseScenesTest.list(HouseScenesTest.light("main.tv", "TV ambient light", "main")),
+            "plan", HouseScenesTest.map("lights", HouseScenesTest.list(HouseScenesTest.map("id", "main.tv", "name", "TV ambient light", "room", "main", "linked", false)),
                 "scenes", HouseScenesTest.list(HouseScenesTest.scene("movie", "Movie", "lights", HouseScenesTest.map("*", HouseScenesTest.map("on", true)))))));
         demo.reply = HouseScenesTest.map("ok", true, "demo", true);
         Capabilities.Action demoMovie = Capabilities.scenes(demo).get(0);
         Capabilities.Result demoRun = run(demoMovie, demo, 27L);
-        expect(demoMovie.preview.endsWith("demo home. No real devices change.") && demoRun.message.startsWith("Started Movie on the demo home"),
-            "the demo home is labelled in the preview and the result");
+        expect(demoMovie.preview.startsWith("Home. TV ambient light on.\nTV.") && demoMovie.preview.endsWith("demo home. No real devices change.")
+            && demoRun.message.startsWith("Started Movie on the demo home"), "the demo home is labelled by its source in the preview and the result");
+        FakeTv partly = house(true);
+        partly.house = HouseScenes.read(HouseScenesTest.partlyLinked());
+        List<Capabilities.Action> simulated = Capabilities.scenes(partly);
+        expect(simulated.get(0).preview.startsWith("Home. Ceiling off.\nSimulated. Desk lamp off. These are not linked to real devices.\nTV.")
+            && simulated.get(1).preview.startsWith("Home. No real device changes.\nSimulated. Desk lamp on. These are not linked to real devices.\nTV."),
+            "a preview keeps devices House Control only simulates apart from real changes");
 
         FakeTv movies = living();
         movies.layout = "Movies";

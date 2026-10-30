@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 /** House Control's scenes as Luma reads them from its HomeService over Binder. Code 1 replies with the home, code 2 runs a
  *  scene on the real home and code 4 on House Control's isolated demo home. HouseLink hands this class each reply as
@@ -23,17 +24,21 @@ final class HouseScenes {
         final Source source;
         /** One sentence per distinct setting, lights first, such as "Desk lamp on." Empty when it changes nothing. */
         final List<String> changes;
-        private Scene(String id, String name, String icon, Source source, String revision, List<String> changes) {
+        /** Changes to plan devices House Control has not linked to a real device. It only simulates those. */
+        final List<String> simulated;
+        private Scene(String id, String name, String icon, Source source, String revision, List<String> changes, List<String> simulated) {
             this.id = id;
             this.name = name;
             this.icon = icon;
             this.source = source;
             this.revision = revision;
             this.changes = Collections.unmodifiableList(changes);
+            this.simulated = Collections.unmodifiableList(simulated);
         }
         /** Same scene from the same plan with the same changes, so its preview still says what will happen. */
         boolean same(Scene other) {
-            return id.equals(other.id) && name.equals(other.name) && source == other.source && revision.equals(other.revision) && changes.equals(other.changes);
+            return id.equals(other.id) && name.equals(other.name) && source == other.source && revision.equals(other.revision)
+                && changes.equals(other.changes) && simulated.equals(other.simulated);
         }
     }
 
@@ -87,6 +92,8 @@ final class HouseScenes {
         String blocked = Boolean.TRUE.equals(home.get("controlReady")) ? null
             : "House Control is not ready. " + (label.isEmpty() ? "Open House Control to connect your devices." : label + ".");
         Map<String, String> names = names(plan);
+        // The demo home marks every device linked:false and its source already says no real device changes.
+        Predicate<Map<String, Object>> simulated = device -> source == Source.LIVE && Boolean.FALSE.equals(device.get("linked"));
         ArrayList<Scene> scenes = new ArrayList<>();
         for (Object item : list(plan.get("scenes"))) {
             Map<String, Object> scene = map(item);
@@ -95,7 +102,8 @@ final class HouseScenes {
             for (Scene earlier : scenes) repeated |= earlier.id.equals(id);
             if (id.isEmpty() || repeated) continue;
             String name = text(scene.get("name"));
-            scenes.add(new Scene(id, name.isEmpty() ? id : name, text(scene.get("icon")), source, revision, changes(scene, plan, names)));
+            scenes.add(new Scene(id, name.isEmpty() ? id : name, text(scene.get("icon")), source, revision,
+                changes(scene, plan, names, simulated.negate()), changes(scene, plan, names, simulated)));
         }
         return new Read(new Home(source, revision, blocked, scenes), null);
     }
@@ -116,7 +124,10 @@ final class HouseScenes {
         Map<String, Object> result = map(reply);
         if (result == null) return unknown(scene);
         if (Boolean.TRUE.equals(result.get("ok")))
-            return new Outcome(Capabilities.Status.DONE, "Started " + scene.name + (Boolean.TRUE.equals(result.get("demo")) ? " on the demo home" : ""));
+            return new Outcome(Capabilities.Status.DONE, Boolean.TRUE.equals(result.get("demo")) ? "Started " + scene.name + " on the demo home"
+                : scene.simulated.isEmpty() ? "Started " + scene.name
+                : scene.changes.isEmpty() ? "Simulated " + scene.name + ". No real device changed"
+                : "Started " + scene.name + ". Some changes were only simulated");
         String error = text(result.get("error"));
         return error.isEmpty() ? unknown(scene) : new Outcome(Capabilities.Status.NOT_FINISHED, "House Control could not finish " + scene.name + ". " + error);
     }
@@ -150,7 +161,7 @@ final class HouseScenes {
         return names;
     }
 
-    private static List<String> changes(Map<String, Object> scene, Map<String, Object> plan, Map<String, String> names) {
+    private static List<String> changes(Map<String, Object> scene, Map<String, Object> plan, Map<String, String> names, Predicate<Map<String, Object>> devices) {
         ArrayList<String> lines = new ArrayList<>();
         for (String section : new String[]{"lights", "acs"}) {
             Map<String, Object> patches = map(scene.get(section));
@@ -159,7 +170,7 @@ final class HouseScenes {
             for (Object item : list(plan.get(section))) {
                 Map<String, Object> device = map(item);
                 String id = device == null ? "" : text(device.get("id"));
-                if (id.isEmpty()) continue;
+                if (id.isEmpty() || !devices.test(device)) continue;
                 LinkedHashMap<String, Object> patch = new LinkedHashMap<>();
                 Map<String, Object> all = map(patches.get("*")), own = map(patches.get(id));
                 if (all != null) patch.putAll(all);

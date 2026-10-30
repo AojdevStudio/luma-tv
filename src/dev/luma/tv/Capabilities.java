@@ -158,17 +158,23 @@ final class Capabilities {
     static Action scene(HouseScenes.Scene scene, Tv tv) {
         String unavailable = blocked(Capability.SCENE, tv);
         if (unavailable == null) unavailable = HouseScenes.refusal(scene, tv.house());
-        ArrayList<String> changes = new ArrayList<>(scene.changes.subList(0, Math.min(4, scene.changes.size())));
-        if (scene.changes.size() > 4) changes.add("And " + (scene.changes.size() - 4) + " more changes.");
         String pkg = tv.sceneApp(scene.id);
         Commands.Target app = app(pkg, tv);
         String after = pkg.isEmpty() ? "Stays on Luma."
             : app == null ? pkg + " is chosen to open after this scene, but it is not installed. The TV stays on Luma."
             : !app.available ? tv.profile().mode.name + " mode does not open " + app.name + ". The TV stays on Luma."
             : "Opens " + app.name + " after the scene finishes.";
-        String preview = "Home. " + (changes.isEmpty() ? "This scene changes no lights or air conditioners." : String.join(" ", changes))
+        String preview = "Home. " + (!scene.changes.isEmpty() ? lines(scene.changes) : scene.simulated.isEmpty()
+                ? "This scene changes no lights or air conditioners." : "No real device changes.")
+            + (scene.simulated.isEmpty() ? "" : "\nSimulated. " + lines(scene.simulated) + " These are not linked to real devices.")
             + "\nTV. " + after + "\nSource. " + scene.source.label;
         return new Action(Capability.SCENE, scene.id, scene.name, "Start " + scene.name, preview, unavailable, true, scene);
+    }
+
+    private static String lines(List<String> changes) {
+        ArrayList<String> shown = new ArrayList<>(changes.subList(0, Math.min(4, changes.size())));
+        if (changes.size() > 4) shown.add("And " + (changes.size() - 4) + " more changes.");
+        return String.join(" ", shown);
     }
 
     /** Answers once through done. Settings, apps and tabs answer at once. A scene answers after House Control does. */

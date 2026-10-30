@@ -48,6 +48,12 @@ public final class HouseScenesTest {
             scene("garden", "Garden", "lights", map("garden.path", map("on", true))),
             scene("", "No id"), scene("movie", "Movie again"), map("id", "night"));
     }
+    /** A real home with one plan device House Control has not linked, so it only simulates that lamp. */
+    static Map<String, Object> partlyLinked() {
+        return map("controlReady", true, "revision", "r1", "plan", map(
+            "lights", list(light("ceiling", "Ceiling", "main"), map("id", "desk", "name", "Desk lamp", "room", "main", "linked", false)),
+            "scenes", list(scene("night", "Night", "lights", map("*", map("on", false))), scene("desk", "Desk only", "lights", map("desk", map("on", true))))));
+    }
     public static void main(String[] args) {
         HouseScenes.Read live = HouseScenes.read(home("r1", true, loftScenes()));
         expect(live.problem == null && live.home != null && live.home.source == HouseScenes.Source.LIVE && "r1".equals(live.home.revision)
@@ -99,6 +105,10 @@ public final class HouseScenesTest {
         expect(done.status == Capabilities.Status.DONE && "Started Movie".equals(done.message), "ok from code 2 is a started scene");
         HouseScenes.Outcome demoDone = HouseScenes.outcome(demo.home.scene("movie"), map("ok", true, "demo", true, "direct", false));
         expect(demoDone.status == Capabilities.Status.DONE && "Started Movie on the demo home".equals(demoDone.message), "a demo run says it ran on the demo home");
+        HouseScenes.Home partly = HouseScenes.read(partlyLinked()).home;
+        expect("Simulated Desk only. No real device changed".equals(HouseScenes.outcome(partly.scene("desk"), map("ok", true)).message)
+            && "Started Night. Some changes were only simulated".equals(HouseScenes.outcome(partly.scene("night"), map("ok", true)).message),
+            "ok for a scene that touches devices House Control only simulates says so");
         HouseScenes.Outcome failed = HouseScenes.outcome(movie, map("error", "Ceiling: device offline"));
         expect(failed.status == Capabilities.Status.NOT_FINISHED && failed.message.contains("Ceiling: device offline") && !failed.message.startsWith("Started"),
             "House Control's error is reported as not finished, with its words");
