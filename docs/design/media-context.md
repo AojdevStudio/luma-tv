@@ -22,7 +22,7 @@ When no description is shared, the line reads `Summary unavailable. <App> shared
 ## Privacy
 
 - Summaries come only from metadata the app published for display. `MediaListener` still reads no notifications.
-- `MediaContext.concise` removes any word holding `://` or `www.` whole, so a link and its token never reach the screen. It collapses whitespace and cuts at 140 characters, at a sentence end when it can, else at a word.
+- `MediaContext.concise` removes scheme URLs, `www.` links, `mailto:` links and bare domain paths with their query values. It collapses whitespace and cuts long text at a word within 140 characters. An abbreviation or episode tag does not end the summary.
 - The model holds no intent, link, or package token. Up Next keeps the Watch Next intent on its own `Item`, as before.
 
 ## Resume

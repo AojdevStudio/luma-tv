@@ -47,16 +47,12 @@ final class MediaContext {
         return new HashSet<>(sources).size()==1?sources.iterator().next()+", "+data.label.toLowerCase(Locale.ENGLISH)+" data":data.label+" data";
     }
 
-    /** One clean line of the app's description, at most SUMMARY_MAX characters, ending at a sentence or a word. Links
-     *  are removed whole, so a token in a query string never reaches the screen. Null when nothing is left. */
     static String concise(String raw){
         if(raw==null)return null;
-        String text=raw.replaceAll("\\S*(://|www\\.)\\S*"," ").replaceAll("[\\s\\p{Cntrl}]+"," ").trim();
+        String text=raw.replaceAll("(?i)\\S*(?:://|www\\.|mailto:|[a-z0-9.-]+\\.[a-z]{2,}(?::[0-9]+)?[/?#])\\S*"," ").replaceAll("[\\s\\p{Cntrl}]+"," ").trim();
         if(text.isEmpty())return null;
         if(text.length()<=SUMMARY_MAX)return text;
         String head=text.substring(0,SUMMARY_MAX);
-        int end=Math.max(head.lastIndexOf(". "),Math.max(head.lastIndexOf("! "),head.lastIndexOf("? ")));
-        if(end>0)return head.substring(0,end+1);
         int space=head.lastIndexOf(' ',SUMMARY_MAX-1);
         return (space>0?head.substring(0,space):head.substring(0,SUMMARY_MAX-1))+"…";
     }

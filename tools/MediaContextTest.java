@@ -34,12 +34,17 @@ public final class MediaContextTest {
             String leaked = MediaContext.concise("Resume at https://plex.example/library?X-Plex-Token=abc123 tonight. Or www.example.com/x");
             expect(leaked != null && !leaked.contains("://") && !leaked.contains("abc123") && !leaked.contains("www."), "links and their tokens never reach the summary");
             expect(MediaContext.concise("https://plex.example/?X-Plex-Token=abc123") == null, "a description that is only a link is unavailable");
+            expect("See and".equals(MediaContext.concise("See plex.tv/watch?X-Plex-Token=example and mailto:viewer@example.invalid?token=example")), "scheme-less provider links and mailto links are removed with their query values");
         });
         check("concise", () -> {
             String longText = "First sentence is here. " + String.join(" ", Collections.nCopies(60, "word")) + ".";
             String cut = MediaContext.concise(longText);
             expect(cut.length() <= MediaContext.SUMMARY_MAX, "a long description is cut to the summary limit");
-            expect("First sentence is here.".equals(cut), "a long description ends at a whole sentence when it can");
+            expect(cut.startsWith("First sentence is here. word") && cut.endsWith("…"), "a long description keeps useful context after its first sentence");
+            for (String prefix : Arrays.asList("Dr. Who", "S2 E4. The crew")) {
+                String abbreviated = MediaContext.concise(prefix + " " + String.join(" ", Collections.nCopies(60, "word")));
+                expect(abbreviated.startsWith(prefix + " word") && abbreviated.endsWith("…"), "a long summary keeps context after " + prefix);
+            }
             String run = MediaContext.concise(String.join(" ", Collections.nCopies(60, "word")));
             expect(run.length() <= MediaContext.SUMMARY_MAX && run.endsWith("…") && !run.contains("wor…"), "a long run-on description ends at a whole word");
         });
