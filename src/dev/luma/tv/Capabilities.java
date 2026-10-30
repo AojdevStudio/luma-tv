@@ -36,6 +36,13 @@ final class Capabilities {
         }
     }
 
+    /** How a confirmed action ended. Only DONE is saved as the last result. */
+    enum Status {
+        DONE("Done"), NOT_RUN("Not run"), NOT_FINISHED("Not finished"), UNKNOWN("Unknown");
+        final String label;
+        Status(String label) { this.label = label; }
+    }
+
     static final class Action {
         final Capability capability;
         final String id;

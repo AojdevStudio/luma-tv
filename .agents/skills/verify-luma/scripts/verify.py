@@ -160,9 +160,11 @@ class Run:
         capability_classes = self.evidence / "capability-classes"
         self.command("capabilities-compile", [JDK / "bin/javac", "--release", "8", "-d", capability_classes,
                      "src/dev/luma/tv/Commands.java", "src/dev/luma/tv/Capabilities.java", "src/dev/luma/tv/Profiles.java",
-                     "tools/CapabilitiesTest.java"])
+                     "src/dev/luma/tv/HouseScenes.java", "tools/CapabilitiesTest.java", "tools/HouseScenesTest.java"])
         self.command("capabilities-test", [JDK / "bin/java", "-cp", capability_classes, "dev.luma.tv.CapabilitiesTest"])
         self.summary["checks"]["capabilities"] = "PASS"
+        self.command("house-scenes-test", [JDK / "bin/java", "-cp", capability_classes, "dev.luma.tv.HouseScenesTest"])
+        self.summary["checks"]["house_scenes"] = "PASS"
         weather_classes = self.evidence / "weather-classes"
         self.command("weather-compile", [JDK / "bin/javac", "--release", "8", "-d", weather_classes,
                      "src/dev/luma/tv/WeatherLocation.java", "tools/WeatherLocationTest.java"])
