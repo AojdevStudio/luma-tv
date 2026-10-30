@@ -52,6 +52,10 @@ Use House Control TV's isolated demo home for every confirmed run: *Sync & conne
 - Ask `start Movie`. It shows the same preview as the Movie row.
 - With the demo home off and House Control not connected, rows are dimmed and the preview gives House Control's reason. Force-stop House Control while Scenes is open, then choose Scenes again. It must say `House Control did not answer` or House Control's own error, not that there are no scenes.
 - Switch the demo home off after a preview, then Confirm. It must refuse, and nothing changes.
+- Preview Movie, then switch the demo home off and on again in House Control, which gives it a new revision. Confirm must refuse with `Choose Movie again`. OK on the same Movie row must read House Control again and show a fresh preview with Confirm. Nothing runs until Confirm.
+- With the demo home off and House Control not ready, OK on a dimmed row shows the reason. Turn the demo home on, return to Luma and press OK on the same row. It must offer Confirm without leaving Scenes.
+- Confirm Movie, then move to Bright and press OK before Movie's result arrives. Bright's preview and Confirm must stay, Movie's result shows as a toast, and Plex does not open. The demo home answers fast, so this timing may not be reachable on the emulator. Record it as not reached rather than passed.
+- On a real-home plan with a device that is not linked, the preview lists that device on a `Simulated.` line. Preview only. Do not confirm on the real home without Ossie's word.
 - Guest: the panel is titled Scenes and mode, has no history line, and runs a demo scene. Plex opens only when it is one of the apps on Home. Otherwise the result says Guest mode does not open it. Child shows no scene buttons and no Scenes section.
 
 ## TCL proof

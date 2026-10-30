@@ -23,7 +23,7 @@ Covers [#9](https://github.com/AojdevStudio/luma-tv/issues/9) and [#14](https://
 
 ## Scenes
 
-Scenes reads House Control afresh each time it is chosen, and the panel reads it once as it opens so Ask knows the scene names. The preview names the light and air conditioner changes, the app that opens after, and the real or demo home. Confirm reads House Control again and runs the scene only if the preview still holds. [smart-home-scenes.md](smart-home-scenes.md) has the provider contract and the rules.
+Scenes reads House Control afresh each time it is chosen, and the panel reads it once as it opens so Ask knows the scene names. OK on a refused scene row reads it again and previews that scene from the new read. The preview names the light and air conditioner changes, the changes House Control only simulates, the app that opens after, and the real or demo home. Confirm reads House Control again and runs the scene only if the preview still holds when the scene is really sent. A result that arrives after the panel moved on shows as a toast. [smart-home-scenes.md](smart-home-scenes.md) has the provider contract and the rules.
 
 ## Health
 
