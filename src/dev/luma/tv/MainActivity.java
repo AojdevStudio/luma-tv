@@ -86,7 +86,7 @@ public final class MainActivity extends Activity {
             handler.postDelayed(this, 15000);
         }
     };
-    private static final String[] FIRST = {"com.google.android.youtube.tv", "com.netflix.ninja", "com.amazon.amazonvideo.livingroom", "com.disney.disneyplus", "com.spotify.tv.android", "com.google.android.youtube.tvmusic"};
+    private static final String[] FIRST = {"com.google.android.youtube.tv", "com.plexapp.android", "com.amazon.amazonvideo.livingroom", "com.disney.disneyplus", "com.spotify.tv.android", "com.google.android.youtube.tvmusic"};
     private static final String[] DEFAULT_HIDDEN = {"tv.pluto.android", "com.tcl.videoplayer", "com.google.android.play.games", "com.tcl.waterfall.overseas", "com.haystack.android"};
 
     @Override public void onCreate(Bundle state) {
@@ -567,7 +567,7 @@ public final class MainActivity extends Activity {
         } catch (RuntimeException error) { Toast.makeText(this,"Could not open this app. It may be updating.",Toast.LENGTH_SHORT).show(); discover(); }
     }
 
-    private String sceneApp(String scene){try{JSONObject saved=new JSONObject(prefs.getString("scene_app_packages","{}"));if(saved.has(scene))return saved.optString(scene);}catch(Exception ignored){}return scene.equals("movie")?"com.netflix.ninja":"";}
+    private String sceneApp(String scene){try{JSONObject saved=new JSONObject(prefs.getString("scene_app_packages","{}"));if(saved.has(scene))return saved.optString(scene);}catch(Exception ignored){}return scene.equals("movie")?"com.plexapp.android":"";}
     private String appLabel(String pkg){if(pkg.isEmpty())return "None";for(App app:apps)if(app.pkg.equals(pkg))return app.label;return pkg;}
     /* ---------- overlays: menus, notices and the wallpaper picker (no stock dialogs) ---------- */
     private View nav(){return (View)tabs.get(0).getParent().getParent();}
