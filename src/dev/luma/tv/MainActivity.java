@@ -1147,7 +1147,7 @@ public final class MainActivity extends Activity {
             pane(ran.name,ran.preview,result.done?"Done. "+result.message:"Not run. "+result.message);
         }
         void refreshActions(){List<Capabilities.Action> fresh=Capabilities.list(new CapabilityTv());for(int i=0;i<fresh.size()&&i<rows.size();i++){actions.set(i,fresh.get(i));TextView row=rows.get(i);row.setText(fresh.get(i).name);row.setContentDescription(fresh.get(i).name);row.setAlpha(fresh.get(i).available()?1:.5f);}}
-        void cancel(){View back=opener;dropPending();if(back!=null)back.requestFocus();status.setText("Cancelled. Nothing ran.");}
+        void cancel(){View back=opener;if(back!=null)back.requestFocus();dropPending();status.setText("Cancelled. Nothing ran.");}
         void buttons(String a,Runnable ra,String b,Runnable rb){
             primary.setText(a);primary.setContentDescription(a);primaryAction=ra;primary.setVisibility(View.VISIBLE);
             if(b==null)secondary.setVisibility(View.GONE);else{secondary.setText(b);secondary.setContentDescription(b);secondaryAction=rb;secondary.setVisibility(View.VISIBLE);}

@@ -28,6 +28,7 @@ Build and install the source APK on the `luma-tv` Android TV emulator. Confirm t
 - From the Actions section, move Down to Ask, then Right to the request line. OK opens text entry.
 - Submit a supported request for an installed app, a tab, or a widget. Check the interpreted target before Confirm.
 - Cancel or Back must leave the target unchanged. Correct an unsupported request with Edit, then cancel or confirm it.
+- Preview `switch to tab Settings`, then Cancel. Ask must stay open with the same text and Preview focused. Repeat with remote Back. Both paths must show `Cancelled. Nothing ran.` and preserve the last result.
 - An absent app must report that no installed app matches. Do not treat a request for Plex as evidence that Plex is installed.
 - Scenes is hidden when House Control is absent. Scene execution remains unavailable until its adapter is implemented.
 - Open Health with the D-pad. Move through all six metrics in the middle column and inspect each selected metric's details, source label, and measurement time in the right column.
