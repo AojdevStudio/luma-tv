@@ -26,7 +26,7 @@ Built-in layouts use only the existing widget IDs. They keep the owner's current
 | News | weather, upnext | YouTube | none |
 | Guests | weather, house | YouTube, Plex, YouTube Music | none |
 
-`movie` is the only scene ID the source already uses. The Guests layout only arranges Home. Guest mode is what hides content.
+Movies selects the existing `movie` scene. The Guests layout only arranges Home. Guest mode is what hides content.
 
 ### API
 
@@ -34,7 +34,7 @@ Built-in layouts use only the existing widget IDs. They keep the owner's current
 - `choices()` lists Default, the four built-ins, then saved layouts.
 - `preview(choice, owner, tv)` returns a `Proposal` and changes nothing. `proposal.missing` lists each app, widget or scene the TV lacks. The layout keeps those parts, so they come back once installed.
 - `apply(proposal)` returns the new state. Applying Default restores the owner's Home.
-- `save(name, layout)` stores a layout under a local name, replacing one with the same name. It does not apply it. It returns `null` for a blank name, a name that matches Default or a built-in, a control character, or an ID that cannot be stored.
+- `save(name, layout)` returns a record with the layout saved under a local name, replacing one with the same name. The active choice stays the same. If that choice names the replaced layout, persisting the returned record changes Home immediately. Preview and confirm Save before persisting it. The method returns `null` for a blank name, a name that matches Default or a built-in, a control character, or an ID that cannot be stored.
 - `current(owner)` is the Home to render now. `line()` is the value to persist.
 
 ### Integration through confirmed actions
