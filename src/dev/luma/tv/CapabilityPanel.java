@@ -39,10 +39,9 @@ final class CapabilityPanel {
         boolean stale() { return stale; }
     }
 
-    /** One Health line pair: the metric, status and value, then the explanation, source and measurement time. */
     static String[] row(HealthSnapshot.Reading reading, String measured, boolean stale) {
-        return new String[]{reading.metric.label + ". " + status(reading.status) + ". " + reading.value,
-            (stale ? "Stale. " : "") + reading.explanation + " " + reading.source + ", measured " + measured + "."};
+        return new String[]{reading.metric.label + ". " + (stale ? "Stale" : status(reading.status)),
+            (stale ? "Stale. " : "") + reading.value + "\n\n" + reading.explanation + "\n\nSource. " + reading.source + "\nMeasured. " + measured + "."};
     }
 
     static String status(HealthSnapshot.Status status) {

@@ -1184,7 +1184,8 @@ public final class MainActivity extends Activity {
             if(snapshot==null)pane(selectedMetric.label,"Waiting for Android's measurement.","Measuring…");
             else{
                 HealthSnapshot.Reading reading=snapshot.readings.get(selectedMetric.ordinal());
-                pane(selectedMetric.label,reading.value+"\n\n"+reading.explanation+"\n\nSource. "+reading.source+"\nMeasured. "+time.format(new Date(reading.at))+".",health.stale()?"Refreshing. These values are stale.":CapabilityPanel.status(reading.status));
+                String[] detail=CapabilityPanel.row(reading,time.format(new Date(reading.at)),health.stale());
+                pane(detail[0],detail[1],health.stale()?"Refreshing. These values are stale.":"");
             }
             buttons("Refresh",this::measure,"Done",()->chosenRow.requestFocus());
         }

@@ -45,8 +45,8 @@ public final class CapabilityPanelTest {
             String[] current = CapabilityPanel.row(reading, "20:42:05", false);
             String[] old = CapabilityPanel.row(reading, "20:42:05", true);
             lines.add(current[0]);
-            expect(current[0].contains(reading.metric.label) && current[1].contains(reading.source) && current[1].contains("20:42:05") && !current[1].contains("Stale"),
-                reading.metric.label + " shows its status, source and measurement time");
+            expect(current[0].contains(reading.metric.label) && current[1].contains(reading.value) && current[1].contains(reading.explanation) && current[1].contains(reading.source) && current[1].contains("20:42:05") && !current[1].contains("Stale"),
+                reading.metric.label + " shows its measured value, explanation, source and time");
             expect(old[1].startsWith("Stale.") && old[1].contains("20:42:05"), reading.metric.label + " keeps its own time and says stale after refresh");
         }
         expect(lines.size() == 6 && lines.get(1).contains("Degraded") && lines.get(5).contains("Unavailable"), "all six metrics show a plain status word");
