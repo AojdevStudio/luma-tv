@@ -207,8 +207,13 @@ public final class MainActivity extends Activity {
     }
     /** The Home to show now, before the mode filters it. */
     private HomePresets.Layout layout(){return presets.current(owner());}
+    private List<String> homeApps(){
+        ArrayList<String> shown=new ArrayList<>();
+        for(String pkg:profiles.home(layout().apps))if(appIndex.containsKey(pkg)){shown.add(pkg);if(shown.size()==6)break;}
+        return shown;
+    }
     /** Every app launch asks this. Guest keeps the apps on the Home now shown, Child only its approved apps. */
-    private boolean allowsApp(String pkg){return profiles.allowsApp(pkg,layout().apps.contains(pkg));}
+    private boolean allowsApp(String pkg){return profiles.allowsApp(pkg,homeApps().contains(pkg));}
     /** The layout over Home, or null on Default. Settings edits Default only, so it stops them while one is shown. */
     private String homeLayout(){return presets.active.equals(HomePresets.Selection.DEFAULT)?null:presets.active.name();}
     private String lockedLine(){return "Home shows the "+homeLayout()+" layout. To change your own Home, choose Default in Settings, Capabilities, Layouts.";}
@@ -419,7 +424,7 @@ public final class MainActivity extends Activity {
             houseWidgets=new HouseWidgets(this,unit,shown.scenes,new HouseWidgets.Callbacks(){
                 public void up(){tabs.get(0).requestFocus();}
                 public void down(float x){focusNearestTile(x);}
-                public void open(){try{startActivity(new Intent().setComponent(new ComponentName("dev.housecontrol.tv","dev.housecontrol.tv.MainActivity")));overridePendingTransition(0,0);}catch(Exception e){Toast.makeText(MainActivity.this,"Install House Control to connect your home.",Toast.LENGTH_SHORT).show();}}
+                public void open(){if(!allowsApp("dev.housecontrol.tv")){Toast.makeText(MainActivity.this,profiles.mode.name+" mode does not open House Control.",Toast.LENGTH_SHORT).show();return;}try{startActivity(new Intent().setComponent(new ComponentName("dev.housecontrol.tv","dev.housecontrol.tv.MainActivity")));overridePendingTransition(0,0);}catch(Exception e){Toast.makeText(MainActivity.this,"Install House Control to connect your home.",Toast.LENGTH_SHORT).show();}}
                 public void focusHome(String title,String detail){holdGreeting=false;homeGreeting=false;setHero("@home:"+title,title,detail);navigationSound(2);}
                 public void activate(){sound();}
                 public boolean sceneApplied(String id){return MainActivity.this.sceneApplied(id);}
@@ -443,8 +448,8 @@ public final class MainActivity extends Activity {
         scroll.addView(rows,new ScrollView.LayoutParams(-1,-2));
         content.addView(scroll,pos(960, home ? 150 : 330,0,home ? 388 : 200));
         ArrayList<App> list=new ArrayList<>();
-        if(home){for(String pkg:profiles.home(shown.apps)){App app=appIndex.get(pkg);if(app!=null)list.add(app);}}
-        else for(App app:visibleApps(true))if(profiles.allowsApp(app.pkg,shown.apps.contains(app.pkg)))list.add(app);
+        if(home){for(String pkg:homeApps())list.add(appIndex.get(pkg));}
+        else for(App app:visibleApps(true))if(allowsApp(app.pkg))list.add(app);
         if (!loaded) {
             rows.addView(text("Finding your apps…",15,ink(0xBB),"sans-serif"));
         } else if (list.isEmpty()) {
@@ -1093,7 +1098,7 @@ public final class MainActivity extends Activity {
     private Commands.Registry commandRegistry(){
         ArrayList<Commands.Target> targets=new ArrayList<>();
         // The mode decides availability here too, so a request names an app or tab and still cannot reach it.
-        List<String> home=layout().apps;
+        List<String> home=homeApps();
         for(App app:appIndex.values())if(!app.label.trim().isEmpty())targets.add(new Commands.Target(Commands.Kind.APP,app.pkg,app.label,profiles.allowsApp(app.pkg,home.contains(app.pkg))));
         String[] tabIds={"home","apps","settings"},tabNames={"Home","Apps","Settings"};
         for(int i=0;i<tabIds.length;i++)targets.add(new Commands.Target(Commands.Kind.TAB,tabIds[i],tabNames[i],!tabIds[i].equals("settings")||profiles.allows(Profiles.Content.SETTINGS)));
@@ -1104,7 +1109,8 @@ public final class MainActivity extends Activity {
     }
     private ArrayList<Commands.Target> sceneTargets(){
         ArrayList<Commands.Target> targets=new ArrayList<>();
-        JSONObject plan=house&&lastHome!=null?lastHome.optJSONObject("plan"):null;
+        JSONObject home=houseWidgets!=null&&houseWidgets.current!=null?houseWidgets.current:lastHome;
+        JSONObject plan=house&&home!=null?home.optJSONObject("plan"):null;
         JSONArray scenes=plan==null?null:plan.optJSONArray("scenes");
         for(int i=0;scenes!=null&&i<scenes.length();i++){JSONObject scene=scenes.optJSONObject(i);if(scene==null)continue;
             String id=scene.optString("id").trim(),name=scene.optString("name").trim();if(!id.isEmpty()&&!name.isEmpty())targets.add(new Commands.Target(Commands.Kind.SCENE,id,name,false));}

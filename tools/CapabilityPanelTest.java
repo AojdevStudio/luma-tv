@@ -24,10 +24,10 @@ public final class CapabilityPanelTest {
     }
     static final class Names implements CapabilityPanel.Names {
         final Map<String, String> apps = new HashMap<>();
-        boolean house;
+        boolean house, loaded = true;
         public String app(String pkg) { return apps.get(pkg); }
         public String widget(String id) { return id.equals("house") ? "Smart Home" : id.equals("upnext") ? "Up Next" : id.equals("music") ? "Now Playing" : id; }
-        public String scene(String id) { return house && id.equals("movie") ? "Movie" : null; }
+        public String scene(String id) { return house && loaded && id.equals("movie") ? "Movie" : null; }
         public String wallpaper(int index) { return "Silver"; }
         public boolean house() { return house; }
     }
@@ -68,6 +68,9 @@ public final class CapabilityPanelTest {
         names.house = true;
         String full = CapabilityPanel.layout(HomePresets.EMPTY.preview(movies, owner, new Tv(names)), names);
         expect(unavailable(full).isEmpty() && full.contains("Scenes. Movie") && full.contains("Widgets. Smart Home, Up Next, Now Playing"), "a complete layout reports nothing unavailable");
+        names.loaded = false;
+        String unloaded = unavailable(CapabilityPanel.layout(HomePresets.EMPTY.preview(movies, owner, new Tv(names)), names));
+        expect(unloaded.contains("Luma's House Control data") && !unloaded.contains("has no"), "an unloaded scene inventory is unavailable data, not proof the scene does not exist");
 
         expect(CapabilityPanel.mode(Profiles.Mode.CHILD, Collections.<String>emptyList()).contains("None yet"), "the Child preview says when no apps are approved");
         expect(CapabilityPanel.mode(Profiles.Mode.CHILD, Arrays.asList("YouTube", "Plex")).contains("YouTube, Plex"), "the Child preview lists the approved apps");

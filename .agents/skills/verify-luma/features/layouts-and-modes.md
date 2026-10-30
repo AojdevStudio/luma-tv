@@ -24,6 +24,9 @@ Layouts:
 Modes:
 
 - Enter Guest through the mode control, then Confirm. Up Next, Now Playing, the greeting name, the Settings tab and Control are gone. The Home apps still open. Apps lists only the Home apps.
+- With more than six unhidden apps, Guest Apps and requests must allow only the six installed apps actually shown on Home. Missing layout entries stay saved.
+- In Guest, a Smart Home cover must refuse to open House Control unless that app appears on Home. Allowing the House widget does not approve its app.
+- Start a widget page transition, then enter a restricted mode. Detached widgets must stay inactive after the delayed page callback runs.
 - Enter Child with no approved apps. Home says no apps are approved, and Apps is empty.
 - In Normal, approve one app under Mode, Child apps. Child Home then shows only that app and Weather.
 - Force-stop and reopen Luma in Child mode. Home opens in Child mode with no Normal content first.

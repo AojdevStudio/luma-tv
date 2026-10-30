@@ -42,7 +42,7 @@ final class CapabilityPanel {
                 case APP: missing.add(part.id + " is not installed."); break;
                 case WIDGET: missing.add(part.id.equals("house") ? "Smart Home needs House Control TV." : part.id.equals("inputs")
                     ? "Inputs needs a TV with HDMI inputs." : names.widget(part.id) + " is not in this version of Luma."); break;
-                default: missing.add(names.house() ? "House Control has no " + part.id + " scene." : "The " + part.id + " scene needs House Control TV.");
+                default: missing.add(names.house() ? "The " + part.id + " scene is unavailable in Luma's House Control data." : "The " + part.id + " scene needs House Control TV.");
             }
         }
         StringBuilder text = new StringBuilder("Widgets. ").append(widgets.isEmpty() ? "None" : String.join(", ", widgets))

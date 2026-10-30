@@ -33,7 +33,7 @@ final class WidgetBoard extends FrameLayout {
         void launch(String pkg);void start(Intent intent);
         SharedPreferences prefs();Activity activity();
     }
-    static String title(String id){switch(id){case "house":return "Smart Home";case "inputs":return "Inputs";case "upnext":return "Up Next";case "weather":return "Weather";case "music":return "Now Playing";default:return "Control";}}
+    static String title(String id){switch(id){case "house":return "Smart Home";case "inputs":return "Inputs";case "upnext":return "Up Next";case "weather":return "Weather";case "music":return "Now Playing";case "control":return "Control";default:return id;}}
     static String glyph(String id){switch(id){case "house":return "home";case "inputs":return "hdmi";case "upnext":return "tv";case "weather":return "partly";case "music":return "note";default:return "gear";}}
     static String about(String id){switch(id){
         case "house":return "Scenes and your live 3D home, from House Control TV.";
@@ -120,7 +120,7 @@ final class WidgetBoard extends FrameLayout {
 
     void setActive(boolean value){active=value;for(int p=0;p<widgets.size();p++)for(Widget w:widgets.get(p))w.setActive(value&&p==index);}
     void refresh(){for(Widget w:widgets.get(index))w.refresh();}
-    @Override protected void onDetachedFromWindow(){for(ArrayList<Widget> list:widgets)for(Widget w:list)w.setActive(false);super.onDetachedFromWindow();}
+    @Override protected void onDetachedFromWindow(){setActive(false);super.onDetachedFromWindow();}
 
     /** The current page's dot is a short pill; the others are small, quiet dots. */
     private void paintDots(boolean animate){

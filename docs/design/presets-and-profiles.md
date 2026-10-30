@@ -85,12 +85,12 @@ Only Normal can change the approved list. A widget the policy does not know show
 
 - `Profiles.parse(prefs.getString(KEY, null))` returns `null` when the value is absent, damaged or from another version. Use `Profiles.DEFAULT` (Normal, nothing approved) then. Normal is always one press away, so this fallback loses no access.
 - `enter(mode)` switches modes and keeps the approved list. `approve(apps)` sets the list from Normal and does nothing elsewhere.
-- `home(homeApps)` returns the apps Home shows. `allowsWidget(id)`, `allows(content)` and `allowsApp(pkg, onHome)` answer every other surface. `line()` is the value to persist.
+- `home(homeApps)` filters the proposed Home apps by mode. `allowsWidget(id)`, `allows(content)` and `allowsApp(pkg, onHome)` answer every other surface. `line()` is the value to persist.
 
 ### Integration through confirmed actions
 
 1. Read the mode before the first Home render, so restricted modes never flash Normal content.
-2. Home widgets are `current(owner).widgets` filtered by `allowsWidget`. Home apps are `home(current(owner).apps)`. The Apps tab lists installed apps that pass `allowsApp`. "On Home" means the apps of the layout shown now.
+2. Home widgets are `current(owner).widgets` filtered by `allowsWidget`. `MainActivity.homeApps()` takes the first six installed apps from `home(current(owner).apps)`. Rendering, Guest policy and requests use that same list. Missing layout entries remain saved.
 3. Each capability names one `Content`. Outside Normal the panel opens Mode alone, and `run` checks `allows` again at execution, so a stale preview cannot run after a mode change. The command registry marks apps the mode refuses, and the Settings tab outside Normal, as unavailable.
 4. `launch()` checks `allowsApp` before it starts an app. Every app open from a tile, a widget, a scene or a capability goes through it. A widget that starts any other intent goes through the same check outside Normal, and an intent Luma cannot resolve stays shut. A scene that would open a refused app still runs and stays on Home.
 5. Guest and Child hide the greeting name, the Settings tab and the app menu. Holding OK on an app opens it. Home rebuilds on every mode change, so widgets the mode hides are detached and stop their work.
