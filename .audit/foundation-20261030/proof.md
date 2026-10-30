@@ -75,3 +75,19 @@ The unpublished foundation commits were combined after sanitizing their
 evidence, so the saved location does not enter public Git history.
 Exact-head review, PR CI, and review-bot approval remain pending.
 Physical TCL integration remains ticket 17.
+
+## Second review corrections
+
+The second review found that a cold launch ignored luma.weather.location.
+The production-callback scratch reproduction failed before the correction with
+`cold weather_city=<absent>` and `cold launch ignored luma.weather.location`.
+Both initial creation and onNewIntent now consume the same weather-setting
+handler. The same reproduction then passed with Review city on both paths.
+This reproduction uses production callback bodies with Android setup stubbed.
+It does not replace a device walkthrough.
+
+WeatherLocationTest now has 11 checks, including nonfinite longitude.
+Removing the longitude finite check from a scratch copy now fails with
+`nonfinite longitude is rejected`.
+The invisible-city check failed before the parser correction, then passed.
+No device proof for the cold-launch correction is claimed here yet.

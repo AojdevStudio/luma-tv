@@ -105,6 +105,7 @@ public final class MainActivity extends Activity {
         IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_PACKAGE_ADDED);filter.addAction(Intent.ACTION_PACKAGE_REMOVED);filter.addAction(Intent.ACTION_PACKAGE_CHANGED);filter.addDataScheme("package");
         registerReceiver(packages,filter);
         createShell();
+        applyWeatherLocation(getIntent());
         discover();
     }
 
@@ -138,10 +139,10 @@ public final class MainActivity extends Activity {
         if(look!=null&&look.matches("day|night|auto")){daylightOverride=look;if(started)syncDaylight();}
         String demo=intent.getStringExtra("luma.demo");if(demo!=null){Promo.on=demo.equals("promo");if(Promo.on)Promo.start();board=null;homePage=0;showPage("home",true);} // board=null: start on the first page
         String inputs=intent.getStringExtra("luma.inputs");if(inputs!=null){InputsWidget.demo=inputs.equals("demo");showPage(page,true);} // arrives while paused
-        String weatherLocation=intent.getStringExtra("luma.weather.location");
-        if(weatherLocation!=null){String[] fields=weatherLocation.split("\\|",-1);if(fields.length==3)setWeatherLocation(fields[0],fields[1],fields[2]);else resetInvalidWeatherLocation();}
+        applyWeatherLocation(intent);
         if (intent.hasCategory(Intent.CATEGORY_HOME)){selectedPackage="com.google.android.youtube.tv";if(started)homePage=0;showPage("home", true);} // Home pressed on Home: back to the first page
     }
+    private void applyWeatherLocation(Intent intent){String weatherLocation=intent.getStringExtra("luma.weather.location");if(weatherLocation!=null){String[] fields=weatherLocation.split("\\|",-1);if(fields.length==3)setWeatherLocation(fields[0],fields[1],fields[2]);else resetInvalidWeatherLocation();}}
     private void setWeatherLocation(String city,String lat,String lon){WeatherLocation location=WeatherLocation.parse(city,lat,lon);if(location==null){resetInvalidWeatherLocation();return;}prefs.edit().putString("weather_city",location.city).putString("weather_lat",Double.toString(location.lat)).putString("weather_lon",Double.toString(location.lon)).remove("weather_json").remove("weather_key").apply();showPage(page,true);}
     private void resetInvalidWeatherLocation(){Toast.makeText(this,"Weather location reset to Automatic.",Toast.LENGTH_SHORT).show();clearWeatherLocation();}
     private void clearWeatherLocation(){prefs.edit().remove("weather_city").remove("weather_lat").remove("weather_lon").remove("weather_json").remove("weather_key").apply();showPage(page,true);}
