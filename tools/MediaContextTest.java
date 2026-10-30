@@ -38,6 +38,8 @@ public final class MediaContextTest {
             expect("See and".equals(MediaContext.concise("See plex.tv/watch?X-Plex-Token=example and mailto:viewer@example.invalid?token=example")), "scheme-less provider links and mailto links are removed with their query values");
             for (String host : Arrays.asList("192.168.1.5:32400/library", "localhost:32400/", "plex.example.xn--p1ai/"))
                 expect("Recap tonight.".equals(MediaContext.concise("Recap " + host + "?X-Plex-Token=scratch-secret tonight.")), "provider authority links are removed for " + host);
+            for (String host : Arrays.asList("“plex.tv/watch", "[plex.tv/watch", "link:plex.tv/watch", "url=plex.tv/watch", "link:192.168.1.5:32400/library", "my_server.local/library", "bücher.example/library"))
+                expect("Recap tonight.".equals(MediaContext.concise("Recap " + host + "?X-Plex-Token=scratch-secret tonight.")), "punctuated provider links are removed for " + host);
         });
         check("concise", () -> {
             String longText = "First sentence is here. " + String.join(" ", Collections.nCopies(60, "word")) + ".";
@@ -51,6 +53,8 @@ public final class MediaContextTest {
             String run = MediaContext.concise(String.join(" ", Collections.nCopies(60, "word")));
             expect(run.length() <= MediaContext.SUMMARY_MAX && run.endsWith("…") && !run.contains("wor…"), "a long run-on description ends at a whole word");
             expect("Wait...what? No.".equals(MediaContext.concise("Wait...what? No.")), "ordinary punctuation is not mistaken for a domain link");
+            for (String prose : Arrays.asList("Set in L.A./Hollywood tonight.", "A U.S./Canada co-production.", "With Dr./Mrs. Smith tonight.", "Airs 9 a.m./p.m. daily.", "Filmed in D.C./Maryland.", "Use e.g./i.e. carefully.", "Pizza, pasta, etc.? Yes."))
+                expect(prose.equals(MediaContext.concise(prose)), "abbreviation punctuation remains text for " + prose);
             String unspaced = String.join("", Collections.nCopies(8000, "a"));
             expect((unspaced.substring(0, MediaContext.SUMMARY_MAX - 1) + "…").equals(MediaContext.concise(unspaced)), "long unspaced metadata produces the bounded summary");
         });

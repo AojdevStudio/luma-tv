@@ -1,7 +1,5 @@
 package dev.luma.tv;
 
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Locale;
@@ -72,14 +70,39 @@ final class MediaContext {
         int end=0;
         while(end<token.length()&&"/?#".indexOf(token.charAt(end))<0)end++;
         if(end==token.length())return false;
-        int start=0;
-        while(start<end&&"(\"'<{".indexOf(token.charAt(start))>=0)start++;
+        int digits=end;
+        while(digits>0&&Character.isDigit(token.charAt(digits-1)))digits--;
+        boolean port=digits<end&&digits>0&&token.charAt(digits-1)==':';
+        if(port)end=digits-1;
+        if(end>0&&token.charAt(end-1)==']'){
+            int bracket=token.lastIndexOf('[',end-1);
+            if(bracket>=0&&token.substring(bracket,end).indexOf(':')>=0)return true;
+        }
+        if(end>0&&token.charAt(end-1)=='.')end--;
+        int start=end;
+        while(start>0){
+            char c=token.charAt(start-1);
+            if(!Character.isLetterOrDigit(c)&&c!='.'&&c!='-'&&c!='_')break;
+            start--;
+        }
         if(start==end)return false;
-        try{
-            URI address=new URI("https://"+token.substring(start,end));
-            String host=address.getHost();
-            return host!=null&&(host.indexOf('.')>=0||host.equalsIgnoreCase("localhost")||address.getPort()>=0||host.startsWith("["));
-        }catch(URISyntaxException invalid){return false;}
+        String host=token.substring(start,end).toLowerCase(Locale.ROOT);
+        if(host.equals("localhost"))return true;
+        String[] labels=host.split("\\.",-1);
+        for(String label:labels)if(label.isEmpty())return false;
+        if(port)return true;
+        if(labels.length<2)return false;
+        String suffix=labels[labels.length-1];
+        if(suffix.startsWith("xn--")&&suffix.length()>4)return true;
+        boolean letters=suffix.length()>=2;
+        for(int i=0;i<suffix.length();i++)letters&=Character.isLetter(suffix.charAt(i));
+        if(letters)return true;
+        if(labels.length!=4)return false;
+        for(String label:labels){
+            if(label.length()>3)return false;
+            for(int i=0;i<label.length();i++)if(!Character.isDigit(label.charAt(i)))return false;
+        }
+        return true;
     }
 
     static final class Demo {
