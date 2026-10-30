@@ -1,6 +1,6 @@
 # TV health snapshot
 
-Prepares [#14](https://github.com/AojdevStudio/luma-tv/issues/14). This adds the model and the Android reader. The Health screen is not built yet. It waits on Ossie's design pick.
+Prepares [#14](https://github.com/AojdevStudio/luma-tv/issues/14). This adds the model and the Android reader. The Health section of the Capabilities panel shows it. See [capability-panel.md](capability-panel.md).
 
 ## Shape
 
@@ -37,7 +37,7 @@ Luma never sets its own threshold.
 - Any `RuntimeException` or missing package from Android becomes an unavailable reading for that metric alone. The cause stays out of the report.
 - The report holds no Wi-Fi name, address, account, or other private detail.
 
-## Left for the Health screen
+## Rules for the Health screen
 
 - Call `HealthReader.read` off the main thread. Package and storage queries can block.
 - Add Settings, then System, then Health, with Refresh and Done focusable, and Back returning to the row that opened it.
