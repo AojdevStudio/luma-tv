@@ -1064,7 +1064,7 @@ public final class MainActivity extends Activity {
         public void readHouse(Runnable done){MainActivity.this.readHouse(done);}
         public void runScene(HouseScenes.Scene scene,java.util.function.Supplier<String> refusal,java.util.function.Consumer<HouseScenes.Outcome> done){houseLink.run(scene,refusal,done);}
         public String sceneApp(String scene){return MainActivity.this.sceneApp(scene);}
-        public boolean waiting(){return started&&center!=null&&capabilityOverlay==center;}
+        public Capabilities.Away away(){return center==null||capabilityOverlay!=center?Capabilities.Away.CLOSED:!started?Capabilities.Away.OFF_SCREEN:null;}
     }
     private Commands.Registry commandRegistry(){
         ArrayList<Commands.Target> targets=new ArrayList<>();

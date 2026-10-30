@@ -22,7 +22,8 @@ public final class CapabilitiesTest {
         /** House Control as last read, the read that readHouse fetches next, and the reply to the next scene run. */
         HouseScenes.Read house, fresh;
         Object reply = HouseScenesTest.map("ok", true, "direct", true);
-        boolean lost, waiting = true, queued;
+        boolean lost, queued;
+        Capabilities.Away away;
         String ran;
         Runnable held;
         final HashMap<String, String> sceneApps = new HashMap<>();
@@ -49,7 +50,7 @@ public final class CapabilitiesTest {
             if (queued) held = send; else send.run();
         }
         public String sceneApp(String scene) { return sceneApps.getOrDefault(scene, ""); }
-        public boolean waiting() { return waiting; }
+        public Capabilities.Away away() { return away; }
     }
     static Capabilities.Result run(Capabilities.Action action, FakeTv tv, long now) {
         ArrayList<Capabilities.Result> results = new ArrayList<>();
@@ -216,9 +217,14 @@ public final class CapabilitiesTest {
         expect(guestMovie.preview.contains("Guest mode does not open Plex") && guestRun.done() && "movie".equals(visitor.ran) && visitor.opened == null
             && guestRun.message.equals("Started Movie. Guest mode does not open Plex"), "Guest runs the scene but not an app it hides");
         FakeTv closed = house(true);
-        closed.waiting = false;
+        closed.away = Capabilities.Away.CLOSED;
         Capabilities.Result late = run(Capabilities.scenes(closed).get(1), closed, 25L);
-        expect(late.done() && closed.opened == null && late.message.contains("Plex did not open"), "a result after the panel closed opens no app");
+        expect(late.done() && closed.opened == null && late.message.equals("Started Movie. The panel closed first, so Plex did not open"), "a result after the panel closed opens no app");
+        FakeTv paused = house(true);
+        paused.away = Capabilities.Away.OFF_SCREEN;
+        Capabilities.Result unseen = run(Capabilities.scenes(paused).get(1), paused, 25L);
+        expect(unseen.done() && paused.opened == null && unseen.message.equals("Started Movie. Luma was not on screen, so Plex did not open"),
+            "a result while Luma is off screen opens no app and says so, not that the panel closed");
         FakeTv uninstalled = house(true);
         replace(uninstalled, "com.plexapp.android", null);
         Capabilities.Action noPlex = Capabilities.scenes(uninstalled).get(1);

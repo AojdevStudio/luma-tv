@@ -30,8 +30,14 @@ final class Capabilities {
         void runScene(HouseScenes.Scene scene, Supplier<String> refusal, Consumer<HouseScenes.Outcome> done);
         /** The app chosen in Settings, Scene apps, to open after this scene, or "" for none. */
         String sceneApp(String scene);
-        /** The panel that confirmed the action is still open, so a scene may still open its app. */
-        boolean waiting();
+        /** Why the panel that confirmed the action no longer shows it, or null while it does. A scene opens its app only then. */
+        Away away();
+    }
+
+    enum Away {
+        CLOSED("The panel closed first"), OFF_SCREEN("Luma was not on screen");
+        final String reason;
+        Away(String reason) { this.reason = reason; }
     }
 
     enum Capability {
@@ -231,7 +237,8 @@ final class Capabilities {
         Commands.Target app = app(pkg, tv);
         if (app == null) return started + ". " + pkg + " is not installed, so no app opened";
         if (!app.available) return started + ". " + tv.profile().mode.name + " mode does not open " + app.name;
-        if (!tv.waiting()) return started + ". The panel closed first, so " + app.name + " did not open";
+        Away away = tv.away();
+        if (away != null) return started + ". " + away.reason + ", so " + app.name + " did not open";
         return started + (tv.openApp(pkg) ? ". Opened " + app.name : ". Android could not open " + app.name);
     }
 
