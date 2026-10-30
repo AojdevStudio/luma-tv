@@ -20,8 +20,7 @@ import java.util.*;
 
 /** Up Next: what you were watching, from Android TV's Watch Next list (the "Continue watching" row that apps such
  *  as YouTube and Plex fill in), then the apps you used most recently. OK resumes the programme in its app.
- *  Each programme carries a MediaContext: its app, live or demo data, time left, and the app's own description as
- *  the summary, or an explicit unavailable line. Reading Watch Next needs the TV listings permission; recent apps
+ *  Reading Watch Next needs the TV listings permission; recent apps
  *  come from usage access when granted, else from the apps opened from Luma. Nothing leaves the TV except poster
  *  pictures loaded from the apps' own links. */
 final class UpNextWidget extends Widget {
@@ -56,8 +55,6 @@ final class UpNextWidget extends Widget {
     private ArrayList<Item> load(Context context){
         ArrayList<Item> items=new ArrayList<>();HashSet<String> seen=new HashSet<>();
         if(Promo.on){
-            // Design B's demo items, on the promo's own wallpaper posters. OK goes through the same launch as a real
-            // Plex row, so without Plex installed Home says so instead of pretending to resume.
             for(int n=0;n<MediaContext.DEMO.length;n++){MediaContext.Demo d=MediaContext.DEMO[n];
                 Item i=new Item();i.pkg=PLEX;i.key="demo:"+d.title;i.title=d.title;i.media=d.context;i.line=join(d.context.progressText(),d.context.source);i.detail=d.context.summaryText();i.art="res:"+Promo.VIDEOS[n%Promo.VIDEOS.length][3];items.add(i);}
             return items;

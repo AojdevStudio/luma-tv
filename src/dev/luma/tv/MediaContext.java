@@ -5,9 +5,8 @@ import java.util.HashSet;
 import java.util.Locale;
 
 /** What Home says about one media item: the app it comes from, whether the data is live or a demo fixture, how far
- *  in it is, and a summary only when the app shared a description. Plain Java, so tools/MediaContextTest.java runs on
- *  a computer. It never holds a link, an intent or notification text: callers pass the app's label and the plain
- *  metadata the app published (Watch Next, media session), and links are cut out of descriptions. */
+ *  in it is, and a summary only when the app shared a description. Callers pass display metadata from Watch Next
+ *  or a media session, never provider intents or notification content. */
 final class MediaContext {
     enum Data {
         LIVE("Live"),DEMO("Demo");
@@ -37,11 +36,9 @@ final class MediaContext {
 
     String progressText(){return left<0?"Progress unavailable":span(left)+" left";}
     String summaryText(){return summary!=null?summary:"Summary unavailable. "+source+" shared no description.";}
-    /** Source and data state, as in "Plex · Demo". */
     String label(){return source+" · "+data.label;}
     static String span(long ms){long m=Math.max(1,ms/MIN);return m<60?m+" m":String.format(Locale.US,"%d h %02d m",m/60,m%60);}
 
-    /** The Up Next caption tag: "Plex, demo data" when every item comes from one app, else "Live data" or "Demo data". */
     static String tag(Data data,Collection<String> sources){
         if(sources.isEmpty())return "";
         return new HashSet<>(sources).size()==1?sources.iterator().next()+", "+data.label.toLowerCase(Locale.ENGLISH)+" data":data.label+" data";
@@ -57,7 +54,6 @@ final class MediaContext {
         return (space>0?head.substring(0,space):head.substring(0,SUMMARY_MAX-1))+"…";
     }
 
-    /** Demo fixtures for the promo mode (Promo.on), copied from the approved design B mockup's demo data. */
     static final class Demo {
         final String title;final MediaContext context;
         Demo(String title,MediaContext context){this.title=title;this.context=context;}

@@ -23,9 +23,7 @@ import java.util.*;
 
 /** Now Playing: the media session of the app playing on this TV (Spotify, YouTube Music, SoundCloud…) with its
  *  artwork, progress and previous / play-pause / next. Android hands media sessions only to a notification
- *  listener, so Luma declares one (MediaListener) that reads no notifications; the user allows it once. The source
- *  line says whether the session is live or the promo demo, and the Home line shows the session's own description
- *  as a summary (MediaContext), or says none was shared. */
+ *  listener, so Luma declares one (MediaListener) that reads no notifications; the user allows it once. */
 final class NowPlayingWidget extends Widget {
     static final String[] MUSIC={"com.spotify.tv.android","com.google.android.youtube.tvmusic","com.soundcloud.android","com.apple.android.music","deezer.android.tv","com.amazon.music.tv","com.aspiro.tidal","ru.yandex.music","com.google.android.youtube.tv"};
     static final float PAD=18,ART=104,TX=136,CTRL_Y=130;
@@ -118,7 +116,6 @@ final class NowPlayingWidget extends Widget {
     private static String titleOf(MediaController c){MediaMetadata m=c.getMetadata();if(m==null)return "";CharSequence t=m.getText(MediaMetadata.METADATA_KEY_DISPLAY_TITLE);if(t==null)t=m.getText(MediaMetadata.METADATA_KEY_TITLE);return t==null?"":t.toString();}
     private boolean playing(){if(Promo.on)return Promo.playing;PlaybackState s=controller==null?null:controller.getPlaybackState();return s!=null&&(s.getState()==PlaybackState.STATE_PLAYING||s.getState()==PlaybackState.STATE_BUFFERING);}
     private String appName(String pkg){MainActivity.App a=host.app(pkg);return a==null?"":a.label;}
-    /** The shown session as Home describes it; Promo's song is demo data with no description. */
     private MediaContext context(){
         if(Promo.on)return MediaContext.watched(Promo.SOURCE,MediaContext.Data.DEMO,Promo.position(),Promo.SONG_LENGTH,null);
         MediaMetadata m=controller.getMetadata();PlaybackState s=controller.getPlaybackState();
