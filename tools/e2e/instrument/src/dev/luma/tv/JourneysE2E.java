@@ -5,6 +5,7 @@ import android.app.Instrumentation;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Process;
 import android.os.SystemClock;
@@ -17,9 +18,12 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.TextView;
 import java.lang.reflect.Field;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Remote journeys through Luma's Home, Apps and Capabilities panel, inside an isolated copy of the app. Remote keys
@@ -55,10 +59,10 @@ public final class JourneysE2E extends Instrumentation {
         switch (step) {
             case "":
                 state().edit().clear().commit();
-                test("Ask Cancel keeps the typed request and Preview focus", () -> askCancel(KeyEvent.KEYCODE_DPAD_CENTER));
-                test("Ask Back keeps the typed request and Preview focus", () -> askCancel(KeyEvent.KEYCODE_BACK));
+                test("Ask Cancel keeps the request, Preview focus and last success", () -> askCancel(KeyEvent.KEYCODE_DPAD_CENTER));
+                test("Ask Back keeps the request, Preview focus and last success", () -> askCancel(KeyEvent.KEYCODE_BACK));
                 test("The clock row changes its action in the same panel", this::clockRow);
-                test("Sports applies from Layouts", this::applySports);
+                test("Sports applies after changing the owner's Home order", this::applySports);
                 next = "sports-restarted";
                 break;
             case "sports-restarted":
@@ -66,7 +70,7 @@ public final class JourneysE2E extends Instrumentation {
                 next = "default-restarted";
                 break;
             case "default-restarted":
-                test("Default stays on Home after a restart", this::defaultKept);
+                test("Default keeps the owner's Home order after a restart", this::defaultKept);
                 test("Guest Apps holds exactly the apps Guest Home shows", this::enterGuest);
                 next = "guest-restarted";
                 break;
@@ -90,16 +94,23 @@ public final class JourneysE2E extends Instrumentation {
     private void askCancel(int leave) {
         fresh();
         openCapabilities();
+        moveTo(KeyEvent.KEYCODE_DPAD_RIGHT, "Hide the clock");
+        confirm();
+        String previous = "Last: Hid the clock";
+        waitFor("a successful clock action", () -> shown("Done. Hid the clock") != null && shown(previous) != null);
+        String historyKey = "capability_last";
+        String success = prefs().getString(historyKey, "");
+        if (success.isEmpty()) throw new AssertionError("the successful clock action was not saved");
+        moveTo(KeyEvent.KEYCODE_DPAD_LEFT, "Actions");
         moveTo(KeyEvent.KEYCODE_DPAD_DOWN, "Ask");
         key(KeyEvent.KEYCODE_DPAD_RIGHT);
         if (!(focused() instanceof EditText)) throw new AssertionError("Right from Ask did not reach the request line: " + label(focused()));
         sendStringSync(REQUEST);
         waitForIdleSync();
-        String last = lastLine();
         // Done on the TV keyboard sends this editor action. Gboard keeps D-pad keys while it is connected.
         EditText line = (EditText) focused();
         runOnMainSync(() -> line.onEditorAction(EditorInfo.IME_ACTION_DONE));
-        waitFor("the keyboard to close", () -> !keyboardShown());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) waitFor("the keyboard to close", () -> !keyboardShown());
         waitFor("Confirm after Preview", () -> "Confirm".equals(label(focused())));
         if (leave == KeyEvent.KEYCODE_DPAD_CENTER) { key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("Cancel"); }
         key(leave);
@@ -108,7 +119,9 @@ public final class JourneysE2E extends Instrumentation {
         EditText field = (EditText) find(v -> v instanceof EditText);
         if (field == null) throw new AssertionError("Ask closed: the request line is gone");
         if (!REQUEST.equals(text(field))) throw new AssertionError("the request line holds '" + text(field) + "'");
-        if (!last.equals(lastLine())) throw new AssertionError("the last result changed to '" + lastLine() + "'");
+        if (shown(previous) == null || !success.equals(prefs().getString(historyKey, ""))) {
+            throw new AssertionError("Ask did not keep the successful clock result");
+        }
     }
 
     /** 0024e3c to c413e3b. After a clock action runs, its row offers the opposite action and runs it. Each
@@ -148,14 +161,34 @@ public final class JourneysE2E extends Instrumentation {
         catch (AssertionError error) { return false; }
     }
 
-    /** Apply Sports, whose Plex entry is not installed on the test TV, then restart. */
+    /** Move a tile first through the app menu, then apply Sports. */
     private void applySports() {
         fresh();
-        List<String> owner = tiles();
+        List<String> factory = tiles();
+        if (factory.size() < 2) throw new AssertionError("changing order needs two Home tiles: " + factory);
+        List<String> owner = new ArrayList<>(factory);
+        owner.add(0, owner.remove(1));
+        if (owner.equals(factory)) throw new AssertionError("the first two Home tiles share a label: " + factory);
+        expectFocus(factory.get(0) + ". OK: open.");
+        key(KeyEvent.KEYCODE_DPAD_RIGHT);
+        expectFocus(owner.get(0) + ". OK: open.");
+        int ok = KeyEvent.KEYCODE_DPAD_CENTER;
+        long down = SystemClock.uptimeMillis();
+        sendKeySync(new KeyEvent(down, down, KeyEvent.ACTION_DOWN, ok, 0));
+        try {
+            waitFor("the app's hold-OK menu", () -> shown("Move to first position") != null);
+        } finally {
+            sendKeySync(new KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, ok, 0));
+        }
+        moveTo(KeyEvent.KEYCODE_DPAD_DOWN, "Move to first position");
+        key(KeyEvent.KEYCODE_DPAD_CENTER);
+        expectTiles("the owner's reordered Home", join(owner));
         openCapabilities();
         chooseLayout("Sports");
         List<String> sports = tiles();
         if (sports.equals(owner)) throw new AssertionError("Sports left Home as " + sports);
+        line("Owner Home tiles " + owner);
+        line("Sports Home tiles " + sports);
         state().edit().putString("owner", join(owner)).putString("sports", join(sports)).putInt("pid", Process.myPid()).commit();
     }
 
@@ -197,6 +230,7 @@ public final class JourneysE2E extends Instrumentation {
         waitFor("Confirm", () -> "Confirm".equals(label(focused())));
         key(KeyEvent.KEYCODE_DPAD_CENTER);
         waitView("Guest mode control", v -> v.isFocusable() && description(v).startsWith("Guest mode"));
+        waitForHome();
         List<String> home = tiles();
         if (home.size() != 6) throw new AssertionError("Guest Home shows " + home.size() + " apps: " + home);
         expectApps(home);
@@ -224,7 +258,7 @@ public final class JourneysE2E extends Instrumentation {
         luma = startActivitySync(new Intent(Intent.ACTION_MAIN).setComponent(ComponentName.unflattenFromString(LUMA))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         waitForIdleSync();
-        waitFor("Home apps", () -> !tiles().isEmpty());
+        waitForHome();
     }
 
     private void restarted() {
@@ -253,7 +287,7 @@ public final class JourneysE2E extends Instrumentation {
         key(KeyEvent.KEYCODE_DPAD_CENTER);
         waitFor("the panel to close", () -> find(v -> "Actions".equals(description(v))) == null);
         page("Home");
-        waitFor("Home apps", () -> !tiles().isEmpty());
+        waitForHome();
     }
 
     private void page(String tab) {
@@ -288,6 +322,12 @@ public final class JourneysE2E extends Instrumentation {
 
     // What the screen shows
 
+    private void waitForHome() {
+        String date = new SimpleDateFormat("EEEE, MMMM d", Locale.ENGLISH).format(new Date());
+        waitFor("the Home date and a loaded app row", () -> shown(date) != null &&
+            (!tiles().isEmpty() || shown("Your home is empty. Find your apps in the Apps tab.") != null));
+    }
+
     private void expectFocus(String label) {
         String now = label(focused());
         if (!now.startsWith(label)) throw new AssertionError("focus is on '" + now + "', expected " + label);
@@ -321,11 +361,6 @@ public final class JourneysE2E extends Instrumentation {
         int end = d.indexOf(". OK: open.");
         if (view.isFocusable() && end > 0) { labels.add(d.substring(0, end)); return; }
         if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) collect(((ViewGroup) view).getChildAt(i), labels);
-    }
-
-    private String lastLine() {
-        View v = find(x -> text(x).startsWith("Last: ") || text(x).startsWith("No capability has run"));
-        return v == null ? "" : text(v);
     }
 
     private boolean clockShown() throws ReflectiveOperationException {
