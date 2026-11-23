@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class MediaE2E extends Instrumentation {
     static final String FIXTURE = "dev.luma.tv.fixture";
     static final String PLAYER = FIXTURE + "/.Player", PLAYER_NEXT = FIXTURE + "/.PlayerNext", HIDDEN = FIXTURE + "/.Hidden", APP = FIXTURE + "/.Main";
-    static final String LUMA = "dev.luma.tv/.MainActivity";
+    static final String LUMA = "dev.luma.tv.e2e.target/dev.luma.tv.MainActivity";
     static final long WAIT_MS = 20_000;
 
     interface Step { void run() throws Exception; }
@@ -52,8 +52,10 @@ public final class MediaE2E extends Instrumentation {
         });
         test("Child mode hides Up Next and refuses an unapproved provider link", () -> {
             seed("Fixture-Child", 30_000, PLAYER, "Fixture-Child", 30_000, PLAYER);
+            card(launchLuma(null), "Fixture-Child");
             Activity luma = launchLuma(Profiles.DEFAULT.enter(Profiles.Mode.CHILD).line());
             waitFor("Child mode chip", () -> find(luma, v -> "Child mode".equals(text(v))) != null);
+            if (find(luma, v -> "Up Next".equals(text(v))) != null) throw new AssertionError("Child mode shows Up Next");
             if (find(luma, v -> description(v).startsWith("Fixture-Child")) != null) throw new AssertionError("Child mode shows the owner's Watch Next row");
             Object host = field(luma, "boardHost");
             runOnMainSync(() -> {
@@ -61,7 +63,7 @@ public final class MediaE2E extends Instrumentation {
                 catch (ReflectiveOperationException error) { throw new IllegalStateException(error); }
             });
             SystemClock.sleep(3_000);
-            if (!resumed().contains(LUMA)) throw new AssertionError("Child mode opened an unapproved provider link: " + resumed());
+            if (!resumed().equals(LUMA)) throw new AssertionError("Child mode opened an unapproved provider link: " + resumed());
         });
         Bundle result = new Bundle();
         report.append(failures == 0 ? "E2E PASS\n" : "E2E FAIL " + failures + "\n");
@@ -94,7 +96,7 @@ public final class MediaE2E extends Instrumentation {
                 return false;
             }
         });
-        waitFor("fixture seed screen to close", () -> !resumed().contains(PLAYER));
+        waitFor("fixture seed screen to close", () -> !resumed().equals(PLAYER));
     }
 
     private static String uri(String component) {
@@ -150,13 +152,18 @@ public final class MediaE2E extends Instrumentation {
     }
 
     private void waitResumed(String component) {
-        waitFor(component + " in front (now " + resumed() + ")", () -> resumed().contains(component));
+        waitFor(component + " in front (now " + resumed() + ")", () -> resumed().equals(component));
     }
 
     /** The activity Android has in front, from the activity manager. */
     private String resumed() {
         for (String row : shell("dumpsys activity activities").split("\n"))
-            if (row.contains("topResumedActivity=")) return row.trim();
+            if (row.contains("topResumedActivity=")) {
+                for (String token : row.trim().split("\\s+")) {
+                    ComponentName activity = ComponentName.unflattenFromString(token);
+                    if (activity != null) return activity.flattenToShortString();
+                }
+            }
         return "";
     }
 

@@ -20,7 +20,8 @@ public class Player extends Main {
         Intent intent = getIntent();
         SharedPreferences prefs = getSharedPreferences("row", MODE_PRIVATE);
         if (intent.getBooleanExtra("clear", false)) {
-            getContentResolver().delete(WatchNextPrograms.CONTENT_URI, null, null);
+            String previous = prefs.getString("row", null);
+            if (previous != null) getContentResolver().delete(Uri.parse(previous), null, null);
             prefs.edit().clear().commit();
         }
         if (intent.hasExtra("title")) {
