@@ -249,7 +249,7 @@ AtMostOneSend == sent <= 1
 
 (* Controls. Each must break, which proves its refusal path is still reachable. A property that holds only because
    these paths vanished from the model proves nothing. *)
-(* A scene queued behind a read is refused at the take because Child mode began. Nothing was handed off or sent. *)
+(* The worker refuses the queued scene at the take because Child mode began. Nothing was handed off or sent. *)
 NeverQueuedChildRefusal == ~childRefusedAtTake
 (* House Control refused the transaction before it ran anything: an untrusted Luma signer or a missing code. *)
 NeverRefusedBeforeRun == ~(outcome = "refused" /\ resStatus = "NOT_RUN" /\ sent = 0)

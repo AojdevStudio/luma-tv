@@ -25,7 +25,7 @@ bash .agents/skills/verify-scene-dispatch/scripts/check.sh
 | Line | Meaning |
 |---|---|
 | `code` | With the flags set as the code stands, these hold in every reachable state: `NoChildHandOff`, `ResultInOwnPane`, `ResultInOwnPaneAfterSend`, `AtMostOneSend`, `TypeOK`. |
-| `finding-<property>` | An open defect. TLC must still find its counterexample. The trace below the line is the shortest path to it. |
+| `finding-<property>` | An open defect. TLC must still find its counterexample. The trace shows one path to the failure. Parallel TLC workers can find paths of different lengths. |
 | `before-6aa4885` | Real past failure. Without the check at the worker handoff, Luma hands a queued scene to the worker while Child mode is active, and House Control runs it. |
 | `control-<property>` | Two refusal paths must stay reachable. `Take` records when it refuses the queued scene in Child mode. House Control can also refuse a request before it runs anything. |
 | `before-fc47a32` | Real past failure. The trace shows the worker taking the scene, House Control running it, the viewer moving from the pane that started it to another scene, and the late reply replacing that scene's Confirm. |
@@ -47,7 +47,7 @@ bash .agents/skills/verify-scene-dispatch/scripts/check.sh
 
 ## Read a result
 
-Read every counterexample with the pstack `/statechart` skill. It tells the shortest path in plain words and draws the states for a pass. The action names in a trace match the table below, so each step points at code.
+Read every counterexample with the pstack `/statechart` skill. It explains the recorded steps in plain words and draws the states for a pass. The action names in a trace match the table below, so each step points at code.
 
 A counterexample on `code` means the change broke a property the code kept. Check the trace against the code before you change the model. If the code really does that, it is a bug: fix the code. If the model does something the code cannot, fix the model and say which line of code proves it. Never drop an action, shrink `MaxRev`, or weaken a property to get a pass.
 
@@ -98,5 +98,5 @@ Use `/t3-pstack:maintain-formal-verification-skill` for larger changes.
 - One Confirm of one scene, one extra read, and at most one plan import. More reads or imports add no new orders to the steps checked here.
 - The binding always connects. A bind that fails or times out (`HouseLink.giveUp`) is not modeled.
 - The House Control side is one atomic step per transaction, which matches `actionLock` in `HomeEngine.action` and `importHome`.
-- Process death, a second Confirm before the first answers, and the Home widget's own binding are not modeled.
+- Switching from Child back to Normal, reopening a closed panel, process death, a second Confirm before the first answers, and the Home widget's own binding are not modeled.
 - A pass covers this model. It is not a proof about a real TV, real devices or House Control's device transports.
