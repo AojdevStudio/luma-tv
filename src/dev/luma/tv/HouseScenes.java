@@ -174,20 +174,19 @@ final class HouseScenes {
         return lines;
     }
 
-    /** What House Control sets on a light, with its limits: brightness 5 to 100 percent, 2200 to 6500 K. */
+    /** What House Control sets on a light, with its limits: brightness 5 to 100 percent, 2200 to 6500 K.
+     *  A null colour clears the stored colour and sends no colour command, so it is not white light. */
     private static String light(Map<String, Object> patch) {
-        if (Boolean.FALSE.equals(patch.get("on"))) return "off";
         ArrayList<String> parts = new ArrayList<>();
         Double brightness = number(patch.get("brightness")), temp = number(patch.get("temp"));
         if (brightness != null) parts.add(Math.round(clamp(brightness, .05, 1) * 100) + "%");
         if (temp != null) parts.add(Math.round(clamp(temp, 2200, 6500)) + " K");
-        if (patch.containsKey("color")) parts.add(patch.get("color") == null ? "white" : "colour " + text(patch.get("color")));
+        if (patch.containsKey("color")) parts.add(patch.get("color") == null ? "no colour" : "colour " + text(patch.get("color")));
         return setting(patch, parts);
     }
 
     /** What House Control sets on an air conditioner. The target stays inside the unit's range, 16 to 30 by default. */
     private static String ac(Map<String, Object> patch, Map<String, Object> device) {
-        if (Boolean.FALSE.equals(patch.get("on"))) return "off";
         ArrayList<String> parts = new ArrayList<>();
         Double target = number(patch.get("target")), min = number(device.get("min")), max = number(device.get("max"));
         if (!text(patch.get("mode")).isEmpty()) parts.add(text(patch.get("mode")));
@@ -196,9 +195,12 @@ final class HouseScenes {
         return setting(patch, parts);
     }
 
+    /** A device switched off may skip the patch's other settings. Infrared air conditioners send only the power key and
+     *  Home Assistant may not apply them, so the preview names them as requested, not as changes. */
     private static String setting(Map<String, Object> patch, List<String> parts) {
         String detail = String.join(", ", parts);
         if (Boolean.TRUE.equals(patch.get("on"))) return detail.isEmpty() ? "on" : "on, " + detail;
+        if (Boolean.FALSE.equals(patch.get("on"))) return detail.isEmpty() ? "off" : "off, requested settings: " + detail;
         return detail.isEmpty() ? null : "set to " + detail;
     }
 
