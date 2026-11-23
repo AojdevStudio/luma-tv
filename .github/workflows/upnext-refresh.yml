@@ -35,6 +35,13 @@ jobs:
       - name: Refresh ordering checker with self-check
         run: java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --self-check
 
+      - name: Recover after a failed provider read
+        shell: bash
+        run: |
+          scripts=.agents/skills/verify-upnext-refresh/scripts
+          javac -d "$RUNNER_TEMP" "$scripts/UpNextRefreshCheck.java" "$scripts/FailedReadTest.java"
+          java -cp "$RUNNER_TEMP" FailedReadTest
+
       - name: Reject invalid bounds with no result
         shell: bash
         run: |

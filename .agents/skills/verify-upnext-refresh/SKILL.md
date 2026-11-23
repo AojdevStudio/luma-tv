@@ -98,8 +98,10 @@ If a later change renames these lines, update the mutant text in `scripts/UpNext
 | `loading`, `stale`, `refresh()` | `src/dev/luma/tv/UpNextWidget.java`, between the constructor and `load()` |
 | `WidgetBoard.IO` pool size and order | `src/dev/luma/tv/WidgetBoard.java` |
 
-Sync commit: `55db697` (queue a pending read before drawing posters). The cut text hash at that commit is `0d8283cb5c7637c2`, printed on the `region` line of every run.
+Sync commit: `7291c42` (complete a failed read on the UI thread). The cut text hash at that commit is `3bd76a7a186477fa`, printed on the `region` line of every run.
 
 When the hash changes, read the new cut text and confirm the fakes still match how Android and `WidgetBoard.IO` behave. Then run the check. Move the sync commit and hash forward only after that review. Never weaken a property, lower the bound, or drop a mutant to get a pass. For an intended change in behavior, use `/t3-pstack:maintain-formal-verification-skill`.
+
+CI also injects a failed read into the production refresh method. It checks that the old rows stay visible and that either a pending request or a later request draws fresh rows. This is a directed regression outside the bounded schedule count.
 
 CI runs this check through `.github/workflows/upnext-refresh.yml`.
