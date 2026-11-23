@@ -1,4 +1,5 @@
 """Build the APK twice in a scratch copy and prove the second APK holds only current source."""
+import os
 from pathlib import Path
 import re
 import shutil
@@ -24,7 +25,8 @@ class RebuildTest(unittest.TestCase):
             probe.write_text("package dev.luma.tv;\nfinal class StaleProbe {}\n")
 
             def build():
-                subprocess.run(["bash", "build.sh"], cwd=work, check=True)
+                subprocess.run(["bash", "build.sh"], cwd=work, check=True,
+                               env={**os.environ, "LUMA_KEYSTORE": ".signing/local.keystore"})
                 with zipfile.ZipFile(work / "dist/luma-tv.apk") as apk:
                     return [apk.read(name) for name in apk.namelist()
                             if re.fullmatch(r"classes(?:[0-9]+)?\.dex", name)]
