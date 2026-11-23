@@ -186,6 +186,7 @@ public final class JourneysE2E extends Instrumentation {
         openCapabilities();
         chooseLayout("Sports");
         List<String> sports = tiles();
+        if (sports.equals(factory)) throw new AssertionError("Sports shows the factory Home row: " + sports);
         if (sports.equals(owner)) throw new AssertionError("Sports left Home as " + sports);
         line("Owner Home tiles " + owner);
         line("Sports Home tiles " + sports);
