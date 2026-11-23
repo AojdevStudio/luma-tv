@@ -22,7 +22,7 @@ git show 11f1b1b:src/dev/luma/tv/UpNextWidget.java > /tmp/UpNextWidget.old.java
 java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --source /tmp/UpNextWidget.old.java
 ```
 
-At 11f1b1b all three properties fail. CI replays that exact source and requires a counterexample for each property.
+At 11f1b1b the three bounded ordering properties fail. CI requires all three historical counterexamples. It also replays f6e4375, where the ordering checks pass but a pending read waits behind uncached posters.
 
 ## How it works
 
@@ -48,6 +48,8 @@ A write is placed only just before a refresh or a start, because nothing else re
 | never_shows_older | Up Next never draws a version older than one it already drew. | The card jumps back to old progress or an old title. |
 | newest_request_lands | When all work ends, the screen shows data at least as new as the data at the last refresh. | Up Next stays stale until the next return to Home. |
 
+The checker also runs a separate two-poster case. After the first read starts, an app writes a new version and Home requests a refresh. Drawing the first result submits two uncached posters to the same queue. The next queued job must be the pending provider read.
+
 ## Read the result
 
 - Exit 0: every property held on every order within the bound. With `--self-check`, every scratch mutant was also caught.
@@ -70,12 +72,12 @@ If a later change renames these lines, update the mutant text in `scripts/UpNext
 
 ## Bounds and limits
 
-- Default bound: 3 refresh requests, 2 Watch Next writes, 2 IO workers. `--refreshes` and `--writes` raise it. 4 refreshes and 3 writes also passed at the sync commit.
+- Default bound: 3 refresh requests, 2 Watch Next writes, 2 IO workers. `--refreshes` and `--writes` raise it. 4 refreshes and 3 writes also passed at f6e4375 for the three ordering properties.
 - A pass covers that bound only. It is not a proof for every number of refreshes.
 - The fakes assume Android's `View.post()` runs posted work on the UI thread in the order posted, and that `WidgetBoard.IO` (`WidgetBoard.java`, a fixed pool of 2 threads) starts tasks in queue order. Fewer workers only remove orders. More workers do not matter while at most one read is in flight.
 - `load()` and `show()` are fakes. The check does not cover what `load()` reads, focus handling in `show()`, Promo mode, or the recent-app fallback.
 - A widget that is detached keeps its posted work until it attaches again. The check does not model detach.
-- Other widgets and poster loads that share `WidgetBoard.IO` only delay starts, and every delay is already one of the explored orders.
+- The bounded schedules omit poster jobs. The separate queue test covers posters submitted by the current draw. Neither check bounds the time taken by work already in the pool.
 
 ## Coverage and sync
 
@@ -84,7 +86,7 @@ If a later change renames these lines, update the mutant text in `scripts/UpNext
 | `loading`, `stale`, `refresh()` | `src/dev/luma/tv/UpNextWidget.java`, between the constructor and `load()` |
 | `WidgetBoard.IO` pool size and order | `src/dev/luma/tv/WidgetBoard.java` |
 
-Sync commit: `f6e4375` (fix: keep overlapping Up Next refreshes from drawing older rows). The cut text hash at that commit is `674104e092fdb145`, printed on the `region` line of every run.
+Sync commit: `55db697` (queue a pending read before drawing posters). The cut text hash at that commit is `0d8283cb5c7637c2`, printed on the `region` line of every run.
 
 When the hash changes, read the new cut text and confirm the fakes still match how Android and `WidgetBoard.IO` behave. Then run the check. Move the sync commit and hash forward only after that review. Never weaken a property, lower the bound, or drop a mutant to get a pass. For an intended change in behavior, use `/t3-pstack:maintain-formal-verification-skill`.
 

@@ -35,7 +35,7 @@ jobs:
       - name: Refresh ordering checker with self-check
         run: java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --self-check
 
-      - name: Reject the refresh race from issue 38
+      - name: Replay the historical refresh and poster queue failures
         shell: bash
         run: |
           git show 11f1b1b2b5cd0cc37ab22172893694077f808d0e:src/dev/luma/tv/UpNextWidget.java > "$RUNNER_TEMP/UpNextWidget.java"
@@ -46,3 +46,10 @@ jobs:
           for property in one_read_at_a_time never_shows_older newest_request_lands; do
             grep -Eq "^FAIL +${property}:" "$RUNNER_TEMP/refresh-history.log" || { echo "Restore the historical counterexample for $property"; exit 1; }
           done
+
+          git show f6e4375d66d86ec01e67973058ec2da172139c2d:src/dev/luma/tv/UpNextWidget.java > "$RUNNER_TEMP/UpNextWidget.java"
+          status=0
+          java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --source "$RUNNER_TEMP/UpNextWidget.java" > "$RUNNER_TEMP/poster-queue.log" || status=$?
+          cat "$RUNNER_TEMP/poster-queue.log"
+          test "$status" -eq 1
+          grep -Eq '^FAIL +pending_read_before_posters:' "$RUNNER_TEMP/poster-queue.log"
