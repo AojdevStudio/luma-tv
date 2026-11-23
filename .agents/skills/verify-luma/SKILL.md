@@ -60,7 +60,7 @@ python3 .agents/skills/verify-luma/scripts/verify.py offline --evidence "$HOME/B
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .agents/skills/verify-luma/scripts -p test_verify.py -v
 ```
 
-The offline action compiles every `tools/*Test.java` suite against `src`, runs each `dev.luma.tv` test class, then runs `tools/test_luma.py`. On Linux, put JDK 17 on `PATH`. If the launcher suite is absent, it reports PARTIAL rather than a pass. The helper tests use fake subprocesses and temporary files. They contact no device.
+The offline action compiles every `tools/*Test.java` suite against `src`, runs each `dev.luma.tv` test class, then runs `tools/test_luma.py`. On Linux, put JDK 17 on `PATH`. Missing baseline Java suites or the launcher suite produce PARTIAL and a nonzero exit code. The evidence records the JVM version. The discovery regression compiles and runs real Java in a temporary checkout. Device tests in the helper suite use fake ADB and contact no device.
 
 ## Evidence
 

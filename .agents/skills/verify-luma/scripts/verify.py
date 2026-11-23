@@ -167,11 +167,15 @@ class Run:
         self.summary["java_suites"] = {}
         self.command("java-compile", ["javac", "--release", "8", "-encoding", "UTF-8",
                                       "-sourcepath", "src", "-d", classes, *suites])
+        self.command("java-version", ["java", "-version"])
         for suite in suites:
             self.command(suite.stem, ["java", "-ea", "-cp", classes, "dev.luma.tv." + suite.stem])
             self.summary["java_suites"][suite.stem] = "PASS"
             if suite.stem in LEGACY_SUITE_CHECKS:
                 self.summary["checks"][LEGACY_SUITE_CHECKS[suite.stem]] = "PASS"
+        missing = LEGACY_SUITE_CHECKS.keys() - self.summary["java_suites"].keys()
+        if missing:
+            self.summary["skipped"].append("Missing baseline Java suites: " + ", ".join(sorted(missing)))
         if (ROOT / "tools/test_luma.py").is_file():
             self.env["PYTHONDONTWRITEBYTECODE"] = "1"
             self.command("offline-launcher-tests", [sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_luma.py", "-v"])
