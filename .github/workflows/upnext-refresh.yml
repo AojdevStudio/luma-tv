@@ -1,0 +1,38 @@
+name: upnext-refresh
+
+# Up Next must never show an older Watch Next read after a newer one (issue #38).
+# This job model-checks the real refresh() source from UpNextWidget.java over every bounded schedule.
+# It needs only a JDK. No device, SDK, network, or secret is involved.
+on:
+  pull_request:
+    paths:
+      - src/dev/luma/tv/UpNextWidget.java
+      - src/dev/luma/tv/WidgetBoard.java
+      - .agents/skills/verify-upnext-refresh/**
+      - .github/workflows/upnext-refresh.yml
+  push:
+    branches: [main]
+    paths:
+      - src/dev/luma/tv/UpNextWidget.java
+      - src/dev/luma/tv/WidgetBoard.java
+      - .agents/skills/verify-upnext-refresh/**
+      - .github/workflows/upnext-refresh.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Up Next refresh ordering
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Refresh ordering checker with self-check
+        run: java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --self-check
