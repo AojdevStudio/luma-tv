@@ -148,6 +148,7 @@ final class UpNextWidget extends Widget {
     private final class Card{
         final FrameLayout cell,face;final TextView title,line;final GradientDrawable rim;
         ImageView poster;View art,track,fill;Item item;
+        String posterLink;long posterRequest;
         Card(Item first,int slot){
             Context c=getContext();
             cell=new FrameLayout(c);cell.setClipChildren(false);
@@ -188,14 +189,40 @@ final class UpNextWidget extends Widget {
                 boolean progress=next.media.progress>0;
                 track.setVisibility(progress?VISIBLE:GONE);fill.setVisibility(progress?VISIBLE:GONE);
                 if(progress)fill.setLayoutParams(pos((cardW-20)*Math.max(.03f,next.media.progress),3,10,cardH-10));
-                if(item==null||!Objects.equals(poster.getTag(),next.art)){
-                    poster.setTag(next.art);poster.animate().cancel();poster.setAlpha(1f);poster.setImageDrawable(null);if(art!=null)art.setVisibility(VISIBLE);
-                    if(next.art!=null)loadPoster(next.art,poster,art);
+                if(!Objects.equals(posterLink,next.art)){
+                    posterLink=next.art;posterRequest++;
+                    poster.animate().cancel();poster.setAlpha(1f);poster.setImageDrawable(null);if(art!=null)art.setVisibility(VISIBLE);
+                    if(next.art!=null)loadPoster(next.art,posterRequest);
                 }
             }
             boolean changed=item!=null&&!(Objects.equals(item.title,next.title)&&Objects.equals(item.detail,next.detail));
             item=next;
             if(changed&&cell.hasFocus())host.hero("upnext:"+next.key,next.title,next.detail);
+        }
+        /** Loads a poster off the main thread (content:, android.resource: or https: links), scaled to the card. */
+        private void loadPoster(String link,long request){
+            Bitmap cached=posters.get(link);if(cached!=null){poster.setImageBitmap(cached);if(art!=null)art.setVisibility(INVISIBLE);return;}
+            final Context context=getContext().getApplicationContext();final int width=px(cardW)*2;
+            WidgetBoard.IO.execute(()->{
+                Bitmap b=null;
+                try{
+                    byte[] data=read(context,link);
+                    BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(data,0,data.length,o);
+                    int sample=1;while(o.outWidth/(sample*2)>=width)sample*=2;
+                    o=new BitmapFactory.Options();o.inSampleSize=sample;b=BitmapFactory.decodeByteArray(data,0,data.length,o);
+                }catch(Exception|OutOfMemoryError ignored){}
+                final Bitmap result=b;
+                poster.post(()->{
+                    if(request!=posterRequest)return;
+                    if(result==null){
+                        posterLink=null; // A later refresh can retry the same poster.
+                        return;
+                    }
+                    posters.put(link,result);
+                    poster.setImageBitmap(result);poster.setAlpha(0f);
+                    poster.animate().alpha(1).setDuration(motion()?320:0).withEndAction(()->{if(art!=null)art.setVisibility(INVISIBLE);}).start();
+                });
+            });
         }
     }
     private void open(Item item){
@@ -209,31 +236,6 @@ final class UpNextWidget extends Widget {
             try{item.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);host.start(item.intent);return;}catch(RuntimeException ignored){}
         }
         host.launch(item.pkg);
-    }
-    /** Loads a poster off the main thread (content:, android.resource: or https: links), scaled to the card. */
-    private void loadPoster(String link,ImageView view,View fallback){
-        Bitmap cached=posters.get(link);if(cached!=null){view.setImageBitmap(cached);if(fallback!=null)fallback.setVisibility(INVISIBLE);return;}
-        final Context context=getContext().getApplicationContext();final int width=px(cardW)*2;
-        WidgetBoard.IO.execute(()->{
-            Bitmap b=null;
-            try{
-                byte[] data=read(context,link);
-                BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(data,0,data.length,o);
-                int sample=1;while(o.outWidth/(sample*2)>=width)sample*=2;
-                o=new BitmapFactory.Options();o.inSampleSize=sample;b=BitmapFactory.decodeByteArray(data,0,data.length,o);
-            }catch(Exception|OutOfMemoryError ignored){}
-            final Bitmap result=b;
-            view.post(()->{
-                if(result!=null)posters.put(link,result);
-                if(!link.equals(view.getTag()))return;
-                if(result==null){
-                    view.setTag(null); // A later refresh can retry the same poster.
-                    return;
-                }
-                view.setImageBitmap(result);view.setAlpha(0f);
-                view.animate().alpha(1).setDuration(motion()?320:0).withEndAction(()->{if(fallback!=null)fallback.setVisibility(INVISIBLE);}).start();
-            });
-        });
     }
     private static byte[] read(Context context,String link)throws Exception{
         InputStream in;
