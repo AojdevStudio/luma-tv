@@ -49,7 +49,7 @@ public final class MainActivity extends Activity {
     private TextView brand;
     /** The wallpaper is pale (Silver by day): text and glyphs turn dark and glass turns white. */
     private boolean light;
-    private Daylight daylight;
+    private Sun daylight;
     private final Runnable daylightTick=this::syncDaylight;
     private FrameLayout tabBar;
     private TextView modeChip;
@@ -103,7 +103,7 @@ public final class MainActivity extends Activity {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         sonic=new SonicFeedback(this);
-        daylight=new Daylight(this);
+        daylight=Daylight.sun(this);
         // 2.2 introduces Silver, light by day and dark after sunset, as the default wallpaper.
         if(!prefs.getBoolean("silver_default",false))prefs.edit().putInt("wallpaper",SILVER).putBoolean("silver_default",true).apply();
         light=pale(variant(wallpaperStyle()));
