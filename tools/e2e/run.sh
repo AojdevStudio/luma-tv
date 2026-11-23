@@ -29,6 +29,7 @@ sign() {
 }
 
 target=dev.luma.tv.e2e.target
+extras=(1 2 3 4 5 6 7)
 build_apks() {
     bash build.sh
     rm -rf "$OUT"
@@ -53,6 +54,13 @@ PY
         --rename-manifest-package "$target" --auto-add-overlay build/resources.zip -R build/overlay.zip
     (cd build/dex && zip -q ../e2e/target/unsigned.apk classes*.dex)
     sign target
+    # Seven code-free apps, so Home has more apps than the six it shows.
+    for n in "${extras[@]}"; do
+        mkdir -p "$OUT/app$n"
+        sed "s/LABEL/Extra $n/g" tools/e2e/apps/AndroidManifest.xml > "$OUT/app$n/AndroidManifest.xml"
+        "$BT/aapt2" link -o "$OUT/app$n/unsigned.apk" -I "$JAR" --manifest "$OUT/app$n/AndroidManifest.xml" --rename-manifest-package "dev.luma.tv.e2e.app$n"
+        sign "app$n"
+    done
 }
 
 install_and_test() {
@@ -94,18 +102,33 @@ while (remaining := deadline - time.monotonic()) > 0:
 else:
     sys.exit(f'{serial}: did not become ready for install within 30 seconds')
 PY
-    for name in target fixture instrument; do
+    for name in target fixture instrument "${extras[@]/#/app}"; do
         echo "Installing $name on $serial"
         "${adb[@]}" install -r "$OUT/$name.apk"
     done
     "${adb[@]}" shell pm grant "$target" android.permission.READ_TV_LISTINGS
-    "${adb[@]}" shell am instrument -w -r dev.luma.tv.e2e/dev.luma.tv.MediaE2E | tee "$OUT/result.txt"
-    grep -q '^E2E PASS$' "$OUT/result.txt"
+    # A suite run that ends with "E2E NEXT <step>" runs again with -e step <step>, in a new Luma process.
+    local suite step
+    : > "$OUT/result.txt"
+    for suite in "${suites[@]}"; do
+        step=""
+        while :; do
+            "${adb[@]}" shell am instrument -w -r ${step:+-e step "$step"} "dev.luma.tv.e2e/dev.luma.tv.$suite" | tee "$OUT/run.txt"
+            cat "$OUT/run.txt" >> "$OUT/result.txt"
+            grep -q '^E2E \(PASS\|FAIL\)' "$OUT/run.txt" || { echo "E2E FAIL $suite step ${step:-first} did not report" >> "$OUT/result.txt"; break; }
+            step=$(sed -n 's/^E2E NEXT \([a-z-]*\).*/\1/p' "$OUT/run.txt")
+            [[ -n $step ]] || break
+        done
+    done
+    ! grep -q '^E2E FAIL' "$OUT/result.txt"
 }
 
-case "${1:-all}" in
+mode=${1:-all}
+suites=("${@:2}")
+(( ${#suites[@]} )) || suites=(MediaE2E JourneysE2E)
+case "$mode" in
     all) build_apks; install_and_test ;;
     build) build_apks ;;
     test) install_and_test ;;
-    *) echo "Usage: $0 [all|build|test]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [all|build|test] [suite...]" >&2; exit 2 ;;
 esac

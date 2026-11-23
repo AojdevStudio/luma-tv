@@ -1,0 +1,10 @@
+<!-- Test-only app with no code. run.sh installs copies under several package names so Home has more apps than it
+     shows. Luma lists them and never opens them. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.luma.tv.e2e.app" android:versionCode="1" android:versionName="1">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <application android:label="LABEL" android:hasCode="false">
+        <activity android:name="dev.luma.tv.e2e.app.Main" android:exported="true" android:label="LABEL">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent-filter>
+        </activity>
+    </application>
+</manifest>
