@@ -73,7 +73,7 @@ public final class MediaE2E extends Instrumentation {
 
     private void test(String name, Step step) {
         try { step.run(); line("ok    " + name); }
-        catch (Throwable error) { failures++; line("FAIL  " + name + ": " + error); }
+        catch (Throwable error) { failures++; Log.e("LumaMediaE2E", name, error); line("FAIL  " + name + ": " + error); }
     }
 
     private void line(String text) {
@@ -169,7 +169,7 @@ public final class MediaE2E extends Instrumentation {
 
     private String shell(String command) {
         StringBuilder out = new StringBuilder();
-        try (ParcelFileDescriptor pipe = getUiAutomation().executeShellCommand(command);
+        try (ParcelFileDescriptor pipe = getUiAutomation(android.app.UiAutomation.FLAG_DONT_USE_ACCESSIBILITY).executeShellCommand(command);
              BufferedReader reader = new BufferedReader(new InputStreamReader(new ParcelFileDescriptor.AutoCloseInputStream(pipe)))) {
             for (String row; (row = reader.readLine()) != null; ) out.append(row).append('\n');
         } catch (java.io.IOException error) { throw new IllegalStateException(command, error); }
