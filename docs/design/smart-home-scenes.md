@@ -57,4 +57,5 @@ A was chosen. B changes when House Control polls Smart Life, and it moves the wi
 - The House Control flight into the TV after a scene was removed. Scenes now run from the panel, and the panel covers Home, so the flight could no longer play. The chosen app opens straight from the panel instead, like the app action.
 - House Control's error string does not say whether some devices changed. Luma reports it as Not finished with House Control's words and claims nothing more. A structured per-device result would need a change in House Control TV.
 - House Control does not say which simulated devices it changed in a run. Luma labels them from the plan it previewed.
+- `.agents/skills/verify-scene-dispatch` model-checks the order of these steps with TLC. It lists the open defects it still finds and the one gap only House Control can close.
 - Emulator and TCL proof are pending. See `.agents/skills/verify-luma/features/capabilities.md`.
