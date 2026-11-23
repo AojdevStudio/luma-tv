@@ -159,7 +159,7 @@ class Run:
         self.command("java-compile", ["javac", "--release", "8", "-encoding", "UTF-8",
                                       "-sourcepath", "src", "-d", classes, *suites])
         for suite in suites:
-            self.command(suite.stem, ["java", "-cp", classes, "dev.luma.tv." + suite.stem])
+            self.command(suite.stem, ["java", "-ea", "-cp", classes, "dev.luma.tv." + suite.stem])
             name = re.sub(r"(?<!^)(?=[A-Z])", "_", suite.stem[:-4]).lower()
             self.summary["checks"]["device_names" if name == "devices" else name] = "PASS"
         if (ROOT / "tools/test_luma.py").is_file():

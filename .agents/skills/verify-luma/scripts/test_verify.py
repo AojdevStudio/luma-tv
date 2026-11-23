@@ -91,11 +91,13 @@ class OfflineDiscoveryTest(unittest.TestCase):
             suites.mkdir()
             (suites / "NewSuiteTest.java").write_text(
                 'package dev.luma.tv; public class NewSuiteTest {'
-                'public static void main(String[] args) { throw new AssertionError("suite ran"); } }')
+                'public static void main(String[] args) { assert false : "suite ran"; } }')
             evidence = base / "evidence"
             result = subprocess.run([sys.executable, script, "offline", "--evidence", evidence], capture_output=True)
             self.assertEqual(result.returncode, 1)
-            self.assertIn("NewSuiteTest", json.loads((evidence / "summary.json").read_text())["error"])
+            summary = json.loads((evidence / "summary.json").read_text())
+            self.assertEqual(summary["status"], "FAIL", summary)
+            self.assertIn("NewSuiteTest", summary["error"])
             self.assertIn("suite ran", (evidence / "NewSuiteTest.stderr").read_text())
 
 
