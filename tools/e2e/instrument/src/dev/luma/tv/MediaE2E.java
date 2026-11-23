@@ -105,9 +105,10 @@ public final class MediaE2E extends Instrumentation {
             if (find(luma, v -> "Up Next".equals(text(v))) != null) throw new AssertionError("Child mode shows Up Next");
             if (find(luma, v -> description(v).startsWith("Fixture-Child")) != null) throw new AssertionError("Child mode shows the owner's Watch Next row");
             WidgetBoard.Host host = (WidgetBoard.Host) field(luma, "boardHost");
-            AtomicReference<WidgetBoard.Start> started = new AtomicReference<>();
-            runOnMainSync(() -> started.set(host.start(new Intent().setComponent(ComponentName.unflattenFromString(PLAYER)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))));
-            if (started.get() != WidgetBoard.Start.REFUSED) throw new AssertionError("Child mode reported " + started.get() + ", so Up Next would try its fallback");
+            java.util.concurrent.atomic.AtomicBoolean fallback = new java.util.concurrent.atomic.AtomicBoolean();
+            runOnMainSync(() -> host.start(new Intent().setComponent(ComponentName.unflattenFromString(PLAYER))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), () -> { fallback.set(true); host.launch(FIXTURE); }));
+            if (fallback.get()) throw new AssertionError("Mode refusal attempted the provider app fallback");
             SystemClock.sleep(3_000);
             if (!resumed().equals(LUMA)) throw new AssertionError("Child mode opened an unapproved provider link: " + resumed());
         });
