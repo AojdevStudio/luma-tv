@@ -152,6 +152,12 @@ public final class MediaE2E extends Instrumentation {
             press(expectCard(luma, "Fixture-Relink · 1 m left · Fixture", .5f));
             waitResumed(PLAYER_NEXT);
         });
+        test("A provider link Android refuses falls back to the provider app", () -> {
+            seed("Fixture-Refused", 30_000, HIDDEN, "Fixture-Refused", 30_000, HIDDEN);
+            Activity luma = launchLuma(null);
+            press(card(luma, "Fixture-Refused"));
+            waitResumed(APP);
+        });
         Bundle result = new Bundle();
         report.append(failures == 0 ? "E2E PASS\n" : "E2E FAIL " + failures + "\n");
         result.putString(REPORT_KEY_STREAMRESULT, report.toString());
