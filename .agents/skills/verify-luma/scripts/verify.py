@@ -121,13 +121,25 @@ class Run:
         for name in ["adbkey", "adbkey.pub"]:
             if not (KEYDIR / name).is_file():
                 raise RuntimeError("Existing trusted ADB key missing. No key was created.")
-        with socket.socket() as check:
-            check.settimeout(1)
-            result = check.connect_ex(("127.0.0.1", PORT))
-        if result == 0:
-            raise RuntimeError("Port " + str(PORT) + " is busy. Another adb server may own it. It was left running.")
-        if result != errno.ECONNREFUSED:
-            raise RuntimeError("Could not check port " + str(PORT) + ": " + os.strerror(result))
+        for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+            address = (host, PORT)
+            try:
+                with socket.socket(family) as probe:
+                    probe.settimeout(1)
+                    result = probe.connect_ex(address)
+                if result == 0:
+                    raise RuntimeError(f"Port {PORT} is busy on {host}. The listener was left running.")
+                if result != errno.ECONNREFUSED:
+                    raise OSError(result, os.strerror(result))
+                with socket.socket(family) as probe:
+                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    probe.bind(address)
+            except OSError as error:
+                if family == socket.AF_INET6 and error.errno in (errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL):
+                    continue
+                if error.errno == errno.EADDRINUSE:
+                    raise RuntimeError(f"Port {PORT} is busy on {host}. Its owner was left running.") from error
+                raise RuntimeError(f"Could not check port {PORT} on {host}: {error}") from error
         self.env.update({"ANDROID_USER_HOME": str(KEYDIR), "ADB_VENDOR_KEYS": str(KEYDIR / "adbkey"),
                          "ADB_MDNS_AUTO_CONNECT": "0", "ADB_SERVER_SOCKET": "tcp:localhost:" + str(PORT)})
         self.command("adb-start", [adb_bin(), "-P", str(PORT), "start-server"])

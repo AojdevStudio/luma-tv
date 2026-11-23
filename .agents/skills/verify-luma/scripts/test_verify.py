@@ -237,6 +237,24 @@ class VerifyTest(unittest.TestCase):
             self.assertIn("left running", summary["error"])
             self.assertEqual(self.tools.adb_calls(), [])
 
+    def test_ipv6_only_listener_stays_running(self):
+        with socket.socket(socket.AF_INET6) as foreign:
+            foreign.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            foreign.bind(("::1", verify.PORT))
+            foreign.listen()
+            code, summary = self.run_verify("doctor")
+            self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
+            self.assertIn("left running", summary["error"])
+            self.assertEqual(self.tools.adb_calls(), [])
+
+    def test_foreign_bound_port_is_busy_before_adb_starts(self):
+        with socket.socket() as foreign:
+            foreign.bind(("127.0.0.1", verify.PORT))
+            code, summary = self.run_verify("doctor")
+            self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
+            self.assertIn("busy", summary["error"])
+            self.assertEqual(self.tools.adb_calls(), [])
+
     def test_unauthorized_key_stops_without_retry_and_cleans_up(self):
         self.tools.state = b""
         code, summary = self.run_verify("doctor")
