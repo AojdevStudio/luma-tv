@@ -30,6 +30,10 @@ public final class SunTest {
         Sun resolute=sun(zones,"America/Resolute");
         expect(resolute.isDay(solstice)&&!resolute.isDay(winter),"Resolute has polar day in June and polar night in December");
 
+        expect(resolute.nextChange(local("America/Resolute","2026-02-04T12:00"))==local("America/Resolute","2026-02-05T00:00"),"the final polar night in Resolute checks again at midnight");
+        Sun thule=sun(zones,"America/Thule");
+        expect(thule.nextChange(local("America/Thule","2026-11-01T00:00"))==local("America/Thule","2026-11-02T00:00"),"Thule checks at the next midnight on a 25-hour polar night");
+
         Sun oslo=sun(zones,"Europe/Oslo");long[] summer=oslo.times(solstice);
         expect(Math.abs(summer[0]-local("Europe/Oslo","2026-06-21T03:54"))<5*60000&&Math.abs(summer[1]-local("Europe/Oslo","2026-06-21T22:44"))<5*60000,"Oslo solstice sunrise near 03:54 and sunset near 22:44");
         long early=local("Europe/Oslo","2026-06-21T02:00");

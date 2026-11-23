@@ -14,6 +14,12 @@ final class Sun {
     /** The next sunrise or sunset after now. In a polar day or night: the next local midnight. */
     long nextChange(long now){
         long[] t=times(now);if(now<t[0])return t[0];if(now<t[1])return t[1];
+        if (t[0] == t[1]) {
+            Calendar midnight = Calendar.getInstance(zone);
+            midnight.setTimeInMillis(t[0]);
+            midnight.add(Calendar.DAY_OF_MONTH, 1);
+            return midnight.getTimeInMillis();
+        }
         long[] tomorrow=times(now+86400000L);return tomorrow[0]>now?tomorrow[0]:now+3600000L;
     }
     /** Today's {sunrise, sunset} in epoch ms. Polar day: local midnight to the next local midnight.
@@ -30,7 +36,12 @@ final class Sun {
         long midnight=utc.getTimeInMillis();
         return new long[]{near(midnight+(long)(rise*3600000),noon),near(midnight+(long)(set*3600000),noon)};
     }
-    private static long near(long t,long noon){while(t-noon>43200000L)t-=86400000L;while(noon-t>43200000L)t+=86400000L;return t;}
+    private static long near(long time, long noon) {
+        long offset = (time - noon) % 86400000L;
+        if (offset > 43200000L) offset -= 86400000L;
+        if (offset < -43200000L) offset += 86400000L;
+        return noon + offset;
+    }
     /** UTC hour of sunrise or sunset (the Almanac for Computers algorithm), or STAYS_UP or STAYS_DOWN. */
     private double event(int day,boolean rising){
         double lngHour=lon/15,t=day+((rising?6:18)-lngHour)/24;
