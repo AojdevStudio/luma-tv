@@ -7,8 +7,8 @@ BT="$SDK/build-tools/36.0.0"
 ANDROID_JAR="$SDK/platforms/android-34/android.jar"
 export JAVA_HOME="$JDK"
 export PATH="$JDK/bin:$PATH"
+rm -rf build/classes build/generated build/dex build/resources.zip build/resources.apk build/unsigned.apk build/overlay build/overlay.zip
 mkdir -p build/classes build/dex dist
-rm -rf build/resources.zip build/resources.apk build/unsigned.apk build/overlay build/overlay.zip
 GREETING="${LUMA_GREETING:-$(head -n 1 .local/greeting.txt 2>/dev/null || true)}"
 GREETING="${GREETING:-Hello}"
 mkdir -p build/overlay/values
