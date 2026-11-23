@@ -3,6 +3,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 jar=${TLA2TOOLS_JAR:-$HOME/.cache/tla/tla2tools-1.8.0.jar}
+[[ $jar = /* ]] || jar="$PWD/$jar"
 sum=fdffef247f563ef6edbfd44958d2a82db79e7564e07cb673262d896353fa6713
 if [ ! -f "$jar" ]; then
   mkdir -p "$(dirname "$jar")"
@@ -48,7 +49,7 @@ expect() {
   if [ "$got" = "$4" ]; then echo "ok    $1: ${4/none/no counterexample}"
   else
     echo "FAIL  $1: wanted ${4/none/no counterexample}, got $got"
-    sed -n '/^Error:/,$p' "$work/$1/tlc.out" | head -80
+    cat "$work/$1/tlc.out"
     failed=1
   fi
 }
