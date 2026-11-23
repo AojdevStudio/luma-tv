@@ -28,12 +28,12 @@ import javax.tools.ToolProvider;
  * It then drives that code through every order of these steps, up to the bound, and replays each order from scratch:
  *   refresh   the UI thread calls refresh() (Home comes back from an app)
  *   write     an app writes a newer Watch Next row (the data version goes up by one)
- *   start     a WidgetBoard.IO worker takes the oldest queued task and load() reads the current version
+ *   start     a WidgetBoard.IO worker takes the oldest queued task. If it calls load(), it reads the current version.
  *   return    load() returns and the worker runs on until it calls post() or ends
  *   post      post() queues its runnable for the UI thread and the worker runs on until its next post() or its end
  *   ui        the UI thread runs the oldest posted runnable (show() records the version it draws)
  * WidgetBoard.IO has two workers, so at most two tasks run at once and tasks start in the order they were queued.
- * Each replay gets a work budget. A replay that has not drained within it gives no result, not a pass.
+ * Each replay gets a work budget. An exhausted budget leaves unproven properties UNKNOWN.
  *
  * Exit 0: every property held on every schedule. Exit 1: a counterexample. Exit 2: no result.
  */
@@ -63,7 +63,17 @@ public final class UpNextRefreshCheck {
 
     /** A scratch change to the cut-out refresh code that must break the named property. Edits are find, replace pairs,
      *  applied in order, and each find must occur exactly once in the text it edits. */
-    record Mutant(String name, String expect, String... edits) {}
+    record Mutant(String name, String expect, String... edits) {
+        String apply(String region) throws NoResult {
+            for (int e = 0; e < edits.length; e += 2) region = replaceOnce(region, name, edits[e], edits[e + 1]);
+            return region;
+        }
+    }
+    static final Mutant IGNORE_FIRST = new Mutant("ignore the first refresh", NEWEST_LANDS,
+        "@Override void refresh(){", "private boolean seen;@Override void refresh(){if(!seen){seen=true;return;}");
+    static final Mutant KEEP_STALE = new Mutant("keep stale set after the rerun", WORK_BUDGET,
+        "if(stale){stale=false;refresh();}", "if(stale){refresh();}");
+
     static final List<Mutant> MUTANTS = List.of(
         new Mutant("drop the in-flight guard", ONE_READ, "if(loading){stale=true;return;}", ""),
         new Mutant("drop the in-flight guard", NO_ROLLBACK, "if(loading){stale=true;return;}", ""),
@@ -82,10 +92,9 @@ public final class UpNextRefreshCheck {
                 + "        if(defer) WidgetBoard.IO.execute(()->WidgetBoard.IO.execute(job));\n"
                 + "        else WidgetBoard.IO.execute(job);",
             "if(stale){stale=false;refresh();}", "if(stale){stale=false;defer=true;refresh();defer=false;}"),
-        new Mutant("ignore the first refresh", NEWEST_LANDS,
-            "@Override void refresh(){", "private boolean seen;@Override void refresh(){if(!seen){seen=true;return;}"),
+        IGNORE_FIRST,
         new Mutant("drop the posted completion", NEWEST_LANDS, "post(completion);", ""),
-        new Mutant("keep stale set after the rerun", WORK_BUDGET, "if(stale){stale=false;refresh();}", "if(stale){refresh();}"));
+        KEEP_STALE);
 
     static class NoResult extends Exception { NoResult(String m) { super(m); } }
     /** A replay that did not drain within its work budget. */
@@ -118,30 +127,23 @@ public final class UpNextRefreshCheck {
             Result result = check(region, refreshes, writes);
             result.print();
             if (!result.failures.isEmpty()) { System.out.println("FAIL: counterexample above"); System.exit(1); }
+            if (result.budgetExceeded != null) throw new NoResult("the replay work budget was exhausted, see UNKNOWN above");
             if (!result.unknown.isEmpty()) throw new NoResult("a directed replay could not reach its scenario, see UNKNOWN above");
             if (selfCheck) {
                 boolean caught = true;
                 Map<String, Result> checked = new java.util.HashMap<>(); // mutants that share an edit share one exploration
                 for (Mutant m : MUTANTS) {
-                    String mutated = region;
-                    for (int e = 0; e < m.edits.length; e += 2) {
-                        int at = mutated.indexOf(m.edits[e]);
-                        if (at < 0 || mutated.indexOf(m.edits[e], at + 1) >= 0)
-                            throw new NoResult("self-check anchor for mutant '" + m.name + "' must occur once: " + m.edits[e]);
-                        mutated = mutated.replace(m.edits[e], m.edits[e + 1]);
-                    }
-                    boolean hit;
-                    if (m.expect.equals(WORK_BUDGET)) {
-                        try { check(mutated, refreshes, writes); hit = false; } catch (OverBudget e) { hit = true; }
-                    } else {
-                        Result r = checked.get(mutated);
-                        if (r == null) { r = check(mutated, refreshes, writes); checked.put(mutated, r); }
-                        hit = r.failures.containsKey(m.expect);
-                    }
+                    String mutated = m.apply(region);
+                    Result r = checked.get(mutated);
+                    if (r == null) { r = check(mutated, refreshes, writes); checked.put(mutated, r); }
+                    boolean hit = m.expect.equals(WORK_BUDGET)
+                        ? r.budgetExceeded != null && r.failures.isEmpty()
+                        : r.failures.containsKey(m.expect);
                     caught &= hit;
                     System.out.println((hit ? "caught  " : "MISSED  ") + "mutant '" + m.name + "' gives " + m.expect);
                 }
                 if (!caught) throw new NoResult("self-check: a mutant was not caught, so this check cannot be trusted");
+                checkVerdicts(region, refreshes, writes);
             }
             System.out.println("PASS within the bound above");
             System.exit(0);
@@ -153,6 +155,32 @@ public final class UpNextRefreshCheck {
             e.printStackTrace(System.out);
             System.exit(2);
         }
+    }
+
+    static void checkVerdicts(String region, int refreshes, int writes) throws Exception {
+        String endOfReadJob = "post(completion);\n        });";
+        String withExtraJob = replaceOnce(region, "add a non-reading IO job", endOfReadJob,
+            endOfReadJob + "\n        WidgetBoard.IO.execute(() -> {});");
+        Result extraJob = check(withExtraJob, 1, 0);
+        if (!extraJob.failures.isEmpty() || !extraJob.unknown.isEmpty() || extraJob.budgetExceeded != null) {
+            extraJob.print();
+            throw new NoResult("self-check: a non-reading IO job beside one read did not pass");
+        }
+        System.out.println("passed  a non-reading IO job beside one read");
+
+        Result combined = check(KEEP_STALE.apply(IGNORE_FIRST.apply(region)), refreshes, writes);
+        if (combined.budgetExceeded == null || !combined.failures.containsKey(NEWEST_LANDS)) {
+            combined.print();
+            throw new NoResult("self-check: the combined mutant must retain " + NEWEST_LANDS + " at the work budget");
+        }
+        System.out.println("caught  " + NEWEST_LANDS + " even when the combined mutant exhausts the work budget");
+    }
+
+    static String replaceOnce(String region, String name, String from, String to) throws NoResult {
+        int at = region.indexOf(from);
+        if (at < 0 || region.indexOf(from, at + 1) >= 0)
+            throw new NoResult("self-check anchor for '" + name + "' must occur once: " + from);
+        return region.replace(from, to);
     }
 
     static String value(String[] args, int i, String flag) throws NoResult {
@@ -234,12 +262,14 @@ public final class UpNextRefreshCheck {
      *  thread can act between the read, any worker code after it, and the moment the result is queued. */
     enum Phase { QUEUED, LOADING, POSTING, DONE }
     static final class Task {
-        final int id; final Runnable body; Phase phase = Phase.QUEUED; int readVersion = -1;
+        final int id, queuedAt; final Runnable body;
+        Phase phase = Phase.QUEUED;
+        int readVersion = -1, returnedAt;
         /** The explorer releases resume to let the worker go on. The worker sets at and releases yielded when it pauses or ends. */
         final Semaphore resume = new Semaphore(0), yielded = new Semaphore(0);
         volatile Phase at = Phase.QUEUED;
         volatile Throwable error;
-        Task(int id, Runnable body) { this.id = id; this.body = body; }
+        Task(int id, Runnable body, int queuedAt) { this.id = id; this.body = body; this.queuedAt = queuedAt; }
         void pause(Phase where) { at = where; yielded.release(); resume.acquireUninterruptibly(); }
     }
 
@@ -299,7 +329,7 @@ public final class UpNextRefreshCheck {
         void set(String field, Object value) throws Exception { Field f = widgetClass.getField(field); f.set(null, value); }
 
         void submit(Runnable job) {
-            Task task = new Task(tasks.size() + 1, job);
+            Task task = new Task(tasks.size() + 1, job, steps);
             tasks.add(task);
             trace.add("    WidgetBoard.IO queues task " + task.id);
         }
@@ -357,13 +387,12 @@ public final class UpNextRefreshCheck {
                 trace.add("UI thread runs the next posted runnable");
                 try { r.run(); } catch (Throwable e) { throw new NoResult("a posted runnable threw " + e); }
             }
-            int reads = 0; for (Task t : tasks) if (t.phase == Phase.QUEUED || t.phase == Phase.LOADING) reads++;
-            if (reads > 1) breaks(ONE_READ, reads + " reads queued or running at once");
             if (drained() && lastDrawn < versionAtLastRefresh)
                 breaks(NEWEST_LANDS, "all work drained with version " + lastDrawn + " on screen after a refresh at version " + versionAtLastRefresh);
         }
 
         void advance(Task t) throws Exception {
+            if (t.phase == Phase.LOADING) t.returnedAt = steps;
             if (t.phase == Phase.POSTING) trace.add("task " + t.id + " post() queues its runnable for the UI thread");
             t.resume.release();
             resumeTo(t, false);
@@ -385,6 +414,14 @@ public final class UpNextRefreshCheck {
                 case LOADING -> {
                     if (!fromStart) throw new NoResult("task " + t.id + " called load() again after it returned, so a write placed only before refresh or start would miss orders");
                     trace.add("IO worker starts task " + t.id + ", load() reads version " + t.readVersion);
+                    // FIFO starts let us compare each proven read with earlier reads. A return takes effect
+                    // before any job submitted during that step, so equal step numbers do not overlap.
+                    for (Task other : tasks) {
+                        if (other != t && (other.phase == Phase.LOADING || t.queuedAt < other.returnedAt)) {
+                            breaks(ONE_READ, "provider read tasks " + other.id + " and " + t.id + " overlapped while queued or running");
+                            break;
+                        }
+                    }
                 }
                 case POSTING -> trace.add(who + " reaches post()");
                 default -> trace.add(who + " ends");
@@ -408,16 +445,19 @@ public final class UpNextRefreshCheck {
     static final class Result {
         final Map<String, List<String>> failures = new LinkedHashMap<>();
         final Map<String, String> unknown = new LinkedHashMap<>();
+        String budgetExceeded;
         long schedules; int longest;
         void print() {
             System.out.println("explored " + schedules + " complete schedules, the longest " + longest + " steps");
             for (Map.Entry<String, String> p : PROPERTIES.entrySet()) {
                 List<String> trace = failures.get(p.getKey());
                 String why = unknown.get(p.getKey());
-                System.out.println((trace != null ? "FAIL    " : why != null ? "UNKNOWN " : "ok      ") + p.getKey() + ": " + p.getValue());
+                System.out.println((trace != null ? "FAIL    " : why != null || budgetExceeded != null ? "UNKNOWN " : "ok      ")
+                    + p.getKey() + ": " + p.getValue());
                 if (trace != null) for (String line : trace) System.out.println("          " + line);
                 if (why != null) System.out.println("          " + why);
             }
+            if (budgetExceeded != null) System.out.println("work budget exhausted: " + budgetExceeded);
         }
     }
 
@@ -485,11 +525,21 @@ public final class UpNextRefreshCheck {
                 }
                 result.schedules++;
                 result.longest = Math.max(result.longest, run.steps);
+            } catch (OverBudget e) {
+                result.budgetExceeded = e.getMessage();
+            } finally {
                 for (Map.Entry<String, List<String>> b : run.broken.entrySet()) {
                     List<String> old = result.failures.get(b.getKey());
                     if (old == null || b.getValue().size() < old.size()) result.failures.put(b.getKey(), b.getValue());
                 }
-            } finally { run.close(); }
+                try {
+                    run.close();
+                } catch (NoResult e) {
+                    if (result.budgetExceeded == null) throw e;
+                    result.budgetExceeded += "\n          cleanup could not finish. " + e.getMessage();
+                }
+            }
+            if (result.budgetExceeded != null) return result;
             int d = choice.length - 1;
             while (d >= 0 && choice[d] + 1 >= options[d]) d--;
             if (d < 0) {

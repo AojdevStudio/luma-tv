@@ -34,7 +34,7 @@ It explores each order of these modeled steps, with writes placed as described b
 |---|---|
 | refresh | The UI thread calls `refresh()`. |
 | write | An app writes a newer Watch Next row. The version goes up by one. |
-| start | An IO worker takes the oldest queued task. `load()` reads the current version and then waits. |
+| start | An IO worker takes the oldest queued task. If the task calls `load()`, it reads the current version and waits. |
 | return | `load()` returns. The worker runs on until it calls `post()` or ends. |
 | post | `post()` queues its runnable for the UI thread. The worker runs on until its next `post()` or its end. |
 | ui | The UI thread runs the oldest posted runnable. `show()` records the version it draws. |
@@ -43,7 +43,7 @@ Workers run on Java threads. The explorer stops each worker at the entry of ever
 
 A write only increments the version. The checker places a write just before a refresh or a worker start because those steps sample the version. Multiple writes between samples have the same ordering effect as one. The checker gives no result if `load()` runs outside a start step.
 
-Each replay has a budget of 10 steps per refresh request in the bound. A refresh that starts and draws its own read takes five steps: refresh, start, return, post, and ui. A write shares a step with the refresh or start that follows it. If the schedule still has work when it reaches the budget, the checker prints the steps and gives no result. This catches a rerun that requests itself forever.
+Each replay has a budget of 10 steps per refresh request in the bound. A refresh that starts and draws its own read takes five steps: refresh, start, return, post, and ui. A write shares a step with the refresh or start that follows it. If a schedule needs more steps than the budget allows, the checker stops exploration and prints the steps taken. This catches a rerun that requests itself forever.
 
 ## Properties
 
@@ -53,13 +53,15 @@ Each replay has a budget of 10 steps per refresh request in the bound. A refresh
 | never_shows_older | Up Next never draws a version older than one it already drew. | The card jumps back to old progress or an old title. |
 | newest_request_lands | Whenever all work has drained, the screen shows data at least as new as the data at the last refresh. The check runs at every drained point, not only at the end of a schedule. | Up Next stays stale until the next return to Home. |
 
+Once a task enters `load()`, the checker compares its time in the queue and in the read with that of earlier reads. This detects overlap even if the first read returned before the second started. Other jobs can use the same queue.
+
 The separate `pending_read_before_posters` replay uses two refreshes and one write. After the first read starts, an app writes a new version and Home requests a refresh. Drawing the first result submits two uncached poster jobs to the same queue. The checker starts queued jobs in order and requires the pending job to reach `load()` before either poster starts. A job that only queues another job has yet to start the read. If the replay cannot reach the scenario, it prints UNKNOWN with the steps it took.
 
 ## Read the result
 
 - Exit 0 means every property held in the modeled schedules and the two-poster replay. With `--self-check`, every scratch mutant was also caught.
-- Exit 1 means the checker found a counterexample. It prints the steps leading to each broken property, even if the two-poster replay reported UNKNOWN. Read the steps from top to bottom.
-- Exit 2 means no result. The checker reports invalid options, missing cut points, compile errors, a task that did not pause or end, an exhausted work budget, an UNKNOWN poster replay with no counterexample, or a missed self-check mutant.
+- Exit 1 means the checker found a counterexample. It prints the steps leading to each broken property. If the work budget ran out, it keeps counterexamples from the unfinished schedule and earlier schedules. Properties still awaiting a verdict are UNKNOWN.
+- Exit 2 means no result. This includes an exhausted budget or an UNKNOWN poster replay with no counterexample. Invalid options, missing cut points, compile errors, a task that did not pause or end, and failed self-checks also give exit 2.
 
 To tell a real bug from a checker error, read the counterexample against `UpNextWidget.java`. If every step is something the app can do, it is a real bug. If a step needs the fakes to act unlike Android (for example, `post()` running out of order), fix the checker and say so.
 
@@ -78,6 +80,8 @@ To tell a real bug from a checker error, read the counterexample against `UpNext
 | Ignore the first `refresh()` call | newest_request_lands |
 | Drop the posted completion | newest_request_lands |
 | Keep `stale` set after the rerun | no result from the work budget |
+
+The self-check also adds an empty IO job beside one read and requires a pass. It combines the ignored first refresh with the stale rerun and requires the `newest_request_lands` counterexample to survive budget exhaustion.
 
 If a later change renames these lines, update the mutant text in `scripts/UpNextRefreshCheck.java` so each mutant still breaks the same promise.
 
