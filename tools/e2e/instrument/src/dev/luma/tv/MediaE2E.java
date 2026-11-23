@@ -104,11 +104,10 @@ public final class MediaE2E extends Instrumentation {
             waitFor("Child mode chip", () -> find(luma, v -> "Child mode".equals(text(v))) != null);
             if (find(luma, v -> "Up Next".equals(text(v))) != null) throw new AssertionError("Child mode shows Up Next");
             if (find(luma, v -> description(v).startsWith("Fixture-Child")) != null) throw new AssertionError("Child mode shows the owner's Watch Next row");
-            Object host = field(luma, "boardHost");
-            runOnMainSync(() -> {
-                try { host.getClass().getMethod("start", Intent.class).invoke(host, new Intent().setComponent(ComponentName.unflattenFromString(PLAYER)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
-                catch (ReflectiveOperationException error) { throw new IllegalStateException(error); }
-            });
+            WidgetBoard.Host host = (WidgetBoard.Host) field(luma, "boardHost");
+            AtomicReference<WidgetBoard.Start> started = new AtomicReference<>();
+            runOnMainSync(() -> started.set(host.start(new Intent().setComponent(ComponentName.unflattenFromString(PLAYER)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))));
+            if (started.get() != WidgetBoard.Start.REFUSED) throw new AssertionError("Child mode reported " + started.get() + ", so Up Next would try its fallback");
             SystemClock.sleep(3_000);
             if (!resumed().equals(LUMA)) throw new AssertionError("Child mode opened an unapproved provider link: " + resumed());
         });

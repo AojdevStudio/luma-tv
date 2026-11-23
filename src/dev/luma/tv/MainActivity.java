@@ -559,10 +559,10 @@ public final class MainActivity extends Activity {
         public App app(String pkg){return appIndex.get(pkg);}
         public View art(String pkg){App a=appIndex.get(pkg);return a==null?null:new Art(a);}
         public void launch(String pkg){App a=appIndex.get(pkg);if(a!=null)MainActivity.this.launch(a);else Toast.makeText(MainActivity.this,"This app is not installed.",Toast.LENGTH_SHORT).show();}
-        public void start(Intent intent){
+        public WidgetBoard.Start start(Intent intent){
             ComponentName target=intent.resolveActivity(getPackageManager());
-            if(profiles.mode!=Profiles.Mode.NORMAL&&(target==null||!allowsApp(target.getPackageName()))){Toast.makeText(MainActivity.this,profiles.mode.name+" mode does not open this.",Toast.LENGTH_SHORT).show();return;}
-            try{startActivity(intent);overridePendingTransition(0,0);}catch(RuntimeException e){Toast.makeText(MainActivity.this,"This can't be opened on this TV.",Toast.LENGTH_SHORT).show();}}
+            if(profiles.mode!=Profiles.Mode.NORMAL&&(target==null||!allowsApp(target.getPackageName()))){Toast.makeText(MainActivity.this,profiles.mode.name+" mode does not open this.",Toast.LENGTH_SHORT).show();return WidgetBoard.Start.REFUSED;}
+            try{startActivity(intent);overridePendingTransition(0,0);return WidgetBoard.Start.OPENED;}catch(RuntimeException e){Toast.makeText(MainActivity.this,"This can't be opened on this TV.",Toast.LENGTH_SHORT).show();return WidgetBoard.Start.FAILED;}}
         public SharedPreferences prefs(){return prefs;}
         public Activity activity(){return MainActivity.this;}
     };

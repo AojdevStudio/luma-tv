@@ -232,9 +232,7 @@ final class UpNextWidget extends Widget {
             else host.start(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+a.getPackageName())));
             return;
         }
-        if(item.intent!=null){
-            try{item.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);host.start(item.intent);return;}catch(RuntimeException ignored){}
-        }
+        if(item.intent!=null){item.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);if(host.start(item.intent)!=WidgetBoard.Start.FAILED)return;}
         host.launch(item.pkg);
     }
     private static byte[] read(Context context,String link)throws Exception{

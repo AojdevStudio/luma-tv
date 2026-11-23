@@ -20,6 +20,8 @@ final class WidgetBoard extends FrameLayout {
     /** Widgets do their network and disk work here, away from the launcher's own loader (wallpapers, apps). */
     static final ExecutorService IO=Executors.newFixedThreadPool(2,r->{Thread t=new Thread(r,"Luma widgets");t.setDaemon(true);t.setPriority(Thread.MIN_PRIORITY+1);return t;});
 
+    /** What Host.start did: opened the intent, refused it under the mode policy, or Android could not open it. */
+    enum Start{OPENED,REFUSED,FAILED}
     interface Host {
         float unit();boolean light();boolean motion();
         void step(int index);void open();
@@ -30,7 +32,7 @@ final class WidgetBoard extends FrameLayout {
         View houseEntry(int direction);
         void nudgeHouse(int direction);
         MainActivity.App app(String pkg);View art(String pkg);
-        void launch(String pkg);void start(Intent intent);
+        void launch(String pkg);Start start(Intent intent);
         SharedPreferences prefs();Activity activity();
     }
     static String title(String id){switch(id){case "house":return "Smart Home";case "inputs":return "Inputs";case "upnext":return "Up Next";case "weather":return "Weather";case "music":return "Now Playing";case "control":return "Control";default:return id;}}
