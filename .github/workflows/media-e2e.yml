@@ -31,6 +31,8 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Install the Android platform and build tools
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;36.0.0"'
+      - name: Build the signed test APKs
+        run: bash tools/e2e/run.sh build
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -38,4 +40,5 @@ jobs:
           arch: x86
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: LUMA_JDK="$JAVA_HOME" bash tools/e2e/run.sh
+          pre-emulator-launch-script: adb start-server
+          script: bash tools/e2e/run.sh test

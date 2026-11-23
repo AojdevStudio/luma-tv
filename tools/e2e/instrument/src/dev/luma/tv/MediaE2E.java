@@ -3,6 +3,7 @@ package dev.luma.tv;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.media.tv.TvContract.WatchNextPrograms;
@@ -16,6 +17,7 @@ import android.view.ViewGroup;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Drives Luma's Up Next card against the real Android TV provider. The fixture app owns the Watch Next row, the
@@ -105,7 +107,15 @@ public final class MediaE2E extends Instrumentation {
 
     /** Starts a fresh Luma in Normal mode, or with the given saved profile line. */
     private Activity launchLuma(String profile) {
-        getTargetContext().getSharedPreferences("luma", 0).edit().putString(Profiles.KEY, profile).commit();
+        ArrayList<String> hiddenWidgets = new ArrayList<>(Arrays.asList(WidgetBoard.IDS));
+        hiddenWidgets.remove("upnext");
+        if (!getTargetContext().getSharedPreferences("luma", Context.MODE_PRIVATE).edit()
+                .remove(HomePresets.KEY)
+                .putString("widget_off", String.join(",", hiddenWidgets))
+                .putString(Profiles.KEY, profile)
+                .commit()) {
+            throw new AssertionError("Could not save the test Home layout and profile");
+        }
         Activity luma = startActivitySync(new Intent(Intent.ACTION_MAIN).setComponent(ComponentName.unflattenFromString(LUMA))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         waitForIdleSync();
@@ -116,7 +126,7 @@ public final class MediaE2E extends Instrumentation {
     private View card(Activity luma, String title) {
         AtomicReference<View> found = new AtomicReference<>();
         waitFor("Up Next card " + title, () -> {
-            found.set(find(luma, v -> v.isFocusable() && description(v).startsWith(title + " · ")));
+            found.set(find(luma, v -> v.isLaidOut() && v.isFocusable() && description(v).startsWith(title + " · ")));
             return found.get() != null;
         });
         return found.get();
@@ -138,7 +148,7 @@ public final class MediaE2E extends Instrumentation {
 
     /** The drawn length of the card's progress bar as a share of its track. */
     private void expectBar(View card, float expected) {
-        AtomicReference<Float> share = new AtomicReference<>(-1f);
+        int[] widths = new int[2];
         runOnMainSync(() -> {
             ViewGroup face = (ViewGroup) ((ViewGroup) card).getChildAt(0);
             ArrayList<View> bars = new ArrayList<>();
@@ -146,9 +156,18 @@ public final class MediaE2E extends Instrumentation {
                 View child = face.getChildAt(i);
                 if (child.getClass() == View.class && child.getHeight() > 0 && child.getHeight() * 10 < face.getHeight()) bars.add(child);
             }
-            if (bars.size() == 2) share.set(Math.min(bars.get(0).getWidth(), bars.get(1).getWidth()) / (float) Math.max(bars.get(0).getWidth(), bars.get(1).getWidth()));
+            if (bars.size() == 2) {
+                // Up Next adds the track first and draws the fill over it.
+                widths[0] = bars.get(0).getWidth();
+                widths[1] = bars.get(1).getWidth();
+            }
         });
-        if (Math.abs(share.get() - expected) > .02f) throw new AssertionError("progress bar shows " + share.get() + ", expected " + expected);
+        int trackWidth = widths[0], fillWidth = widths[1];
+        if (trackWidth <= 0 || fillWidth <= 0) {
+            throw new AssertionError("expected positive progress track and fill widths, got " + trackWidth + " and " + fillWidth);
+        }
+        float share = fillWidth / (float) trackWidth;
+        if (Math.abs(share - expected) > .02f) throw new AssertionError("progress bar shows " + share + ", expected " + expected);
     }
 
     private void waitResumed(String component) {
