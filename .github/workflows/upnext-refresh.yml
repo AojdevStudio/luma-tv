@@ -35,6 +35,15 @@ jobs:
       - name: Refresh ordering checker with self-check
         run: java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --self-check
 
+      - name: Reject invalid bounds with no result
+        shell: bash
+        run: |
+          for args in "--refreshes -1" "--refreshes 0" "--writes 2x" "--writes"; do
+            status=0
+            java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java $args || status=$?
+            test "$status" -eq 2 || { echo "'$args' exited $status, expected 2 (no result)"; exit 1; }
+          done
+
       - name: Replay the historical refresh and poster queue failures
         shell: bash
         run: |
