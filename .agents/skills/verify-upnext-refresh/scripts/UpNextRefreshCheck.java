@@ -44,8 +44,10 @@ public final class UpNextRefreshCheck {
     static final String ONE_READ = "one_read_at_a_time";
     static final String NO_ROLLBACK = "never_shows_older";
     static final String NEWEST_LANDS = "newest_request_lands";
+    static final String READ_BEFORE_POSTERS = "pending_read_before_posters";
     static final Map<String, String> PROPERTIES = new LinkedHashMap<>();
     static {
+        PROPERTIES.put(READ_BEFORE_POSTERS, "In the two-poster replay, the pending provider read is queued before posters from the previous draw.");
         PROPERTIES.put(ONE_READ, "At most one Up Next read is queued or running, so reads never share lastUsed or race each other.");
         PROPERTIES.put(NO_ROLLBACK, "Up Next never draws a Watch Next version older than one it already drew.");
         PROPERTIES.put(NEWEST_LANDS, "Once all work is done, Up Next shows data at least as new as the data at the last refresh request.");
@@ -206,7 +208,7 @@ public final class UpNextRefreshCheck {
 
         Run(Class<?> c, List<Worker> pool, int refreshes, int writes) throws Exception {
             widgetClass = c; this.pool = pool; refreshesLeft = refreshes; writesLeft = writes;
-            set("execute", (Consumer<Runnable>) r -> { Task t = new Task(tasks.size() + 1, r); tasks.add(t); trace.add("    WidgetBoard.IO queues task " + t.id); });
+            set("execute", (Consumer<Runnable>) this::submit);
             set("posted", (Consumer<Runnable>) r -> { synchronized (ui) { ui.add(r); } });
             set("read", (Supplier<Integer>) () -> {
                 Task t = ((Worker) Thread.currentThread()).task;
@@ -225,6 +227,12 @@ public final class UpNextRefreshCheck {
             refresh = c.getDeclaredMethod("refresh"); refresh.setAccessible(true);
         }
         void set(String field, Object value) throws Exception { Field f = widgetClass.getField(field); f.set(null, value); }
+
+        void submit(Runnable job) {
+            Task task = new Task(tasks.size() + 1, job);
+            tasks.add(task);
+            trace.add("    WidgetBoard.IO queues task " + task.id);
+        }
 
         Worker idle() {
             for (Worker w : pool) { boolean busy = false; for (Task t : tasks) busy |= t.phase == Phase.RUNNING && w.task == t; if (!busy) return w; }
@@ -302,12 +310,39 @@ public final class UpNextRefreshCheck {
         }
     }
 
+    /** A refresh arrives after the first read sampled its row. Drawing that row submits two uncached posters. */
+    static void checkPosterQueue(Class<?> widget, List<Worker> pool, Result result) throws Exception {
+        Run run = new Run(widget, pool, 2, 1);
+        try {
+            run.step("refresh");
+            run.step("start");
+            run.step("write refresh");
+            run.step("finish 1");
+
+            Runnable poster = () -> {};
+            run.set("shown", (Consumer<Integer>) version -> {
+                run.trace.add("show() submits two uncached posters for version " + version);
+                run.submit(poster);
+                run.submit(poster);
+            });
+            run.step("ui");
+            Task next = run.nextQueued();
+            if (next == null || next.body == poster) {
+                run.breaks(READ_BEFORE_POSTERS, "the pending read does not have the first free worker slot");
+                result.failures.put(READ_BEFORE_POSTERS, run.broken.get(READ_BEFORE_POSTERS));
+            }
+        } finally {
+            run.close();
+        }
+    }
+
     /** Depth-first over every schedule. Each replay starts from a fresh widget, follows a fixed prefix of choices,
      *  then takes the first choice at every later step until no step is left. Keeps the shortest trace per property. */
     static Result check(String region, int refreshes, int writes) throws Exception {
         Class<?> c = compile(region);
         List<Worker> pool = new ArrayList<>(); for (int i = 0; i < WORKERS; i++) pool.add(new Worker());
         Result result = new Result();
+        checkPosterQueue(c, pool, result);
         int[] choice = new int[0], options = new int[0];
         while (true) {
             Run run = new Run(c, pool, refreshes, writes);
