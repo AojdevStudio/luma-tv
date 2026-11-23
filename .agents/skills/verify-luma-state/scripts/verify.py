@@ -24,6 +24,7 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 MODEL = HERE.parent / "model"
+ARTIFACT_VERSION = 2
 LUMA = "dev.luma.tv/.MainActivity"
 STOCK = "com.google.android.tvlauncher/.Home"
 CHOOSER = "android/.ResolverActivity"
@@ -414,7 +415,6 @@ def check(source: str, output: Path, workers: int, until: frozenset[str] | None 
     all_edges: list[dict[str, object]] = []
     boundary_states: set[State] = set()
     boundary_steps = 0
-    shell_runs = 0
     expanded: set[tuple[Node, str]] = set()
     # Android outcomes depend only on the TV and journal, so nodes that differ in prior share one execution.
     outcomes: dict[tuple[State, str], list[Run]] = {}
@@ -439,7 +439,7 @@ def check(source: str, output: Path, workers: int, until: frozenset[str] | None 
                     found = violations(run, node.prior)
                     end = successor(node, run)
                     record = run.data()
-                    record["schema_version"] = 1
+                    record["schema_version"] = ARTIFACT_VERSION
                     record["edge_id"] = edge_id
                     record["prior_home"] = node.data()["prior_home"]
                     record["violations"] = sorted(found)
@@ -450,7 +450,6 @@ def check(source: str, output: Path, workers: int, until: frozenset[str] | None 
                                       "words": story(run)})
                     boundary_states.update(event.state for event in run.events)
                     boundary_steps += max(0, len(run.events) - 1)
-                    shell_runs += 1
                     for prop, event in found.items():
                         if prop not in first:
                             first[prop] = {"edge_ids": list(chain), "operator_actions": len(chain),
@@ -463,20 +462,21 @@ def check(source: str, output: Path, workers: int, until: frozenset[str] | None 
                             raise VerificationError("More than 2048 quiescent states. No fixed-point claim.")
             frontier = sorted(next_frontier, key=node_key)
             depth += 1
-            print(f"Explored operator distance {depth - 1}. States {len(paths)}. Outcome traces {shell_runs}.", flush=True)
+            print(f"Explored operator distance {depth - 1}. States {len(paths)}. Outcome traces {len(all_edges)}.", flush=True)
             if first and (until is None or until <= first.keys()):
                 break
     fixed_point = not frontier
     if fixed_point and expanded != {(node, action) for node in paths for action in ACTIONS}:
         raise VerificationError("A reachable state and action was not expanded. No fixed-point result.")
-    write_json(output / "graph.json", {"schema_version": 1,
+    write_json(output / "graph.json", {"schema_version": ARTIFACT_VERSION,
                "complete": fixed_point, "initial_states": [node.data() for node in initial],
                "states": [node.data() for node in sorted(paths, key=node_key)], "edges": all_edges})
+    execution_pairs = sum(len(runs) for runs in outcomes.values())
     return {"fixed_point": fixed_point, "terminated_on_counterexample": bool(first), "initial_states": len(initial), "quiescent_states": len(paths),
             "operation_transitions": len(all_edges), "boundary_snapshot_states": len(boundary_states),
             "boundary_transition_occurrences": boundary_steps,
-            "instrumented_source_executions": shell_runs, "normal_source_executions": shell_runs,
-            "source_executions": shell_runs * 2, "observer_equivalence": "pass_for_every_outcome_trace",
+            "instrumented_source_executions": execution_pairs, "normal_source_executions": execution_pairs,
+            "source_executions": execution_pairs * 2, "observer_equivalence": "pass_for_every_outcome_trace",
             "choice_tree_audit": "pass_for_every_expanded_state_action", "expanded_state_actions": len(expanded),
             "maximum_shortest_operator_distance": max(map(len, paths.values())),
             "properties": {prop: {"statement": text, "status": "fail" if prop in first else "pass" if fixed_point else "unknown",
@@ -559,7 +559,7 @@ def self_check(source: str, output: Path) -> dict[str, object]:
                          "source_executions": {label: count * 2 for label, count in counts.items()},
                          "operator_sequence": list(actions), "witness": witnesses.get("mutant")}
         print(f"Mutation caught. {prop}.", flush=True)
-    write_json(output / "mutations.json", {"schema_version": 1, "checks": results})
+    write_json(output / "mutations.json", {"schema_version": ARTIFACT_VERSION, "checks": results})
     return {"status": "pass", "properties_caught": sorted(results),
             "method": "Differential actual-source scratch mutations. Exhaustive outcomes within each stated witness sequence. Not a full fixed-point proof of the scratch control."}
 
@@ -597,7 +597,7 @@ def history_check(output: Path, workers: int) -> dict[str, object]:
             raise VerificationError(f"The checker no longer rejects {commit[:12]} for {', '.join(missed)}.")
         rejected.append({"commit": commit, "bug": bug, "must_fail": must_fail,
                          "counterexamples": {name: properties[name]["counterexample"] for name in must_fail}})
-    write_json(output / "history.json", {"schema_version": 1, "rejected": rejected})
+    write_json(output / "history.json", {"schema_version": ARTIFACT_VERSION, "rejected": rejected})
     return {"status": "pass", "sources_rejected": [str(entry["commit"]) for entry in rejected]}
 
 
@@ -658,7 +658,7 @@ def main() -> int:
             raise VerificationError("Internal result schema error.")
         failed = [name for name, value in properties.items() if isinstance(value, dict) and value.get("status") == "fail"]
         exit_code = 1 if failed else 0
-        report = {"schema_version": 1, "status": "fail" if failed else "pass", "exit_code": exit_code,
+        report = {"schema_version": ARTIFACT_VERSION, "status": "fail" if failed else "pass", "exit_code": exit_code,
                   "method": "actual-source finite explicit-state fixed-point model checking",
                   "source_sha256": digest(source_bytes), "coverage": coverage, "domain": domain,
                   "toolchain": {"python": sys.version.split()[0], "bash": subprocess.run(
@@ -669,7 +669,7 @@ def main() -> int:
         write_json(output / "report.json", report)
         search_result = "Fixed point reached." if result["fixed_point"] else "Stopped on a counterexample. Remaining properties are unproven."
         lines = [f"Overall {'FAIL' if failed else 'PASS'}. Exit {exit_code}.",
-                 f"{search_result} Discovered {result['quiescent_states']} quiescent states. Executed {result['operation_transitions']} operation outcomes.",
+                 f"{search_result} Discovered {result['quiescent_states']} quiescent states. Explored {result['operation_transitions']} operation outcomes in {result['source_executions']} shell invocations.",
                  f"Observed {result['boundary_transition_occurrences']} internal boundary transitions."]
         for name, value in properties.items():
             if not isinstance(value, dict):
@@ -693,7 +693,7 @@ def main() -> int:
         print(f"Artifacts: {output}", flush=True)
         return exit_code
     except (OSError, ValueError, TypeError, KeyError, VerificationError, subprocess.SubprocessError, KeyboardInterrupt) as error:
-        write_json(output / "report.json", {"schema_version": 1, "status": "error", "exit_code": 2,
+        write_json(output / "report.json", {"schema_version": ARTIFACT_VERSION, "status": "error", "exit_code": 2,
                                            "error": str(error), "fixed_point": False})
         print(f"ERROR. Verification incomplete. {error}", file=sys.stderr, flush=True)
         return 2

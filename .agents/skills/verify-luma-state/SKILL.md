@@ -71,7 +71,7 @@ For an intended behavior change, use `/t3-pstack:maintain-formal-verification-sk
 
 The output directory contains the exact checked source, source and tooling hashes, runtime versions, domain, coverage record, graph, boundary traces, summary, and scratch mutation patches. These are synthetic offline artifacts and contain no live TV state. Output survives automatic fixture cleanup.
 
-The helper removes only its temporary fixtures. It does not edit the product, a live journal, or any key. The schema for report, graph, trace, and mutation files is [model/artifacts.schema.json](model/artifacts.schema.json).
+The helper removes only its temporary fixtures. It does not edit the product, a live journal, or any key. Version 2 covers reports, graphs, traces, mutation checks and historical replays. [Current schema](model/artifacts.v2.schema.json) · [Version 1 schema for older runs](model/artifacts.schema.json)
 
 ## Helpers
 
