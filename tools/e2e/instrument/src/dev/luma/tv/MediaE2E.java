@@ -67,6 +67,35 @@ public final class MediaE2E extends Instrumentation {
             SystemClock.sleep(3_000);
             if (!resumed().equals(LUMA)) throw new AssertionError("Child mode opened an unapproved provider link: " + resumed());
         });
+        test("Returning from playback shows progress saved in the same minute", () -> {
+            seed("Fixture-Progress", 1_000, PLAYER, "Fixture-Progress", 50_000, PLAYER);
+            Activity luma = launchLuma(null);
+            View card = card(luma, "Fixture-Progress");
+            expectBar(card, .03f);
+            press(card);
+            waitResumed(PLAYER);
+            back();
+            expectBar(reloaded(luma, card, "Fixture-Progress"), 50f / 60f);
+        });
+        test("Returning from playback shows a new title with the same time left", () -> {
+            seed("Fixture-Title", 30_000, PLAYER, "Fixture-Retitled", 30_000, PLAYER);
+            Activity luma = launchLuma(null);
+            View card = card(luma, "Fixture-Title");
+            press(card);
+            waitResumed(PLAYER);
+            back();
+            reloaded(luma, card, "Fixture-Retitled");
+        });
+        test("Returning from playback opens the provider's new link", () -> {
+            seed("Fixture-Relink", 30_000, PLAYER, "Fixture-Relink", 30_000, PLAYER_NEXT);
+            Activity luma = launchLuma(null);
+            View card = card(luma, "Fixture-Relink");
+            press(card);
+            waitResumed(PLAYER);
+            back();
+            press(reloaded(luma, card, "Fixture-Relink"));
+            waitResumed(PLAYER_NEXT);
+        });
         Bundle result = new Bundle();
         report.append(failures == 0 ? "E2E PASS\n" : "E2E FAIL " + failures + "\n");
         result.putString(REPORT_KEY_STREAMRESULT, report.toString());
@@ -130,6 +159,14 @@ public final class MediaE2E extends Instrumentation {
             return found.get() != null;
         });
         return found.get();
+    }
+
+    /** The card with this title after Luma reloads Up Next on return. A card that changed is rebuilt, so this waits a
+     *  few seconds for the old card to leave, then finds the current one. */
+    private View reloaded(Activity luma, View old, String title) {
+        long end = SystemClock.uptimeMillis() + 5_000;
+        while (old.isAttachedToWindow() && SystemClock.uptimeMillis() < end) SystemClock.sleep(200);
+        return card(luma, title);
     }
 
     /** Focuses the card and presses OK on the remote, as a viewer would. */
