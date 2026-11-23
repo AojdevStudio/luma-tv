@@ -122,6 +122,7 @@ class Run:
                 raise RuntimeError("Existing trusted ADB key missing. No key was created.")
         try:
             with socket.socket() as check:
+                check.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 check.bind(("127.0.0.1", PORT))
         except OSError:
             raise RuntimeError("Port " + str(PORT) + " is busy. Another adb server may own it. It was left running.")

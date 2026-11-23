@@ -206,6 +206,18 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(self.tools.calls, [])
         self.assertFalse((self.root / ".signing/local.keystore").exists())
 
+    def test_doctor_can_run_after_the_previous_listener_closed(self):
+        with socket.socket() as listener:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", verify.PORT))
+            listener.listen()
+            with socket.create_connection(listener.getsockname()) as client:
+                connection, _ = listener.accept()
+                connection.close()
+                self.assertEqual(client.recv(1), b"")
+        code, summary = self.run_verify("doctor")
+        self.assertEqual((code, summary["status"]), (0, "PASS"), summary)
+
     def test_busy_port_leaves_foreign_server_alone(self):
         with socket.socket() as foreign:
             foreign.bind(("127.0.0.1", verify.PORT))
