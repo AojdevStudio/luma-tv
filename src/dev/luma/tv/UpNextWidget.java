@@ -37,7 +37,6 @@ final class UpNextWidget extends Widget {
     final float cardW=(w-PAD*2-GAP_X*(SLOTS-1))/SLOTS,cardH=cardW*9/16;
     final FrameLayout cards;
     final TextView tag,empty;
-    String shown=null;   // null: nothing shown yet, so an empty list still shows its message
 
     UpNextWidget(Context context,WidgetBoard.Host host){
         super(context,host,WidgetBoard.width("upnext"));
@@ -125,11 +124,8 @@ final class UpNextWidget extends Widget {
     static String join(String a,String b){return a==null||a.isEmpty()?(b==null?"":b):b==null||b.isEmpty()?a:a+" · "+b;}
     static String ago(long at){long m=Math.max(0,(System.currentTimeMillis()-at)/60000);if(m<2)return "Just now";if(m<60)return m+" min ago";if(m<1440)return m/60+" h ago";long d=m/1440;return d==1?"Yesterday":d+" days ago";}
 
-    /** Rebuilds the cards only when something a card shows or opens changed, and keeps focus on the same slot. */
     private void show(ArrayList<Item> items){
-        StringBuilder key=new StringBuilder();
-        for(Item i:items)key.append(i.key).append('|').append(i.title).append('|').append(i.line).append('|').append(i.detail).append('|').append(i.art).append('|').append(i.media==null?"":i.media.progress).append('|').append(i.intent==null?"":i.intent.toUri(Intent.URI_INTENT_SCHEME)).append(';');
-        if(key.toString().equals(shown)||!isAttachedToWindow())return;shown=key.toString();
+        if(!isAttachedToWindow())return;
         ArrayList<String> sources=new ArrayList<>();for(Item i:items)if(!i.allow)sources.add(i.media!=null?i.media.source:i.title);
         tag.setText(MediaContext.tag(Promo.on?MediaContext.Data.DEMO:MediaContext.Data.LIVE,sources));
         int focusedSlot=-1;for(int s=0;s<cards.getChildCount();s++)if(cards.getChildAt(s).hasFocus())focusedSlot=s;
