@@ -46,8 +46,9 @@ jobs:
         shell: bash
         run: |
           for args in "--refreshes -1" "--refreshes 0" "--writes 2x" "--writes"; do
+            read -ra bounds <<< "$args"
             status=0
-            java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java $args || status=$?
+            java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java "${bounds[@]}" || status=$?
             test "$status" -eq 2 || { echo "'$args' exited $status, expected 2 (no result)"; exit 1; }
           done
 
