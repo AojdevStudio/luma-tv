@@ -1,8 +1,5 @@
-import java.io.IOException;
-import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
@@ -13,11 +10,9 @@ import java.security.MessageDigest;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -45,12 +40,12 @@ import javax.tools.ToolProvider;
 public final class UpNextRefreshCheck {
     static final String DEFAULT_SOURCE = "src/dev/luma/tv/UpNextWidget.java";
     static final int WORKERS = 2;
+    static final int MAX_REFRESHES = 4;
+    static final int MAX_WRITES = 3;
     static final long STEP_TIMEOUT_SECONDS = 10;
     /** One refresh request needs 5 steps today: refresh, start, return, post, ui. Twice that leaves room for one more
      *  job per request. A replay that needs more has not drained, for example because a rerun requests itself forever. */
     static final int STEPS_PER_REFRESH = 10;
-    /** The static fields replaySource() adds so the fakes can call back into the explorer. They are not widget state. */
-    static final Set<String> HOOKS = Set.of("execute", "posted", "read", "shown");
 
     static final String ONE_READ = "one_read_at_a_time";
     static final String NO_ROLLBACK = "never_shows_older";
@@ -58,7 +53,7 @@ public final class UpNextRefreshCheck {
     static final String READ_BEFORE_POSTERS = "pending_read_before_posters";
     static final Map<String, String> PROPERTIES = new LinkedHashMap<>();
     static {
-        PROPERTIES.put(READ_BEFORE_POSTERS, "In the two-poster replay, the pending provider read is queued before posters from the previous draw.");
+        PROPERTIES.put(READ_BEFORE_POSTERS, "In the two-poster replay, the pending provider read starts before either poster from the previous draw.");
         PROPERTIES.put(ONE_READ, "At most one Up Next read is queued or running, so reads never share lastUsed or race each other.");
         PROPERTIES.put(NO_ROLLBACK, "Up Next never draws a Watch Next version older than one it already drew.");
         PROPERTIES.put(NEWEST_LANDS, "Whenever all work has drained, Up Next shows data at least as new as the data at the last refresh request.");
@@ -76,8 +71,20 @@ public final class UpNextRefreshCheck {
         new Mutant("clear the flag before the read", ONE_READ, "ArrayList<Item> items=load(app);", "loading=false;ArrayList<Item> items=load(app);"),
         new Mutant("clear the flag on the worker before post()", NO_ROLLBACK,
             "loading=false;", "", "ArrayList<Item> items=load(app);", "ArrayList<Item> items=load(app);loading=false;"),
+        new Mutant("clear the flag on refresh while a worker is about to post", NO_ROLLBACK,
+            "@Override void refresh(){", "private final java.util.concurrent.atomic.AtomicBoolean posting = new java.util.concurrent.atomic.AtomicBoolean();\n"
+                + "    @Override void refresh(){if(posting.get()) loading=false;",
+            "post(completion);", "posting.set(true);post(completion);posting.set(false);"),
+        new Mutant("queue a wrapper that submits the read behind the posters", READ_BEFORE_POSTERS,
+            "private boolean loading,stale;", "private boolean loading,stale,defer;",
+            "WidgetBoard.IO.execute(()->{", "Runnable job=()->{",
+            "post(completion);\n        });", "post(completion);\n        };\n"
+                + "        if(defer) WidgetBoard.IO.execute(()->WidgetBoard.IO.execute(job));\n"
+                + "        else WidgetBoard.IO.execute(job);",
+            "if(stale){stale=false;refresh();}", "if(stale){stale=false;defer=true;refresh();defer=false;}"),
         new Mutant("ignore the first refresh", NEWEST_LANDS,
             "@Override void refresh(){", "private boolean seen;@Override void refresh(){if(!seen){seen=true;return;}"),
+        new Mutant("drop the posted completion", NEWEST_LANDS, "post(completion);", ""),
         new Mutant("keep stale set after the rerun", WORK_BUDGET, "if(stale){stale=false;refresh();}", "if(stale){refresh();}"));
 
     static class NoResult extends Exception { NoResult(String m) { super(m); } }
@@ -93,9 +100,13 @@ public final class UpNextRefreshCheck {
                 switch (args[i]) {
                     case "--source" -> source = value(args, ++i, "--source");
                     case "--self-check" -> selfCheck = true;
-                    case "--refreshes" -> refreshes = count(args, ++i, "--refreshes", 1);
-                    case "--writes" -> writes = count(args, ++i, "--writes", 0);
-                    case "--help" -> { System.out.println("usage: java UpNextRefreshCheck.java [--source UpNextWidget.java] [--refreshes 3] [--writes 2] [--self-check]"); return; }
+                    case "--refreshes" -> refreshes = count(args, ++i, "--refreshes", 1, MAX_REFRESHES);
+                    case "--writes" -> writes = count(args, ++i, "--writes", 0, MAX_WRITES);
+                    case "--help" -> {
+                        System.out.println("usage: java UpNextRefreshCheck.java [--source UpNextWidget.java] [--refreshes 1-"
+                            + MAX_REFRESHES + "] [--writes 0-" + MAX_WRITES + "] [--self-check] (defaults: 3 refreshes and 2 writes)");
+                        return;
+                    }
                     default -> throw new NoResult("unknown argument " + args[i]);
                 }
             }
@@ -106,6 +117,8 @@ public final class UpNextRefreshCheck {
                 + refreshes * STEPS_PER_REFRESH + " steps per replay");
             Result result = check(region, refreshes, writes);
             result.print();
+            if (!result.failures.isEmpty()) { System.out.println("FAIL: counterexample above"); System.exit(1); }
+            if (!result.unknown.isEmpty()) throw new NoResult("a directed replay could not reach its scenario, see UNKNOWN above");
             if (selfCheck) {
                 boolean caught = true;
                 Map<String, Result> checked = new java.util.HashMap<>(); // mutants that share an edit share one exploration
@@ -130,8 +143,6 @@ public final class UpNextRefreshCheck {
                 }
                 if (!caught) throw new NoResult("self-check: a mutant was not caught, so this check cannot be trusted");
             }
-            if (!result.failures.isEmpty()) { System.out.println("FAIL: counterexample above"); System.exit(1); }
-            if (!result.unknown.isEmpty()) throw new NoResult("a directed replay could not reach its scenario, see UNKNOWN above");
             System.out.println("PASS within the bound above");
             System.exit(0);
         } catch (NoResult e) {
@@ -149,13 +160,13 @@ public final class UpNextRefreshCheck {
         return args[i];
     }
 
-    static int count(String[] args, int i, String flag, int min) throws NoResult {
+    static int count(String[] args, int i, String flag, int min, int max) throws NoResult {
         String v = value(args, i, flag);
         try {
             int n = Integer.parseInt(v);
-            if (n >= min) return n;
+            if (n >= min && n <= max) return n;
         } catch (NumberFormatException e) { /* reported below with the bound */ }
-        throw new NoResult(flag + " must be a whole number of at least " + min + ", got '" + v + "'");
+        throw new NoResult(flag + " must be a whole number from " + min + " through " + max + ", got '" + v + "'");
     }
 
     /** The members after the constructor and before load(): in the real file, refresh() and the state it keeps. */
@@ -339,15 +350,8 @@ public final class UpNextRefreshCheck {
                 resumeTo(t, true);
             } else if (action.startsWith("return ") || action.startsWith("post ")) {
                 Task t = tasks.get(Integer.parseInt(action.substring(action.indexOf(' ') + 1)) - 1);
-                boolean returning = t.phase == Phase.LOADING;
-                String before = returning ? state() : null;
+                // Always leave a worker paused at post() until the explorer chooses to let it go.
                 advance(t);
-                // A return that changes no state commutes with every other step, so moving it to just before its
-                // post() loses no order. Only a worker that changes state before post() needs post() as its own step.
-                if (returning && t.phase == Phase.POSTING && state().equals(before)) {
-                    trace.add("    the worker changed no state before post(), so post() goes on in the same step");
-                    advance(t);
-                }
             } else {
                 Runnable r; synchronized (ui) { r = ui.poll(); }
                 trace.add("UI thread runs the next posted runnable");
@@ -363,37 +367,6 @@ public final class UpNextRefreshCheck {
             if (t.phase == Phase.POSTING) trace.add("task " + t.id + " post() queues its runnable for the UI thread");
             t.resume.release();
             resumeTo(t, false);
-        }
-
-        /** Everything a worker step could change that another step can see: the widget's own fields, followed into
-         *  collections, arrays and objects of the replay classes, plus the queues and what show() drew. */
-        String state() throws Exception {
-            StringBuilder out = new StringBuilder(tasks.size() + " " + ui.size() + " " + highestDrawn + " " + lastDrawn);
-            IdentityHashMap<Object, Boolean> seen = new IdentityHashMap<>();
-            for (Field f : widgetClass.getDeclaredFields()) {
-                if (Modifier.isStatic(f.getModifiers()) && HOOKS.contains(f.getName())) continue;
-                f.setAccessible(true);
-                out.append(' ').append(f.getName()).append('=');
-                describe(f.get(Modifier.isStatic(f.getModifiers()) ? null : widget), out, seen);
-            }
-            return out.toString();
-        }
-        void describe(Object o, StringBuilder out, IdentityHashMap<Object, Boolean> seen) throws Exception {
-            if (o == null || o instanceof Number || o instanceof Boolean || o instanceof Character || o instanceof String || o instanceof Enum<?>) { out.append(o); return; }
-            if (seen.put(o, true) != null) { out.append('@').append(System.identityHashCode(o)); return; }
-            out.append('{');
-            if (o.getClass().isArray()) for (int i = 0; i < Array.getLength(o); i++) { describe(Array.get(o, i), out, seen); out.append(','); }
-            else if (o instanceof Map<?, ?> m) for (Map.Entry<?, ?> e : m.entrySet()) { describe(e.getKey(), out, seen); out.append(':'); describe(e.getValue(), out, seen); out.append(','); }
-            else if (o instanceof Iterable<?> it) for (Object e : it) { describe(e, out, seen); out.append(','); }
-            else if (o.getClass().getClassLoader() == widgetClass.getClassLoader())
-                for (Class<?> k = o.getClass(); k != null && k != Object.class; k = k.getSuperclass())
-                    for (Field f : k.getDeclaredFields()) {
-                        if (Modifier.isStatic(f.getModifiers())) continue;
-                        f.setAccessible(true);
-                        out.append(f.getName()).append('='); describe(f.get(o), out, seen); out.append(',');
-                    }
-            else out.append(o.getClass().getName()).append('@').append(System.identityHashCode(o));
-            out.append('}');
         }
 
         void invoke(Method m) throws Exception {
@@ -420,13 +393,15 @@ public final class UpNextRefreshCheck {
 
         /** Lets paused workers end before the next replay swaps the static hooks, so no worker posts into it. */
         void close() throws Exception {
-            for (Task t : tasks)
+            for (int j = 0; j < tasks.size(); j++) {
+                Task t = tasks.get(j);
                 for (int i = 0; onWorker(t); i++) {
                     if (i == 100) throw new NoResult("task " + t.id + " did not end");
                     t.resume.release();
                     if (!t.yielded.tryAcquire(STEP_TIMEOUT_SECONDS, TimeUnit.SECONDS)) throw new NoResult("task " + t.id + " did not end");
                     t.phase = t.at;
                 }
+            }
         }
     }
 
@@ -451,33 +426,43 @@ public final class UpNextRefreshCheck {
         Run run = new Run(widget, pool, 2, 1);
         try {
             for (String step : List.of("refresh", "start", "write refresh", "return 1", "post 1")) {
-                if (step.equals("post 1") && run.tasks.get(0).phase == Phase.DONE) continue; // return 1 already posted
-                if (!run.enabled().contains(step)) {
-                    result.unknown.put(READ_BEFORE_POSTERS, "the replay could not take step '" + step + "' after: " + String.join(" / ", run.trace));
-                    return;
-                }
+                if (!run.enabled().contains(step)) throw new NoResult("the replay could not take step '" + step + "'");
                 run.step(step);
             }
 
-            Runnable poster = () -> {};
+            if (!run.enabled().contains("ui")) throw new NoResult("the initial read did not post a UI callback");
+            Runnable poster = () -> run.trace.add("    an uncached poster starts");
             run.set("shown", (Consumer<Integer>) version -> {
                 run.trace.add("show() submits two uncached posters for version " + version);
                 run.submit(poster);
                 run.submit(poster);
             });
             run.step("ui");
-            boolean drew = false; for (Task t : run.tasks) drew |= t.body == poster;
-            if (!drew) {
-                result.unknown.put(READ_BEFORE_POSTERS, "the first result was never drawn, so no poster was queued: " + String.join(" / ", run.trace));
-                return;
+            if (run.tasks.stream().noneMatch(t -> t.body == poster))
+                throw new NoResult("the first callback drew no rows, so no poster was queued");
+
+            for (List<String> next = run.enabled(); !next.isEmpty(); next = run.enabled()) {
+                String step = next.get(0);
+                Task starting = step.equals("start") ? run.nextQueued() : null;
+                run.step(step);
+                if (starting == null) continue;
+                if (starting.phase == Phase.LOADING) return;
+                if (starting.body == poster) {
+                    run.breaks(READ_BEFORE_POSTERS, "a poster started before the pending provider read");
+                    result.failures.put(READ_BEFORE_POSTERS, run.broken.get(READ_BEFORE_POSTERS));
+                    return;
+                }
             }
-            Task next = run.nextQueued();
-            if (next == null || next.body == poster) {
-                run.breaks(READ_BEFORE_POSTERS, "the pending read does not have the first free worker slot");
-                result.failures.put(READ_BEFORE_POSTERS, run.broken.get(READ_BEFORE_POSTERS));
-            }
+            throw new NoResult("the replay ended before the pending provider read or either poster started");
+        } catch (NoResult e) {
+            result.unknown.put(READ_BEFORE_POSTERS, e.getMessage() + ". Steps so far:\n          " + String.join("\n          ", run.trace));
         } finally {
-            run.close();
+            try {
+                run.close();
+            } catch (NoResult e) {
+                result.unknown.merge(READ_BEFORE_POSTERS, "cleanup could not finish. " + e.getMessage(),
+                    (replay, cleanup) -> replay + "\n          " + cleanup);
+            }
         }
     }
 
@@ -487,7 +472,6 @@ public final class UpNextRefreshCheck {
         Class<?> c = compile(region);
         List<Worker> pool = new ArrayList<>(); for (int i = 0; i < WORKERS; i++) pool.add(new Worker());
         Result result = new Result();
-        checkPosterQueue(c, pool, result);
         int[] choice = new int[0], options = new int[0];
         while (true) {
             Run run = new Run(c, pool, refreshes, writes);
@@ -508,7 +492,10 @@ public final class UpNextRefreshCheck {
             } finally { run.close(); }
             int d = choice.length - 1;
             while (d >= 0 && choice[d] + 1 >= options[d]) d--;
-            if (d < 0) return result;
+            if (d < 0) {
+                checkPosterQueue(c, pool, result);
+                return result;
+            }
             choice = Arrays.copyOf(choice, d + 1); options = Arrays.copyOf(options, d + 1);
             choice[d]++;
         }
