@@ -755,7 +755,7 @@ class RealAdbServerTest(unittest.TestCase):
 
     def test_server_that_adb_restarts_during_a_run_is_stopped_at_cleanup(self):
         for lost in (False, True):
-            with self.subTest(evidence_lost=lost):
+            with self.subTest(evidence_lost=lost), ThreadPoolExecutor(max_workers=1) as reaper:
                 evidence = self.base / ("evidence-" + str(lost))
                 run = verify.Run(evidence)
                 try:
@@ -764,6 +764,7 @@ class RealAdbServerTest(unittest.TestCase):
                     run.process.kill()
                     run.process.wait()
                     restarted = self.start_adb("localfilesystem:" + str(own), run.env)
+                    exited = reaper.submit(restarted.wait, 30)
                     self.assertEqual(self.listener(own), restarted.pid)
                     self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
                     if lost:
@@ -774,7 +775,7 @@ class RealAdbServerTest(unittest.TestCase):
                             run.close()
                     else:
                         run.close()
-                restarted.wait(10)
+                exited.result()
                 self.assertEqual(list((self.state / "run").glob("*-*")), [])
                 if not lost:
                     log = [json.loads(line) for line in (evidence / "commands.jsonl").read_text().splitlines()]
@@ -784,7 +785,7 @@ class RealAdbServerTest(unittest.TestCase):
     def test_server_reads_only_a_private_copy_of_the_selected_key(self):
         keys = {name: (self.keys / name).read_bytes() for name in ["adbkey", "adbkey.pub"]}
         run = verify.Run(self.base / "evidence")
-        try:
+        with ThreadPoolExecutor(max_workers=1) as reaper, contextlib.closing(run):
             run.start_server()
             home = Path(run.env["HOME"])
             self.assertEqual(home, run.server / "home")
@@ -801,10 +802,10 @@ class RealAdbServerTest(unittest.TestCase):
             run.process.kill()
             run.process.wait()
             own = run.server / "adb.sock"
-            self.start_adb("localfilesystem:" + str(own), run.env)
+            restarted = self.start_adb("localfilesystem:" + str(own), run.env)
+            exited = reaper.submit(restarted.wait, 30)
             self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
-        finally:
-            run.close()
+        exited.result()
         self.assertEqual(list(self.keys.iterdir()), [])
 
     def test_failed_start_reports_the_daemon_reason(self):
