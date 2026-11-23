@@ -18,14 +18,13 @@ images=res/drawable-nodpi
 for payload in "$work"/payloads/*; do
     image="$images/${payload##*/}.png"
     if [[ ${1:-} == --check ]]; then
-        zbarimg --quiet --raw "$image" > "$work/decoded" || {
+        zbarimg --quiet --raw -Sbinary "$image" > "$work/decoded" || {
             echo "Cannot decode $image. Run tools/support-qr.sh to redraw it." >&2
             exit 1
         }
-        { cat "$payload"; echo; } > "$work/expected"
-        if ! cmp -s "$work/expected" "$work/decoded"; then
+        if ! cmp -s "$payload" "$work/decoded"; then
             echo "$image differs from the displayed value. Run tools/support-qr.sh to redraw it." >&2
-            diff -u -L expected -L decoded "$work/expected" "$work/decoded" >&2 || true
+            diff -u -L expected -L decoded "$payload" "$work/decoded" >&2 || true
             exit 1
         fi
     else
