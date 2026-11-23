@@ -3,6 +3,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -78,6 +79,26 @@ class FakeTools:
         return [call for call in self.calls if call[0].endswith("adb")]
 
 
+class OfflineDiscoveryTest(unittest.TestCase):
+    def test_unregistered_failing_suite_fails_the_offline_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repo = base / "repo"
+            script = repo / ".agents/skills/verify-luma/scripts/verify.py"
+            script.parent.mkdir(parents=True)
+            shutil.copyfile(verify.__file__, script)
+            suites = repo / "tools"
+            suites.mkdir()
+            (suites / "NewSuiteTest.java").write_text(
+                'package dev.luma.tv; public class NewSuiteTest {'
+                'public static void main(String[] args) { throw new AssertionError("suite ran"); } }')
+            evidence = base / "evidence"
+            result = subprocess.run([sys.executable, script, "offline", "--evidence", evidence], capture_output=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("NewSuiteTest", json.loads((evidence / "summary.json").read_text())["error"])
+            self.assertIn("suite ran", (evidence / "NewSuiteTest.stderr").read_text())
+
+
 class VerifyTest(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -116,7 +137,7 @@ class VerifyTest(unittest.TestCase):
         (self.root / "tools/test_luma.py").write_bytes(b"")
         code, summary = self.run_verify("safe")
         self.assertEqual((code, summary["status"]), (0, "PASS"), summary)
-        self.assertEqual(set(summary["checks"]), {"source_build", "device_names", "capabilities", "house_scenes", "weather_location", "commands", "voice_requests", "health_snapshot", "capability_panel", "home_presets", "profiles", "media_context", "offline_launcher", "doctor",
+        self.assertEqual(set(summary["checks"]), {"source_build", "device_names", "offline_launcher", "doctor",
                                                   "launch_home_and_baseline", "source_unchanged"})
         self.assertEqual(summary["checks"]["source_build"]["cert_sha256"], "abc123")
         self.assertEqual(summary["observed"]["installed"]["versionName"], "2.4")

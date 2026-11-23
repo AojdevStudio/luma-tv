@@ -152,51 +152,16 @@ class Run:
                                                   "cert_sha256": cert.group(1).decode() if cert else None}
 
     def offline(self):
+        suites = sorted((ROOT / "tools").glob("*Test.java"))
+        if not suites:
+            raise RuntimeError("No offline Java suites found. Put each suite in tools/<Name>Test.java.")
         classes = self.evidence / "java-classes"
-        self.command("devices-compile", [JDK / "bin/javac", "-d", classes,
-                     "src/dev/luma/tv/Devices.java", "tools/DevicesTest.java"])
-        self.command("devices-test", [JDK / "bin/java", "-cp", classes, "dev.luma.tv.DevicesTest"])
-        self.summary["checks"]["device_names"] = "PASS"
-        capability_classes = self.evidence / "capability-classes"
-        self.command("capabilities-compile", [JDK / "bin/javac", "--release", "8", "-d", capability_classes,
-                     "src/dev/luma/tv/Commands.java", "src/dev/luma/tv/Capabilities.java", "src/dev/luma/tv/Profiles.java",
-                     "src/dev/luma/tv/HouseScenes.java", "tools/CapabilitiesTest.java", "tools/HouseScenesTest.java"])
-        self.command("capabilities-test", [JDK / "bin/java", "-cp", capability_classes, "dev.luma.tv.CapabilitiesTest"])
-        self.summary["checks"]["capabilities"] = "PASS"
-        self.command("house-scenes-test", [JDK / "bin/java", "-cp", capability_classes, "dev.luma.tv.HouseScenesTest"])
-        self.summary["checks"]["house_scenes"] = "PASS"
-        weather_classes = self.evidence / "weather-classes"
-        self.command("weather-compile", [JDK / "bin/javac", "--release", "8", "-d", weather_classes,
-                     "src/dev/luma/tv/WeatherLocation.java", "tools/WeatherLocationTest.java"])
-        self.command("weather-test", [JDK / "bin/java", "-cp", weather_classes, "dev.luma.tv.WeatherLocationTest"])
-        self.summary["checks"]["weather_location"] = "PASS"
-        request_classes = self.evidence / "request-classes"
-        self.command("requests-compile", [JDK / "bin/javac", "--release", "8", "-d", request_classes,
-                     "src/dev/luma/tv/Commands.java", "src/dev/luma/tv/VoiceRequests.java",
-                     "tools/CommandsTest.java", "tools/VoiceRequestsTest.java"])
-        self.command("commands-test", [JDK / "bin/java", "-cp", request_classes, "dev.luma.tv.CommandsTest"])
-        self.summary["checks"]["commands"] = "PASS"
-        self.command("voice-test", [JDK / "bin/java", "-cp", request_classes, "dev.luma.tv.VoiceRequestsTest"])
-        self.summary["checks"]["voice_requests"] = "PASS"
-        panel_classes = self.evidence / "panel-classes"
-        self.command("panel-compile", [JDK / "bin/javac", "--release", "8", "-d", panel_classes,
-                     "src/dev/luma/tv/HealthSnapshot.java", "src/dev/luma/tv/CapabilityPanel.java",
-                     "src/dev/luma/tv/HomePresets.java", "src/dev/luma/tv/Profiles.java", "src/dev/luma/tv/MediaContext.java",
-                     "tools/HealthSnapshotTest.java", "tools/CapabilityPanelTest.java", "tools/MediaContextTest.java"])
-        self.command("health-test", [JDK / "bin/java", "-cp", panel_classes, "dev.luma.tv.HealthSnapshotTest"])
-        self.summary["checks"]["health_snapshot"] = "PASS"
-        self.command("panel-test", [JDK / "bin/java", "-cp", panel_classes, "dev.luma.tv.CapabilityPanelTest"])
-        self.summary["checks"]["capability_panel"] = "PASS"
-        self.command("media-test", [JDK / "bin/java", "-cp", panel_classes, "dev.luma.tv.MediaContextTest"])
-        self.summary["checks"]["media_context"] = "PASS"
-        home_classes = self.evidence / "home-classes"
-        self.command("home-compile", [JDK / "bin/javac", "--release", "8", "-d", home_classes,
-                     "src/dev/luma/tv/HomePresets.java", "src/dev/luma/tv/Profiles.java",
-                     "tools/HomePresetsTest.java", "tools/ProfilesTest.java"])
-        self.command("presets-test", [JDK / "bin/java", "-cp", home_classes, "dev.luma.tv.HomePresetsTest"])
-        self.summary["checks"]["home_presets"] = "PASS"
-        self.command("profiles-test", [JDK / "bin/java", "-cp", home_classes, "dev.luma.tv.ProfilesTest"])
-        self.summary["checks"]["profiles"] = "PASS"
+        self.command("java-compile", ["javac", "--release", "8", "-encoding", "UTF-8",
+                                      "-sourcepath", "src", "-d", classes, *suites])
+        for suite in suites:
+            self.command(suite.stem, ["java", "-cp", classes, "dev.luma.tv." + suite.stem])
+            name = re.sub(r"(?<!^)(?=[A-Z])", "_", suite.stem[:-4]).lower()
+            self.summary["checks"]["device_names" if name == "devices" else name] = "PASS"
         if (ROOT / "tools/test_luma.py").is_file():
             self.env["PYTHONDONTWRITEBYTECODE"] = "1"
             self.command("offline-launcher-tests", [sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_luma.py", "-v"])
