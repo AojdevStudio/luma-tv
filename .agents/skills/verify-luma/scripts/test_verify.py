@@ -805,7 +805,9 @@ class RealAdbServerTest(unittest.TestCase):
                     log = [json.loads(line) for line in (evidence / "commands.jsonl").read_text().splitlines()]
                     sweep = [entry for entry in log if entry["name"] == "adb-sweep"]
                     self.assertEqual(sweep[0]["argv"], ["host:kill", str(own).replace("/adb-", "/old-")])
-                    self.assertTrue(all(entry["pid"] == restarted.pid for entry in sweep))
+                    self.assertEqual(sweep[0]["pid"], restarted.pid)
+                    if len(sweep) == 2:
+                        self.assertEqual(sweep[1]["argv"], ["kill", "-KILL", str(restarted.pid)])
                     outcomes = [entry["exit"] for entry in sweep]
                     self.assertIn(outcomes, [[0], ["hung", 0] if HAS_PIDFD else ["hung"]])
 
