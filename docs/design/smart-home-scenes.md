@@ -9,7 +9,7 @@ House Control TV's `HomeService` answers Binder transactions from a Luma signed 
 | Code | Request | Reply |
 | --- | --- | --- |
 | 1 | nothing | The home: `plan`, `state`, `revision`, `controlReady`, `connectionLabel`, and `demo: true` for the demo home. Each plan light and air conditioner has `linked`. Or `{"error": ...}`. |
-| 2 | scene id | `{"ok": true, ...}` after every linked device took its change. Or `{"error": ...}`. |
+| 2 | scene id | `{"ok": true, ...}` means House Control finished handling the scene without reporting an error. Physical effects depend on the device and transport. Some settings can be skipped, and unlinked changes are simulated. Or `{"error": ...}`. |
 | 3 | 1 or 0 | Marks the Home widget visible or hidden. Luma's widget uses it to start and stop polling. |
 | 4 | scene id | Code 2 on the isolated demo home. Refused when the demo home is off. |
 
@@ -33,7 +33,7 @@ A was chosen. B changes when House Control polls Smart Life, and it moves the wi
 ## Data shape
 
 - `HouseScenes` is plain Java. `read` turns a code 1 reply into a `Read`. That is either a `Home` (source, revision, why it cannot run now, scenes) or the reason there is none. A failed read is not proof that no scene exists, so the panel shows the reason, not "no scenes".
-- `Scene` holds its id, name, icon, source, revision, its changes and its simulated changes. A change is one sentence per distinct setting, such as `Desk lamp on.` A name used by two devices gets its room. On the real home, `read` puts the sentences for `linked: false` devices in simulated changes. It reads `linked` there and nowhere else. The demo home keeps every change in changes, because its source already says no real device changes.
+- `Scene` holds its id, name, icon, source, revision, its changes and its simulated changes. A change is one sentence per distinct setting, such as `Desk lamp on.` A name used by two devices gets its room. A patch that switches a device off names its other settings as requested, such as `Studio AC off, requested settings: cool, 18°, fan high.` House Control may skip them for a device it switches off: infrared air conditioners send only the power key, and Home Assistant may not apply them. So the preview never says they are applied. A null colour reads `no colour`. House Control sends no colour command for it, so the preview never promises white light. On the real home, `read` puts the sentences for `linked: false` devices in simulated changes. It reads `linked` there and nowhere else. The demo home keeps every change in changes, because its source already says no real device changes.
 - `refusal(scene, read)` is the one staleness rule. A scene previewed against one read may run against another only when both come from the same home (demo or real), House Control can control devices, and the scene has the same name, revision, changes and simulated changes.
 - `outcome` turns a code 2 or 4 reply into `DONE`, `NOT_FINISHED` (House Control's error, in its words) or `UNKNOWN`. `HouseLink` reports `NOT_RUN` when nothing was sent and `UNKNOWN` when the connection broke during the run. A `DONE` on the real home says `Simulated <scene>. No real device changed` when every change was simulated, and adds `Some changes were only simulated` when some were.
 - `HouseLink` is the Android adapter. It owns the binding, a worker thread and the JSON conversion. Its queue lives on the main thread, and it hands the worker one request at a time. It answers on the main thread, and never after the activity is destroyed. It sends only codes 1, 2 and 4.
