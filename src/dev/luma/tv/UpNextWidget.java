@@ -49,13 +49,21 @@ final class UpNextWidget extends Widget {
         loading=true;
         final Context app=getContext().getApplicationContext();
         WidgetBoard.IO.execute(()->{
-            ArrayList<Item> items=load(app);
-            post(()->{
-                loading=false;
-                if(stale){stale=false;refresh();}
-                show(items);
-            });
+            Runnable completion;
+            try {
+                ArrayList<Item> items=load(app);
+                completion=()->{finishRead();show(items);};
+            } catch(RuntimeException unavailable) {
+                // Keep the last rows if Android cannot complete this read.
+                completion=this::finishRead;
+            }
+            post(completion);
         });
+    }
+
+    private void finishRead(){
+        loading=false;
+        if(stale){stale=false;refresh();}
     }
 
     private ArrayList<Item> load(Context context){
