@@ -718,14 +718,14 @@ public final class MainActivity extends Activity {
         root.post(()->cells.get(saved).requestFocus());
     }
 
-    private ArrayList<String[]> rawLines(int id){
-        ArrayList<String[]> out=new ArrayList<>();
-        try(java.io.BufferedReader r=new java.io.BufferedReader(new java.io.InputStreamReader(getResources().openRawResource(id),java.nio.charset.StandardCharsets.UTF_8))){
-            String line;while((line=r.readLine())!=null){line=line.trim();if(!line.isEmpty()&&!line.startsWith("#"))out.add(line.split("\\s*\\|\\s*",-1));}
-        }catch(java.io.IOException ignored){}
-        return out;
+    private String about(String key){
+        try{return SupportInfo.about(getResources().openRawResource(R.raw.about),key);}
+        catch(java.io.IOException e){return "";}
     }
-    private String about(String key){for(String[] l:rawLines(R.raw.about))if(l[0].startsWith(key+"="))return l[0].substring(key.length()+1);return "";}
+    private java.util.List<SupportInfo.Coin> supportCoins(){
+        try{return SupportInfo.coins(getResources().openRawResource(R.raw.support));}
+        catch(java.io.IOException e){return java.util.Collections.emptyList();}
+    }
     private String version(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(PackageManager.NameNotFoundException e){return "";}}
     private ImageView qr(String name){ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.FIT_CENTER);img.setBackground(shape(Color.WHITE,12));img.setPadding(px(5),px(5),px(5),px(5));
         int id=getResources().getIdentifier(name,"drawable",getPackageName());if(id!=0)img.setImageResource(id);return img;}
@@ -739,7 +739,7 @@ public final class MainActivity extends Activity {
         panel.addView(text("Made by "+about("author"),15,Color.WHITE,"sans-serif-medium"),pos(380,22,27,172));
         String links=about("x").replaceFirst("^https?://","")+"\n"+about("github").replaceFirst("^https?://","");
         TextView link=text(links,12,0xB3FFFFFF,"sans-serif");link.setLineSpacing(px(4),1);panel.addView(link,pos(380,40,27,198));
-        panel.addView(qr("qr_source"),pos(150,150,426,28));
+        panel.addView(qr(SupportInfo.SOURCE_IMAGE),pos(150,150,426,28));
         TextView caption=text("Source code",12,0x99FFFFFF,"sans-serif");caption.setGravity(Gravity.CENTER);panel.addView(caption,pos(150,18,426,184));
         LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.HORIZONTAL);panel.addView(list,pos(400,42,26,262));
         LinearLayout a=new LinearLayout(this),b=new LinearLayout(this);a.setOrientation(LinearLayout.VERTICAL);b.setOrientation(LinearLayout.VERTICAL);
@@ -752,13 +752,13 @@ public final class MainActivity extends Activity {
         TextView title=text("Support the author",30,Color.WHITE,"sans-serif-medium");title.setLetterSpacing(-.02f);o.addView(title,pos(700,40,48,38));
         TextView body=text("Luma is free and has no ads. If it earned a place on your TV, a tip in crypto helps it grow. Scan a code with your phone's wallet, and send each coin only over the network named on its card.",13,0xC7FFFFFF,"sans-serif");
         body.setLineSpacing(px(4),1);o.addView(body,pos(760,44,48,84));
-        ArrayList<String[]> coins=rawLines(R.raw.support);int n=Math.max(1,Math.min(4,coins.size()));float w=(864-(n-1)*16)/(float)n;
-        for(int i=0;i<Math.min(4,coins.size());i++){String[] c=coins.get(i);
+        java.util.List<SupportInfo.Coin> coins=supportCoins();int n=Math.max(1,Math.min(4,coins.size()));float w=(864-(n-1)*16)/(float)n;
+        for(int i=0;i<Math.min(4,coins.size());i++){SupportInfo.Coin c=coins.get(i);
             FrameLayout card=new FrameLayout(this);card.setBackground(shape(0x1AFFFFFF,18));o.addView(card,pos(w,322,48+i*(w+16),146));
-            TextView name=text(c[0],14,Color.WHITE,"sans-serif-medium");name.setSingleLine(true);name.setEllipsize(android.text.TextUtils.TruncateAt.END);card.addView(name,pos(w-28,20,14,14));
-            TextView note=text(c.length>1?c[1]:"",10.5f,0x99FFFFFF,"sans-serif");note.setMaxLines(2);card.addView(note,pos(w-28,30,14,37));
-            float side=Math.min(w-40,170);card.addView(qr("qr_"+i),pos(side,side,(w-side)/2,74));
-            TextView address=text(c.length>2?c[2]:"",10,0xD9FFFFFF,"monospace");address.setGravity(Gravity.CENTER);address.setLineSpacing(px(2),1);card.addView(address,pos(w-24,58,12,82+side));
+            TextView name=text(c.name,14,Color.WHITE,"sans-serif-medium");name.setSingleLine(true);name.setEllipsize(android.text.TextUtils.TruncateAt.END);card.addView(name,pos(w-28,20,14,14));
+            TextView note=text(c.network,10.5f,0x99FFFFFF,"sans-serif");note.setMaxLines(2);card.addView(note,pos(w-28,30,14,37));
+            float side=Math.min(w-40,170);card.addView(qr(c.image),pos(side,side,(w-side)/2,74));
+            TextView address=text(c.address,10,0xD9FFFFFF,"monospace");address.setGravity(Gravity.CENTER);address.setLineSpacing(px(2),1);card.addView(address,pos(w-24,58,12,82+side));
         }
         LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);o.addView(list,pos(140,42,410,482));
         View done=menuRow(list,"Done",false,()->closeOverlay(false));((TextView)done).setGravity(Gravity.CENTER);root.post(done::requestFocus);

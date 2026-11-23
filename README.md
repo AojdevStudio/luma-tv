@@ -145,7 +145,7 @@ the couch.
   none.
 - **Forks.** The author, links and tip addresses shown in Settings → *About* and *Support the author* are in
   [`res/raw/about.txt`](res/raw/about.txt) and [`res/raw/support.txt`](res/raw/support.txt);
-  `tools/support-qr.sh` redraws their QR codes (needs `qrencode`).
+  `tools/support-qr.sh` redraws their QR codes with a JDK and `qrencode`. Use `--check` with `zbarimg` to compare the images with the displayed values.
 
 ## Privacy
 
