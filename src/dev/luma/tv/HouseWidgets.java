@@ -15,12 +15,8 @@ import org.json.*;
 import java.util.*;
 import java.util.concurrent.*;
 
-/** Local, certificate-paired home widgets. Reads no credentials and calls no cloud API.
- *  Layout (design units, the page's own coordinates): a row of round scene buttons under the greeting, and the live
- *  3D home floating on the wallpaper at the right, with no card around it. A quiet status line sits under the model.
- *  The WebGL view is never drawn on Home: it renders off screen and the page shows a picture of it, refreshed with a
- *  cross-fade when the lights change. A transparent WebView composited over the wallpaper made every focus
- *  animation pay for blending a screen-sized layer; a picture costs one textured quad. */
+/** House Control pairs clients by certificate. The WebView renders off screen because blending a
+ *  transparent WebView over the wallpaper slowed every focus animation on the TV stick. */
 final class HouseWidgets extends FrameLayout {
     static final float W=960,PAGE_H=392,SCENE_X=48,SCENE_Y=212,SCENE_W=70,SCENE_H=86,SCENE_D=58,SCENE_GAP=6,
         CARD_X=444,CARD_Y=66,CARD_W=496,H=310,STATUS_Y=372;
@@ -36,18 +32,15 @@ final class HouseWidgets extends FrameLayout {
     final ImageView still,after;
     final PathInterpolator ease=new PathInterpolator(.22f,1f,.36f,1f);
     final android.view.animation.Interpolator spring=t->{if(t>=1)return 1;double time=t*.42,f=24,d=.7,w=f*Math.sqrt(1-d*d);return (float)(1-Math.exp(-d*f*time)*(Math.cos(w*time)+d*f/w*Math.sin(w*time)));};
-    /** The last picture of the model by day [1] and by night [0], kept across page rebuilds: Home shows the house at
-     *  once while WebGL starts again, also after sunset once a night picture exists. */
     static final Bitmap[] lastPicture=new Bitmap[2];
     volatile String snapshot="{}";
     volatile boolean daylight;
     IBinder binder;boolean bound=false,attached=false,active=true,loaded=false,fetching=false,shown=false,live=false;
     String revision="",title="Your home",pictured="";
     final Callbacks callbacks;
-    /** The layout's scene shortcuts, in order. Empty shows House Control's own scenes. */
     final List<String> shortcuts;
     interface Callbacks{void up();void down(float screenX);void open();void focusHome(String title,String detail);void activate();boolean motion();String sceneDetail(String id,String name);boolean light();
-        /** Left of the first scene or right of the model: the neighbouring Home page. */void edge(int direction);
+        void edge(int direction);
         void scene(String id);
         void read(HouseScenes.Read read);}
     final Runnable refresh=new Runnable(){public void run(){if(!attached||!active)return;fetch();handler.postDelayed(this,2000);}};
@@ -61,14 +54,13 @@ final class HouseWidgets extends FrameLayout {
         super(activity);this.activity=activity;this.scale=scale;this.shortcuts=shortcuts;this.callbacks=callbacks;daylight=callbacks.light();setClipChildren(false);setClipToPadding(false);
         row=new LinearLayout(activity);row.setClipChildren(false);row.setClipToPadding(false);addView(row,pos(5*SCENE_W+4*SCENE_GAP,SCENE_H,SCENE_X-(SCENE_W-SCENE_D)/2,SCENE_Y));
 
-        // A soft contact shadow grounds the floating model; it is a static drawable, not part of the 3D render.
         ground=new View(activity);GradientDrawable shadow=new GradientDrawable();shadow.setGradientType(GradientDrawable.RADIAL_GRADIENT);shadow.setGradientRadius(px(CARD_W*.34f));
         shadow.setColors(new int[]{callbacks.light()?0x30000000:0x73000000,0x00000000});ground.setBackground(shadow);ground.setScaleY(.24f);
         addView(ground,pos(CARD_W*.8f,CARD_W*.8f,CARD_X+CARD_W*.1f,CARD_Y+H*.72f-CARD_W*.4f));
 
         card=new FrameLayout(activity);card.setClipChildren(true);addView(card,pos(CARD_W,H,CARD_X,CARD_Y));
         model=new WebView(activity);model.setBackgroundColor(Color.TRANSPARENT);model.setFocusable(false);model.setFocusableInTouchMode(false);
-        model.setAlpha(0); // an off-screen renderer: the pictures in still/after are what Home shows
+        model.setAlpha(0);
         WebSettings settings=model.getSettings();settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(false);settings.setAllowFileAccess(false);settings.setAllowContentAccess(false);settings.setSupportZoom(false);
         model.addJavascriptInterface(new Object(){
             @JavascriptInterface public String home(){return snapshot;}
@@ -123,7 +115,6 @@ final class HouseWidgets extends FrameLayout {
     TextView text(String value,float size,int color){TextView t=new TextView(activity);t.setText(value);t.setTextColor(color);t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(size));t.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));t.setIncludeFontPadding(false);return t;}
     GradientDrawable round(int color,float radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(px(radius));return d;}
 
-    /** A model was built (first load or a new plan): its first picture fades in, with no empty box or loading text. */
     void modelReady(){
         if(!attached)return;
         capture(true,b->{
@@ -134,14 +125,12 @@ final class HouseWidgets extends FrameLayout {
             else still.setAlpha(1f);
         });
     }
-    /** The lights changed: a new picture of the settled model replaces the old one. */
     final Runnable repaint=()->{if(!attached||!shown)return;capture(true,b->{if(b!=null)crossfade(b,600);});};
     void crossfade(Bitmap b,int ms){
         after.animate().cancel();after.setImageBitmap(b);after.setAlpha(0f);after.setVisibility(View.VISIBLE);
         after.animate().alpha(1).setDuration(callbacks.motion()?ms:0).setInterpolator(ease).withEndAction(()->{still.setImageBitmap(b);after.setVisibility(View.GONE);}).start();
     }
 
-    /** One scene: a round glass button with a glyph and its name underneath; white when focused, warm when active. */
     final class SceneTile extends FrameLayout {
         final String id,name,icon;final View disc;final SceneIcon glyph;final TextView label;boolean selected,focused;
         SceneTile(String id,String name,String icon){
@@ -212,7 +201,6 @@ final class HouseWidgets extends FrameLayout {
         if(hadFocus)focusFirstScene();
     }
     void addScene(String id,String name,String icon){SceneTile t=new SceneTile(id,name,icon);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(px(SCENE_W),px(SCENE_H));if(!scenes.isEmpty())lp.leftMargin=px(SCENE_GAP);row.addView(t,lp);scenes.add(t);}
-    /** Reads the model as a picture (with transparency). settled=true jumps light fades to their end first. */
     void capture(boolean settled,java.util.function.Consumer<Bitmap> done){
         model.evaluateJavascript("window.widgetSnapshot && window.widgetSnapshot("+settled+")",value->{
             if(value==null||value.length()<40){done.accept(null);return;}
@@ -229,7 +217,6 @@ final class HouseWidgets extends FrameLayout {
     void focusFirstScene(){if(!scenes.isEmpty())scenes.get(0).requestFocus();else cover.requestFocus();}
     void focusLastScene(){if(!scenes.isEmpty())scenes.get(scenes.size()-1).requestFocus();}
     float centerX(View v){int[] l=new int[2];v.getLocationOnScreen(l);return l[0]+v.getWidth()/2f;}
-    /** Up from a favourite: the scene or model nearest above it. */
     void focusNearest(float x){View best=cover;float d=Math.abs(centerX(card)-x);for(SceneTile t:scenes){float e=Math.abs(centerX(t)-x);if(e<d){d=e;best=t;}}best.requestFocus();}
     void focusScene(int index){if(scenes.isEmpty()){cover.requestFocus();return;}if(index>=scenes.size())cover.requestFocus();else scenes.get(Math.max(0,index)).requestFocus();}
 }

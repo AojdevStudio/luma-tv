@@ -4,9 +4,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Locale;
 
-/** What Home says about one media item: the app it comes from, whether the data is live or a demo fixture, how far
- *  in it is, and a summary only when the app shared a description. Callers pass display metadata from Watch Next
- *  or a media session, never provider intents or notification content. */
+/** Callers pass display metadata from Watch Next or a media session, never provider intents or notification content. */
 final class MediaContext {
     enum Data {
         LIVE("Live"),DEMO("Demo");
@@ -28,7 +26,6 @@ final class MediaContext {
     private MediaContext(String source,Data data,float progress,long left,long duration,String summary){
         this.source=source==null||source.isEmpty()?"Unknown app":source;this.data=data;this.progress=progress;this.left=left;this.duration=duration;this.summary=summary;
     }
-    /** From an app's own position and duration (Watch Next, a media session); zero or less means it shared none. */
     static MediaContext watched(String source,Data data,long position,long duration,String description){
         boolean known=duration>0&&position>0;
         return new MediaContext(source,data,known?Math.min(1,position/(float)duration):-1,known?Math.max(0,duration-position):-1,known?duration:-1,concise(description));
@@ -64,9 +61,6 @@ final class MediaContext {
         return (space>0?head.substring(0,space):head.substring(0,SUMMARY_MAX-1))+"…";
     }
 
-    /** One forward pass knows at each character whether a host ends there, so a word glued before the host cannot
-     *  hide it. A host, with one root dot or a port, is a link before a path, query or fragment. After //, it is a
-     *  link as soon as it is complete, so punctuation after it cannot hide it. */
     private static boolean link(String token){
         String lower=token.toLowerCase(Locale.ROOT);
         if(lower.contains("://")||lower.contains("www.")||lower.contains("mailto:"))return true;
@@ -99,7 +93,6 @@ final class MediaContext {
         return false;
     }
 
-    /** Four dot-separated groups of one to three digits end at end. Characters glued before the first group do not matter. */
     private static boolean ipv4(String token,int end){
         for(int group=0;group<4;group++){
             int start=end;

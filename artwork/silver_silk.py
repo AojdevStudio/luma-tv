@@ -1,5 +1,3 @@
-# "Silver Silk" wallpapers: the Silk drape in pale silver for the day and graphite silver for the night.
-# blender -b --factory-startup -P silver_silk.py -- day|night out.png [w h samples]
 import bpy, sys, math
 from mathutils import Vector
 argv = sys.argv[sys.argv.index('--') + 1:]

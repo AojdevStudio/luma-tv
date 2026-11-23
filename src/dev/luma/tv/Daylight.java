@@ -17,7 +17,6 @@ final class Daylight {
     }
     /** The time zone's main city: {latitude, longitude}, or null for an unknown zone. */
     static double[] place(Context context){return lookup(context,TimeZone.getDefault().getID());}
-    /** "Europe/Paris" → "Paris", "America/New_York" → "New York". */
     static String city(){String id=TimeZone.getDefault().getID();return id.substring(id.lastIndexOf('/')+1).replace('_',' ');}
     private static double[] lookup(Context context,String id){
         int res=context.getResources().getIdentifier("zones","raw",context.getPackageName());if(res==0)return null;

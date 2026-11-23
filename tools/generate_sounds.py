@@ -16,7 +16,6 @@ def write(name, duration, confirm=False):
     filtered = 0.0
     for i in range(round(RATE * duration)):
         t = i / RATE
-        # Rounded onset, warm body and quiet, short glass resonance; no sharp click.
         attack = 1 - math.exp(-t / .0018)
         f = 660 if confirm else 740
         body = .58 * math.sin(2 * math.pi * f * t - .38 * math.exp(-t / .012)) * math.exp(-t / .021)
@@ -29,7 +28,6 @@ def write(name, duration, confirm=False):
         if confirm:
             u = max(0, t - .036)
             value += (1 - math.exp(-u / .003)) * .17 * math.sin(2 * math.pi * 990 * u) * math.exp(-u / .026)
-        # Smoothly close the file, with headroom for overlapping fast navigation.
         value *= min(1, max(0, (duration-t)/.018)) * .42
         samples.append(value)
     path = OUT / f'{name}.wav'

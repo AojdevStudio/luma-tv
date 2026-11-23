@@ -5,7 +5,7 @@ import android.media.AudioAttributes;
 import android.media.SoundPool;
 import android.os.SystemClock;
 
-/** Tiny, preloaded earcons: no audio focus, network, music interruption or idle work. */
+/** Navigation sounds share playback without requesting audio focus. */
 final class SonicFeedback {
     private final SoundPool pool;
     private int step, open;
@@ -28,7 +28,6 @@ final class SonicFeedback {
         if(released || !stepReady || now-lastStep<55)return;
         float level=now-lastStep<135?.57f:.76f;
         lastStep=now;
-        // A restrained stereo position and tiny timbre variation prevent a harsh machine-gun effect.
         float pan=(Math.max(0,Math.min(1,position))-.5f)*.22f;
         float rate=1+direction*.012f+VARIATIONS[variation++%VARIATIONS.length];
         pool.play(step,level*(1-Math.max(0,pan)),level*(1+Math.min(0,pan)),1,0,rate);

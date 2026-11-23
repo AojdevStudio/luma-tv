@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.*;
 import android.view.View;
 
-/** Vector scene glyphs (sun, sofa, film, moon, door), drawn once per state change. */
 final class SceneIcon extends View {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path=new Path();
@@ -41,7 +40,7 @@ final class SceneIcon extends View {
                 path.moveTo(cx-9*u,cy-0.5f*u);path.lineTo(cx,cy-8.5f*u);path.lineTo(cx+9*u,cy-0.5f*u);
                 path.moveTo(cx-6.5f*u,cy-2.5f*u);path.lineTo(cx-6.5f*u,cy+8*u);path.lineTo(cx+6.5f*u,cy+8*u);path.lineTo(cx+6.5f*u,cy-2.5f*u);
                 c.drawPath(path,paint);break;
-            default: // sun
+            default:
                 c.drawCircle(cx,cy,4.4f*u,paint);
                 for(int i=0;i<8;i++){double a=i*Math.PI/4;float x1=(float)Math.cos(a),y1=(float)Math.sin(a);c.drawLine(cx+x1*7.6f*u,cy+y1*7.6f*u,cx+x1*10*u,cy+y1*10*u,paint);}
         }

@@ -8,8 +8,6 @@ import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
 
-/** Control: the TV's connection, picture and sound, accessories and settings as four tiles, in the spirit of
- *  Control Center. Each shows its state and opens the matching page of the TV's own Settings. */
 final class ControlWidget extends Widget {
     static final float PAD=18,GAP=12;
     final float tileW=(w-PAD*2-GAP)/2,tileH=(WidgetBoard.ROW_H-PAD*2-GAP)/2;

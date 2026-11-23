@@ -9,7 +9,6 @@ export JAVA_HOME="$JDK"
 export PATH="$JDK/bin:$PATH"
 mkdir -p build/classes build/dex dist
 rm -rf build/resources.zip build/resources.apk build/unsigned.apk build/overlay build/overlay.zip
-# The Home greeting: LUMA_GREETING, else the first line of .local/greeting.txt, else "Hello".
 GREETING="${LUMA_GREETING:-$(head -n 1 .local/greeting.txt 2>/dev/null || true)}"
 GREETING="${GREETING:-Hello}"
 mkdir -p build/overlay/values
@@ -30,7 +29,6 @@ find build/classes -name '*.class' > build/classes.txt
 cp build/resources.apk build/unsigned.apk
 (cd build/dex && zip -q -u ../unsigned.apk classes.dex)
 "$BT/zipalign" -f -p 4 build/unsigned.apk build/aligned.apk
-# LUMA_KEYSTORE picks another signing key, for example a release key: LUMA_KEYSTORE=.signing/release.keystore
 KEYSTORE="${LUMA_KEYSTORE:-.signing/local.keystore}"
 if [ ! -f .signing/local.keystore ] && [ "$KEYSTORE" = .signing/local.keystore ]; then
     mkdir -p .signing

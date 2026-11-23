@@ -1,4 +1,3 @@
-# Loaded only in a private fixture. All observation uses Bash builtins.
 observe_event() {
     local phase="$1" line="$2" detail="$3" result="$4" callers="${5:-}"
     local home="E" installed=0 stock_enabled=1 journal="-" row

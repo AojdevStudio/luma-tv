@@ -4,7 +4,6 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 
-/** Small, feathered displacements restricted to open water in the fjord artwork. */
 final class WaterMesh {
     static final int COLUMNS=64,ROWS=40;
     private final float[] points=new float[(COLUMNS+1)*(ROWS+1)*2];
@@ -14,7 +13,6 @@ final class WaterMesh {
         this.width=width;this.height=height;amplitude=unit;
         for(int row=0;row<=ROWS;row++)for(int column=0;column<=COLUMNS;column++) {
             float x=(float)column/COLUMNS,y=(float)row/ROWS;
-            // These softly bounded pools lie inside water, clear of ridges, islands and shore.
             float mask=Math.max(pool(x,y,.225f,.635f,.30f,.205f),pool(x,y,.43f,.535f,.13f,.07f));
             mask=Math.max(mask,pool(x,y,.65f,.565f,.145f,.033f));
             weights[row*(COLUMNS+1)+column]=mask;
@@ -23,7 +21,7 @@ final class WaterMesh {
     private float pool(float x,float y,float cx,float cy,float rx,float ry) {
         float dx=(x-cx)/rx,dy=(y-cy)/ry;
         float inside=Math.max(0,1-dx*dx-dy*dy);
-        return inside*inside; // Zero slope at the boundary: no moving seams.
+        return inside*inside;
     }
     void draw(Canvas canvas,Bitmap bitmap,float seconds,Paint paint) {
         for(int row=0;row<=ROWS;row++) {

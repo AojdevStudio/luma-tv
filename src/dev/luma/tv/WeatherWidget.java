@@ -52,7 +52,6 @@ final class WeatherWidget extends Widget {
         GradientDrawable bg=round(focused?(light()?0xF2FFFFFF:0x38FFFFFF):(light()?0x8CFFFFFF:0x1FFFFFFF),22);
         bg.setStroke(Math.max(1,px(focused?1.2f:.8f)),focused?(light()?0x33000000:0xB3FFFFFF):(light()?0x14000000:0x1FFFFFFF));setBackground(bg);
         animate().cancel();float s=focused?1.04f:1;
-        // A modest shadow: the card is large, and its shadow is drawn every frame.
         if(motion())animate().scaleX(s).scaleY(s).translationY(focused?-px(3):0).setDuration(focused?460:300).setInterpolator(focused?spring:ease).start();else{setScaleX(s);setScaleY(s);}
         setElevation(px(focused?10:0));
     }
@@ -70,7 +69,6 @@ final class WeatherWidget extends Widget {
     static boolean fahrenheit(android.content.SharedPreferences prefs){
         String unit=prefs.getString("temp_unit","auto");if(!unit.equals("auto"))return unit.equals("f");
         if(Promo.on)return true;
-        // By the TV's time zone, not its language: many TVs outside the US run in US English.
         String zone=TimeZone.getDefault().getID();
         if(zone.startsWith("US/")||zone.equals("Pacific/Honolulu")||zone.startsWith("America/Indiana/")||zone.startsWith("America/Kentucky/")||zone.startsWith("America/North_Dakota/"))return true;
         return zone.startsWith("America/")&&Arrays.asList("New_York","Chicago","Denver","Los_Angeles","Phoenix","Anchorage","Adak","Boise","Detroit","Juneau","Menominee","Metlakatla","Nome","Sitka","Yakutat").contains(zone.substring(8));
@@ -110,7 +108,6 @@ final class WeatherWidget extends Widget {
             fillSlots(false);
         }catch(JSONException e){showError("Weather is unavailable right now");}
     }
-    /** Five columns: the next hours (Now first), or the coming days (Today first). */
     private void fillSlots(boolean animate){
         if(data==null)return;
         Runnable build=()->{

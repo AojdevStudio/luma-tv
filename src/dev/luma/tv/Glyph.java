@@ -4,8 +4,6 @@ import android.content.Context;
 import android.graphics.*;
 import android.view.View;
 
-/** Vector glyphs for the Home widgets, drawn on a 24-unit grid in the style of SceneIcon: weather, transport,
- *  connectivity and settings. Drawn once per state change; no bitmaps. */
 final class Glyph extends View {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path=new Path(),cloud=new Path();
@@ -34,7 +32,6 @@ final class Glyph extends View {
         return "—";
     }
 
-    /** A cloud outline: two puffs over a rounded base, centred at (x, y), k = scale of the 24-unit grid. */
     private void cloudPath(float x,float y,float u){
         cloud.reset();Path puff=new Path();
         r.set(x-9*u,y-1*u,x+9*u,y+5.5f*u);cloud.addRoundRect(r,3.2f*u,3.2f*u,Path.Direction.CW);
