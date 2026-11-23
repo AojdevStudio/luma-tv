@@ -49,7 +49,7 @@ class FakeTools:
         self.calls, self.envs = [], []
         self.before, self.after = dict(DEVICE), {}
         self.pressed = False
-        self.state, self.timeout = b"device\n", None
+        self.state, self.timeout, self.interrupt = b"device\n", None, None
         self.on_home = None
 
     def popen(self, argv, **kwargs):
@@ -60,6 +60,8 @@ class FakeTools:
             return FakeServer(self.calls, argv)
         if argv[-1] == self.timeout:
             return FakeCommand(b"partial", None)
+        if argv[-1] == self.interrupt:
+            return InterruptedCommand()
         out, code = b"", 0
         if argv[:3] == ["bash", "luma.sh", "build"]:
             (self.root / "dist").mkdir(exist_ok=True)
@@ -115,6 +117,43 @@ class FakeCommand:
         if self.code is None:
             self.group.wait()
         return self.returncode
+
+
+class InterruptedCommand:
+    """A command whose group holds a real sleep, and which receives SIGTERM while the verifier waits for it."""
+
+    def __init__(self):
+        self.group = REAL_POPEN(["sleep", "300"], start_new_session=True)
+        self.pid, self.returncode = self.group.pid, None
+
+    def communicate(self, timeout=None):
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(5)
+        raise AssertionError("SIGTERM did not interrupt the command.")
+
+    def wait(self, timeout=None):
+        self.returncode = self.group.wait(timeout)
+        return self.returncode
+
+
+# Listens like an ADB server and answers host:kill with OKAY. With "hang" it then keeps running, as ADB 37.0.1
+# sometimes does right after it starts. Like a server that adb restarts, it is not the caller's child.
+HOST_KILL = """
+import os, socket, sys, time
+if os.fork():
+    os._exit(0)
+os.setsid()
+server = socket.socket(socket.AF_UNIX)
+server.bind(sys.argv[1])
+server.listen()
+print(os.getpid(), flush=True)
+os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+connection, _ = server.accept()
+assert connection.recv(13) == b"0009host:kill"
+connection.sendall(b"OKAY")
+if sys.argv[2] == "hang":
+    time.sleep(300)
+"""
 
 
 class FakeServer:
@@ -260,13 +299,17 @@ class VerifyTest(unittest.TestCase):
         evidence = b"".join(path.read_bytes() for path in self.evidence.rglob("*") if path.is_file())
         self.assertNotIn(b"sentinel-value", evidence)
 
-    def test_missing_adb_key_refuses_before_any_adb(self):
+    def test_missing_or_unreadable_adb_key_refuses_before_any_adb(self):
         (self.keys / "adbkey").unlink()
-        code, summary = self.run_verify("doctor")
-        self.assertEqual(summary["status"], "FAIL")
-        self.assertIn("No key was created", summary["error"])
-        self.assertEqual(self.tools.adb_calls(), [])
-        self.assertFalse((self.keys / "adbkey").exists())
+        for label, make in {"missing": lambda: None, "unreadable": (self.keys / "adbkey").mkdir}.items():
+            with self.subTest(label):
+                make()
+                self.evidence = self.evidence.with_name("evidence-" + label)
+                code, summary = self.run_verify("doctor")
+                self.assertEqual(summary["status"], "FAIL")
+                self.assertIn("No key was created", summary["error"])
+                self.assertEqual(self.tools.adb_calls(), [])
+                self.assertFalse((self.keys / "adbkey").is_file())
 
     def test_missing_signing_key_refuses_build(self):
         (self.root / ".signing/local.keystore").unlink()
@@ -460,6 +503,53 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual((self.evidence / "before-activity.stdout").read_bytes(), b"partial")
         self.assert_cleaned_up_once()
 
+    def test_second_signal_during_command_cleanup_still_stops_its_group(self):
+        self.tools.interrupt = verify.SNAPSHOT["model"]
+        real_killpg, groups = os.killpg, []
+
+        def killpg(pid, number):
+            if number == signal.SIGKILL and not groups:
+                groups.append(pid)
+                os.kill(os.getpid(), signal.SIGTERM)
+            real_killpg(pid, number)
+
+        with mock.patch.object(verify.os, "killpg", killpg):
+            code, summary = self.run_verify("doctor")
+        self.assertEqual((code, summary["status"], summary["error"]), (1, "FAIL", "The run was interrupted."), summary)
+        self.assertNotIn("cleanup_error", summary)
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(groups[0], 0)
+        log = [json.loads(line) for line in (self.evidence / "commands.jsonl").read_text().splitlines()]
+        self.assertIn({"name": "before-model", "exit": "interrupted"}, [{k: e[k] for k in ("name", "exit")} for e in log])
+        self.assert_cleaned_up_once()
+
+    def test_server_that_hangs_after_host_kill_is_killed_through_its_connection(self):
+        def stop(pid):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+
+        for mode, pidfd in (("exit", True), ("hang", True), ("hang", False)):
+            with self.subTest(mode=mode, pidfd=pidfd), mock.patch.dict(os.__dict__):
+                if not pidfd:
+                    del os.pidfd_open
+                self.evidence = self.evidence.with_name("evidence-" + mode + str(pidfd))
+                run = verify.Run(self.evidence)
+                try:
+                    run.start_server()
+                    path = str(run.server / "adb.sock")
+                    with REAL_POPEN([sys.executable, "-c", HOST_KILL, path, mode], stdout=subprocess.PIPE) as start:
+                        pid = int(start.communicate(timeout=10)[0])
+                    self.addCleanup(stop, pid)
+                finally:
+                    run.close()
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(pid, 0)
+                log = [json.loads(line) for line in (self.evidence / "commands.jsonl").read_text().splitlines()]
+                sweep = [(entry["argv"][0], entry["exit"]) for entry in log if entry["name"] == "adb-sweep"]
+                self.assertEqual(sweep, [("host:kill", 0)] if mode == "exit" else [("host:kill", "hung"), ("kill", 0)])
+                self.assertEqual(list(verify.STATE.glob("*-*")), [])
+                self.assert_lock_free()
+
     def test_install_needs_flag_and_cleanyourtv_journal(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as refused:
             verify.main(["install", "--evidence", str(self.evidence)])
@@ -548,6 +638,11 @@ class RealAdbServerTest(unittest.TestCase):
         subprocess.run([ADB, "-L", spec, "start-server"], env=self.isolated, capture_output=True, check=True)
         self.addCleanup(subprocess.run, [ADB, "-L", spec, "kill-server"], env=self.isolated, capture_output=True)
 
+    def listener(self, path):
+        with socket.socket(socket.AF_UNIX) as client:
+            client.connect(str(path))
+            return verify.peer(client, path)
+
     def alive(self, pid):
         try:
             os.kill(pid, 0)
@@ -615,35 +710,59 @@ class RealAdbServerTest(unittest.TestCase):
         self.assertTrue(self.answers(socket.AF_UNIX, str(foreign / "adb.sock")))
 
     def test_server_that_adb_restarts_during_a_run_is_stopped_at_cleanup(self):
-        run = verify.Run(self.base / "evidence")
-        try:
-            run.start_server()
-            own = run.server / "adb.sock"
-            run.process.kill()
-            run.process.wait()
-            run.command("restart", [ADB, "-L", "localfilesystem:" + str(own), "start-server"])
-            restarted = verify.listener(own)
-            self.stop_later(restarted)
-            self.assertNotIn(restarted, (None, run.process.pid))
-        finally:
-            run.close()
-        self.assertFalse(self.alive(restarted))
-        self.assertEqual(list(self.state.glob("*-*")), [])
+        for lost in (False, True):
+            with self.subTest(evidence_lost=lost):
+                evidence = self.base / ("evidence-" + str(lost))
+                run = verify.Run(evidence)
+                try:
+                    run.start_server()
+                    own = run.server / "adb.sock"
+                    run.process.kill()
+                    run.process.wait()
+                    run.command("restart", [ADB, "-L", "localfilesystem:" + str(own), "start-server"])
+                    restarted = self.listener(own)
+                    self.stop_later(restarted)
+                    self.assertNotEqual(restarted, run.process.pid)
+                    if lost:
+                        shutil.rmtree(evidence)
+                finally:
+                    if lost:
+                        with self.assertRaisesRegex(RuntimeError, "Could not write commands.jsonl"):
+                            run.close()
+                    else:
+                        run.close()
+                self.assertFalse(self.alive(restarted))
+                self.assertEqual(list(self.state.glob("*-*")), [])
+                if not lost:
+                    log = [json.loads(line) for line in (evidence / "commands.jsonl").read_text().splitlines()]
+                    self.assertIn({"name": "adb-sweep", "argv": ["host:kill", str(own).replace("/adb-", "/old-")],
+                                   "pid": restarted, "exit": 0}, log)
 
-    def test_server_reads_only_the_selected_key_from_a_private_home(self):
+    def test_server_reads_only_a_private_copy_of_the_selected_key(self):
         keys = {name: (self.keys / name).read_bytes() for name in ["adbkey", "adbkey.pub"]}
         run = verify.Run(self.base / "evidence")
         try:
             run.start_server()
             home = Path(run.env["HOME"])
             self.assertEqual(home, run.server / "home")
-            self.assertEqual({str(path.relative_to(home)): os.readlink(path) for path in home.rglob("*") if not path.is_dir()},
-                             {".android/adbkey": str(self.keys / "adbkey"), ".android/adbkey.pub": str(self.keys / "adbkey.pub")})
-            self.assertEqual(verify.listener(run.server / "adb.sock"), run.process.pid)
+            copies = {str(path.relative_to(home)): path for path in home.rglob("*") if not path.is_dir()}
+            self.assertEqual(sorted(copies), [".android/adbkey", ".android/adbkey.pub"])
+            for name, path in copies.items():
+                self.assertFalse(path.is_symlink(), name)
+                self.assertEqual((path.read_bytes(), path.stat().st_mode & 0o777), (keys[Path(name).name], 0o600))
+            self.assertEqual({path.stat().st_mode & 0o777 for path in (home, home / ".android")}, {0o700})
+            self.assertEqual(self.listener(run.server / "adb.sock"), run.process.pid)
+            # If the trusted files disappear and a restarted server finds no key, nothing is created in their place.
+            for name in keys:
+                (self.keys / name).unlink()
+            run.process.kill()
+            run.process.wait()
+            own = run.server / "adb.sock"
+            run.command("restart", [ADB, "-L", "localfilesystem:" + str(own), "start-server"])
+            self.stop_later(self.listener(own))
         finally:
             run.close()
-        self.assertEqual({name: (self.keys / name).read_bytes() for name in keys}, keys)
-        self.assertEqual(sorted(path.name for path in self.keys.iterdir()), ["adbkey", "adbkey.pub"])
+        self.assertEqual(list(self.keys.iterdir()), [])
 
     def test_failed_start_reports_the_daemon_reason(self):
         verify.STATE = self.state = self.base / ("s" * 100)

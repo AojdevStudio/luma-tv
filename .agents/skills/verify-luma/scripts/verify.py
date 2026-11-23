@@ -79,25 +79,27 @@ def refuse_prompt(snap):
             raise RuntimeError("A system prompt has focus (" + title.strip() + "). Stop. Do not click it.")
 
 
-def listener(path):
-    """Return the pid of the process that listens on the Unix socket at path, or None when nothing listens."""
-    if not path.exists():
-        return None  # Nothing bound here. This also covers a path too long to bind.
-    with socket.socket(socket.AF_UNIX) as client:
-        client.settimeout(5)
-        try:
-            client.connect(str(path))
-        except (FileNotFoundError, ConnectionRefusedError):
-            return None
-        if sys.platform == "darwin":
-            # SOL_LOCAL with LOCAL_PEERPID, and LOCAL_PEERCRED whose struct xucred starts with version and uid.
-            pid = struct.unpack("i", client.getsockopt(0, 2, 4))[0]
-            uid = struct.unpack_from("2I", client.getsockopt(0, 1, 76))[1]
-        else:
-            pid, uid, _ = struct.unpack("3i", client.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+def peer(connection, path):
+    """Return the pid of the process that listens at path, read from a connection to it."""
+    if sys.platform == "darwin":
+        # SOL_LOCAL with LOCAL_PEERPID, and LOCAL_PEERCRED whose struct xucred starts with version and uid.
+        pid = struct.unpack("i", connection.getsockopt(0, 2, 4))[0]
+        uid = struct.unpack_from("2I", connection.getsockopt(0, 1, 76))[1]
+    else:
+        pid, uid, _ = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
     if uid != os.getuid():
         raise RuntimeError("Another user's process listens on " + str(path) + ". It was left running.")
     return pid
+
+
+def closed(connection, timeout):
+    """True once the peer has closed the connection, which a server does when it exits."""
+    if not select.select([connection], [], [], timeout)[0]:
+        return False
+    try:
+        return connection.recv(1, socket.MSG_PEEK) == b""
+    except ConnectionResetError:
+        return True
 
 
 def fingerprint():
@@ -120,31 +122,57 @@ class Run:
                     "LUMA_KEYSTORE": str(ROOT / ".signing/local.keystore")}
         self.lock, self.holds, self.server, self.process = None, [], None, None
         self.summary = {"target": TARGET, "checks": {}, "skipped": [], "observed": {}}
+        # signal: the first SIGINT or SIGTERM. deferred: it arrived inside a shield and has not been raised yet.
+        # stopping: close() has begun, so no signal is raised again.
+        self.signal, self.deferred, self.shielded, self.stopping = None, False, False, False
+        self.unwritten = []
+
+    def interrupt(self, number, frame):
+        """Raise KeyboardInterrupt for the first signal. Inside a shield it waits, and later signals are ignored."""
+        if self.signal is None:
+            self.signal = number
+            if self.shielded or self.stopping:
+                self.deferred = True
+            else:
+                raise KeyboardInterrupt
+
+    @contextlib.contextmanager
+    def shield(self):
+        """Hold an interruption until a child is recorded or a stop has finished, so no child is left running."""
+        outer, self.shielded = self.shielded, True
+        try:
+            yield
+        finally:
+            self.shielded = outer
+        if self.deferred and not self.shielded and not self.stopping:
+            self.deferred = False
+            raise KeyboardInterrupt
 
     def command(self, name, args, timeout=30, check=True):
         argv = [str(a) for a in args]
-        entry, out, err = {"name": name, "argv": argv, "exit": "interrupted"}, b"", b""
+        entry, out, err, process = {"name": name, "argv": argv, "exit": "interrupted"}, b"", b"", None
         try:
-            # Its own process group, so a timeout or an interruption can stop everything the command started.
-            process = subprocess.Popen(argv, cwd=ROOT, env=self.env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                       stderr=subprocess.PIPE, start_new_session=True)
-        except OSError as error:
-            err, entry["exit"] = str(error).encode(), "not-run"
-        else:
-            try:
+            with self.shield():
+                try:
+                    # Its own process group, so a timeout or an interruption can stop everything the command started.
+                    process = subprocess.Popen(argv, cwd=ROOT, env=self.env, stdin=subprocess.DEVNULL,
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+                except OSError as error:
+                    err, entry["exit"] = str(error).encode(), "not-run"
+            if process:
                 out, err = process.communicate(timeout=timeout)
                 entry["exit"] = process.returncode
-            except subprocess.TimeoutExpired:
-                entry["exit"] = "timeout"
-            finally:
-                if entry["exit"] in ("timeout", "interrupted"):
+        except subprocess.TimeoutExpired:
+            entry["exit"] = "timeout"
+        finally:
+            with self.shield():
+                if entry["exit"] in ("timeout", "interrupted") and process:
                     self.stop_group(name, process)
                     if entry["exit"] == "timeout":
                         out, err = process.communicate()
-        finally:
-            (self.evidence / (name + ".stdout")).write_bytes(out)
-            (self.evidence / (name + ".stderr")).write_bytes(err)
-            self.log(entry)
+                self.log(entry)
+                (self.evidence / (name + ".stdout")).write_bytes(out)
+                (self.evidence / (name + ".stderr")).write_bytes(err)
         if entry["exit"] == "timeout":
             raise RuntimeError(name + " timed out after " + str(timeout) + "s. See " + name + ".stdout and " + name + ".stderr.")
         if entry["exit"] == "not-run":
@@ -155,20 +183,28 @@ class Run:
 
     def stop_group(self, name, process):
         """Kill the command's process group while its leader is unreaped, so the group id cannot name anyone else."""
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
-        for _ in range(200):
-            try:
-                os.killpg(process.pid, 0)
-            except ProcessLookupError:
-                return
-            time.sleep(0.05)
-        raise RuntimeError(name + " left processes running in its group after SIGKILL.")
+        with self.shield():
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            for _ in range(200):
+                try:
+                    os.killpg(process.pid, 0)
+                except ProcessLookupError:
+                    return
+                time.sleep(0.05)
+            raise RuntimeError(name + " left processes running in its group after SIGKILL.")
 
     def log(self, entry):
+        """Record entry. Once cleanup has begun, entries wait in memory so a failed write cannot stop a stop."""
+        self.unwritten.append(entry)
+        if not self.stopping:
+            self.write_log()
+
+    def write_log(self):
         with (self.evidence / "commands.jsonl").open("a") as log:
-            log.write(json.dumps(entry) + "\n")
+            log.write("".join(json.dumps(entry) + "\n" for entry in self.unwritten))
+        self.unwritten = []
 
     def adb_server(self, server):
         return [adb_bin(), "-L", "localfilesystem:" + str(server / "adb.sock")]
@@ -177,9 +213,11 @@ class Run:
         return self.command(name, [*self.adb_server(self.server), "-s", TARGET, *args], check=check)
 
     def start_server(self):
-        for name in ["adbkey", "adbkey.pub"]:
-            if not (KEYDIR / name).is_file():
-                raise RuntimeError("Existing trusted ADB key missing. No key was created.")
+        try:
+            keys = {name: (KEYDIR / name).read_bytes() for name in ["adbkey", "adbkey.pub"]}
+        except OSError as error:
+            raise RuntimeError("Existing trusted ADB key missing or unreadable (" + str(error.strerror)
+                               + "). No key was created.") from error
         STATE.mkdir(mode=0o700, exist_ok=True)
         self.lock = (STATE / "tcl.lock").open("a")
         try:
@@ -191,21 +229,25 @@ class Run:
         self.hold_legacy_port()
         self.server = Path(tempfile.mkdtemp(prefix="adb-", dir=STATE))
         # ADB reads keys from $HOME/.android and creates a key there when none exists. A private home that holds
-        # only the trusted key keeps the operator's own keys out and stops ADB from creating one.
-        keys = self.server / "home/.android"
-        keys.mkdir(parents=True)
-        for name in ["adbkey", "adbkey.pub"]:
-            (keys / name).symlink_to(KEYDIR / name)
-        self.env.update({"HOME": str(keys.parent), "ADB_SERVER_SOCKET": self.adb_server(self.server)[2],
+        # only a copy of the trusted key keeps the operator's own keys out, and ADB never opens a trusted path.
+        home = self.server / "home"
+        home.mkdir(mode=0o700)
+        (home / ".android").mkdir(mode=0o700)
+        for name, data in keys.items():
+            with open(os.open(home / ".android" / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as copy:
+                copy.write(data)
+        self.env.update({"HOME": str(home), "ADB_SERVER_SOCKET": self.adb_server(self.server)[2],
                          "TMPDIR": str(self.evidence),
                          "ADB_MDNS_AUTO_CONNECT": "0", "ADB_MDNS": "0", "ADB_USB": "0", "ADB_EMU": "0"})
         argv = [str(arg) for arg in self.adb_server(self.server)] + ["fork-server", "server", "--reply-fd"]
         read, write = os.pipe()
         with open(read, "rb", buffering=0) as reply, (self.evidence / "adb-server.stderr").open("wb") as stderr:
             try:
-                # The command `adb start-server` runs, kept as our child so cleanup can signal it.
-                self.process = subprocess.Popen([*argv, str(write)], cwd=ROOT, env=self.env, stdin=subprocess.DEVNULL,
-                                                stdout=subprocess.DEVNULL, stderr=stderr, pass_fds=[write])
+                with self.shield():
+                    # The command `adb start-server` runs, kept as our child so cleanup can signal it.
+                    self.process = subprocess.Popen([*argv, str(write)], cwd=ROOT, env=self.env,
+                                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=stderr,
+                                                    pass_fds=[write])
             except OSError as error:
                 raise RuntimeError("adb-start could not start: " + str(error)) from error
             finally:
@@ -228,49 +270,75 @@ class Run:
             raise RuntimeError(f"The ADB server exited with {cause} before it was ready: {reason}. See adb-server.stderr in the evidence.")
 
     def stop_server(self, server, name):
-        """Stop whatever listens on this run's socket, such as a server an adb command restarted, then remove it."""
-        if server.name.startswith("adb-"):
-            # Clients know only the adb- path, so after the rename none of them can start a server on this socket.
-            # The new name has the same length, so a socket path that was short enough to bind stays reachable.
-            server = server.rename(server.with_name("old-" + server.name[4:]))
-        for _ in range(5):
-            pid = listener(server / "adb.sock")
-            if pid is None:
-                shutil.rmtree(server)
-                return
-            self.end_listener(name, server / "adb.sock", pid)
-        raise RuntimeError("An ADB server kept listening on " + str(server / "adb.sock") + " after 5 stops.")
-
-    def end_listener(self, name, path, pid):
-        """Kill pid only while it still listens on path, and wait until it has exited."""
-        if hasattr(os, "pidfd_open"):
-            try:
-                handle = os.pidfd_open(pid)
-            except ProcessLookupError:
-                return
-            try:
-                # The pidfd pins this process, so a check after opening it cannot race with pid reuse.
-                if listener(path) != pid:
+        """Stop whatever listens on this run's socket, such as a server an adb command restarted, then remove it.
+        A directory whose server could not be stopped stays, so the next run tries again."""
+        with self.shield():
+            if server.name.startswith("adb-"):
+                # Clients know only the adb- path, so after the rename none of them can start a server on this socket.
+                # The new name has the same length, so a socket path that was short enough to bind stays reachable.
+                server = server.rename(server.with_name("old-" + server.name[4:]))
+            for _ in range(5):
+                if not self.stop_listener(name, server / "adb.sock"):
+                    shutil.rmtree(server)
                     return
-                signal.pidfd_send_signal(handle, signal.SIGKILL)
-                self.log({"name": name, "argv": ["kill", "-KILL", str(pid)], "exit": 0})
-                if not select.select([handle], [], [], 10)[0]:
-                    raise RuntimeError("ADB server " + str(pid) + " did not exit within 10s of SIGKILL.")
-            finally:
-                os.close(handle)
-            return
-        if listener(path) != pid:
-            return
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
-        self.log({"name": name, "argv": ["kill", "-KILL", str(pid)], "exit": 0})
-        for _ in range(200):
+            raise RuntimeError("An ADB server kept listening on " + str(server / "adb.sock") + " after 5 stops.")
+
+    def stop_listener(self, name, path):
+        """Stop the server that listens on path through a connection to it. Return False when nothing listens.
+
+        The server holds its end of the connection until it exits, so an open connection proves that the pid it
+        reported still names that server. `host:kill` needs no pid. ADB 37.0.1 sometimes hangs in its exit path after
+        that request when it has just started, so a server that keeps the connection open is then killed."""
+        if not path.exists():
+            return False  # Nothing bound here. This also covers a path too long to bind.
+        with socket.socket(socket.AF_UNIX) as connection:
+            connection.settimeout(5)
             try:
-                os.kill(pid, 0)
+                connection.connect(str(path))
+            except (FileNotFoundError, ConnectionRefusedError):
+                return False
+            pid = peer(connection, path)
+            try:
+                handle = os.pidfd_open(pid) if hasattr(os, "pidfd_open") else None
             except ProcessLookupError:
-                return
-            time.sleep(0.05)
-        raise RuntimeError("ADB server " + str(pid) + " did not exit within 10s of SIGKILL.")
+                return True  # It exited after the connect. Check the socket again.
+            try:
+                try:
+                    connection.sendall(b"0009host:kill")
+                    reply = connection.recv(4)
+                except (BrokenPipeError, ConnectionResetError):
+                    return True  # It exited before it answered. Check the socket again.
+                # OKAY arrives after pidfd_open, so the handle names this server and not a reused pid.
+                if reply != b"OKAY":
+                    return True
+                if closed(connection, 10):
+                    self.log({"name": name, "argv": ["host:kill", str(path)], "pid": pid, "exit": 0})
+                else:
+                    self.log({"name": name, "argv": ["host:kill", str(path)], "pid": pid, "exit": "hung"})
+                    if handle is not None:
+                        with contextlib.suppress(ProcessLookupError):
+                            signal.pidfd_send_signal(handle, signal.SIGKILL)
+                        self.log({"name": name, "argv": ["kill", "-KILL", str(pid)], "exit": 0})
+                    elif not closed(connection, 0):
+                        with contextlib.suppress(ProcessLookupError):
+                            os.kill(pid, signal.SIGKILL)  # Still connected, so pid is still this hung server.
+                        self.log({"name": name, "argv": ["kill", "-KILL", str(pid)], "exit": 0})
+                    if not closed(connection, 10):
+                        raise RuntimeError("ADB server " + str(pid) + " did not exit within 10s of SIGKILL.")
+                if handle is not None:
+                    if not select.select([handle], [], [], 10)[0]:
+                        raise RuntimeError("ADB server " + str(pid) + " closed its socket but did not exit within 10s.")
+                    return True
+                for _ in range(200):
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        return True
+                    time.sleep(0.05)
+                raise RuntimeError("ADB server " + str(pid) + " closed its socket but did not exit within 10s.")
+            finally:
+                if handle is not None:
+                    os.close(handle)
 
     def hold_legacy_port(self):
         for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
@@ -430,24 +498,37 @@ class Run:
         self.summary["checks"]["launch_home_and_baseline"] = "PASS"
 
     def close(self):
-        try:
-            if self.process:
-                process, self.process = self.process, None
-                process.terminate()
-                try:
-                    process.wait(10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-                self.log({"name": "adb-stop", "argv": ["kill", "-TERM", str(process.pid)], "exit": process.returncode})
-            if self.server:
-                server, self.server = self.server, None
+        """Stop the server, any server on its socket, and the port hold, then release the lock and write the log.
+        Signals are ignored from here on. Each step runs even when an earlier one fails, and the failures are raised
+        together at the end."""
+        self.stopping = True
+        failures = []
+        if self.process:
+            process, self.process = self.process, None
+            process.terminate()
+            try:
+                process.wait(10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            self.log({"name": "adb-stop", "argv": ["kill", "-TERM", str(process.pid)], "exit": process.returncode})
+        if self.server:
+            server, self.server = self.server, None
+            try:
                 self.stop_server(server, "adb-sweep")
-        finally:
-            for held in [*self.holds, self.lock]:
-                if held:
-                    held.close()
-            self.lock, self.holds = None, []
+            except (OSError, RuntimeError) as error:
+                failures.append(error)
+        for held in [*self.holds, self.lock]:
+            if held:
+                held.close()
+        self.lock, self.holds = None, []
+        if self.unwritten:
+            try:
+                self.write_log()
+            except OSError as error:
+                failures.append(RuntimeError("Could not write commands.jsonl: " + str(error)))
+        if failures:
+            raise RuntimeError(" ".join(str(error) for error in failures))
 
 
 def main(argv=None):
@@ -465,7 +546,7 @@ def main(argv=None):
         parser.error("Evidence path already exists. Choose a new one.")
     os.umask(0o077)
     run = Run(evidence)
-    previous = signal.signal(signal.SIGTERM, signal.default_int_handler)
+    previous = {number: signal.signal(number, run.interrupt) for number in (signal.SIGINT, signal.SIGTERM)}
     try:
         source = fingerprint()
         if args.action in ["safe", "build", "install"]:
@@ -485,17 +566,17 @@ def main(argv=None):
         run.summary["error"] = ("The run was interrupted." if isinstance(error, KeyboardInterrupt) else str(error)
                                 if isinstance(error, RuntimeError) else type(error).__name__ + ": " + str(error))
     finally:
-        # A second Ctrl-C or SIGTERM waits until cleanup has stopped the server and released the lock.
-        mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
         run.summary.setdefault("status", "FAIL")
         try:
             run.close()
-        except Exception as error:
+        except RuntimeError as error:
             run.summary["status"] = "FAIL"
             run.summary["cleanup_error"] = str(error)
+        if run.signal is not None and "error" not in run.summary:
+            run.summary["status"], run.summary["error"] = "FAIL", "The run was interrupted."
+        for number, handler in previous.items():
+            signal.signal(number, handler)
         (run.evidence / "summary.json").write_text(json.dumps(run.summary, indent=2) + "\n")
-        signal.signal(signal.SIGTERM, previous)
-        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
     print(json.dumps({"status": run.summary["status"], "evidence": str(run.evidence)}))
     return 0 if run.summary["status"] == "PASS" else 1
 
