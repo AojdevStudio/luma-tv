@@ -42,13 +42,20 @@ final class UpNextWidget extends Widget {
         refresh();
     }
     /** One read at a time, both flags touched only on the UI thread. A refresh asked for during a read runs again
-     *  once that read is shown, so an older read can never land after a newer one and the newest request still lands. */
+     *  before this draw queues poster loads on the same pool. Both draws still run in order on the UI thread. */
     private boolean loading,stale;
     @Override void refresh(){
         if(loading){stale=true;return;}
         loading=true;
         final Context app=getContext().getApplicationContext();
-        WidgetBoard.IO.execute(()->{ArrayList<Item> items=load(app);post(()->{loading=false;show(items);if(stale){stale=false;refresh();}});});
+        WidgetBoard.IO.execute(()->{
+            ArrayList<Item> items=load(app);
+            post(()->{
+                loading=false;
+                if(stale){stale=false;refresh();}
+                show(items);
+            });
+        });
     }
 
     private ArrayList<Item> load(Context context){
