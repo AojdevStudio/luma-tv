@@ -132,7 +132,14 @@ public final class MediaE2E extends Instrumentation {
             back();
             View updated = expectCard(luma, "Fixture-Retitled · 1 m left · Fixture", .5f);
             waitFor("new title on the card", () -> find(luma, v -> v != heading && text(v).equals("Fixture-Retitled") && v.getParent() == updated) != null);
-            waitFor("new title in the Home heading", () -> find(luma, v -> v == heading && text(v).equals("Fixture-Retitled")) != null);
+            runOnMainSync(updated::requestFocus);
+            waitFor("updated title on focus", () -> find(luma, v -> v == heading && text(v).equals("Fixture-Retitled")) != null);
+            String reply = shell("am broadcast -n " + FIXTURE + "/.RenameProgramme --es title Fixture-Live");
+            if (!reply.contains("result=1")) throw new AssertionError("Fixture rename failed: " + reply);
+            UpNextWidget widget = (UpNextWidget) find(luma, v -> v instanceof UpNextWidget);
+            runOnMainSync(widget::refresh);
+            expectCard(luma, "Fixture-Live · 1 m left · Fixture", .5f);
+            waitFor("live title in the focused Home heading", () -> find(luma, v -> v == heading && text(v).equals("Fixture-Live")) != null);
         });
         test("Returning from playback opens the provider's new link", () -> {
             seed("Fixture-Relink", 30_000, PLAYER, "Fixture-Relink", 30_000, PLAYER_NEXT);

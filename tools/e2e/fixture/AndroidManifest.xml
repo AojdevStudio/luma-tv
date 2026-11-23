@@ -10,6 +10,7 @@
         </activity>
         <activity android:name=".Player" android:exported="true" android:label="Fixture player" />
         <activity android:name=".PlayerNext" android:exported="true" android:label="Fixture next player" />
+        <receiver android:name=".RenameProgramme" android:exported="true" android:permission="android.permission.DUMP" />
         <activity android:name=".Hidden" android:exported="false" android:label="Fixture hidden" />
     </application>
 </manifest>
