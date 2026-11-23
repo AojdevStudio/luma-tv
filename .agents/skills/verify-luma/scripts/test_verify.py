@@ -5,7 +5,6 @@ import io
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import signal
 import socket
@@ -31,6 +30,7 @@ DEVICE = {
                  "  ResumedActivity: ActivityRecord{9d0a u0 dev.luma.tv/.MainActivity t12}"),
     "model": "BeyondTV5", "android": "9", "serial": "ABC123", "power": "  mWakefulness=Awake",
 }
+SERVER = ["fork-server", "server", "--reply-fd"]
 JOURNAL = b"original=com.gathin.tvhome/.MainActivity\ndisabled=com.google.android.tvlauncher\n"
 
 
@@ -86,8 +86,26 @@ class FakeTools:
                 return device[name].encode(), 0
         return b"", 0
 
+    def popen(self, argv, pass_fds, **kwargs):
+        self.calls.append(argv)
+        self.envs.append(kwargs["env"])
+        os.write(pass_fds[0], b"OK\n")
+        return FakeServer(self.calls, argv)
+
     def adb_calls(self):
         return [call for call in self.calls if call[0].endswith("adb")]
+
+
+class FakeServer:
+    def __init__(self, calls, args):
+        self.calls, self.args, self.pid, self.returncode = calls, args, 4242, None
+
+    def terminate(self):
+        self.calls.append(["terminate", self.args[2]])
+
+    def wait(self, timeout=None):
+        self.returncode = -15
+        return self.returncode
 
 
 class OfflineDiscoveryTest(unittest.TestCase):
@@ -132,9 +150,10 @@ class VerifyTest(unittest.TestCase):
             patcher = mock.patch.object(verify, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        patcher = mock.patch.object(verify.subprocess, "run", self.tools)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, fake in {"run": self.tools, "Popen": self.tools.popen}.items():
+            patcher = mock.patch.object(verify.subprocess, name, fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def run_verify(self, *args):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -142,10 +161,11 @@ class VerifyTest(unittest.TestCase):
         return code, json.loads((self.evidence / "summary.json").read_text())
 
     def assert_cleaned_up_once(self):
-        start = next(call for call in self.tools.calls if call[-1] == "start-server")
-        stops = [call for call in self.tools.calls if call[-1] == "kill-server"]
-        self.assertEqual(stops, [start[:3] + ["kill-server"]])
-        self.assertEqual(self.tools.calls[-1][-1], "kill-server")
+        starts = [call for call in self.tools.calls if call[3:6] == SERVER]
+        stops = [call for call in self.tools.calls if call[0] == "terminate"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(stops, [["terminate", starts[0][2]]])
+        self.assertEqual(self.tools.calls[-1], stops[0])
         self.assertEqual(list(verify.STATE.glob("adb-*")), [])
         self.assert_lock_free()
 
@@ -206,7 +226,7 @@ class VerifyTest(unittest.TestCase):
         self.assertRegex(server[2], "^localfilesystem:" + str(verify.STATE) + "/adb-[^/]+/adb.sock$")
         for call in self.tools.adb_calls():
             self.assertEqual(call[:3], server)
-            self.assertTrue(call[3:] in (["start-server"], ["connect", verify.TARGET], ["kill-server"])
+            self.assertTrue(call[3:6] == SERVER or call[3:] == ["connect", verify.TARGET]
                             or call[3:5] == ["-s", verify.TARGET], call)
         allowed = {"PATH", "JAVA_HOME", "LUMA_JDK", "ANDROID_SDK_ROOT", "LUMA_KEYSTORE", "ANDROID_USER_HOME",
                    "ADB_VENDOR_KEYS", "ADB_MDNS_AUTO_CONNECT", "ADB_SERVER_SOCKET", "PYTHONDONTWRITEBYTECODE",
@@ -317,7 +337,7 @@ class VerifyTest(unittest.TestCase):
             code, summary = self.run_verify("doctor")
             self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
             self.assertIn("Another verifier", summary["error"])
-            self.assertEqual([call[-1] for call in self.tools.adb_calls()], ["start-server"])
+            self.assertEqual([call[3:6] for call in self.tools.adb_calls()], [SERVER])
             self.assertTrue(first.server.is_dir())
         finally:
             first.close()
@@ -408,7 +428,7 @@ run = verify.Run(Path(config["evidence"]))
 sys.stdin.readline()
 try:
     run.start_server()
-    print("started", run.server, flush=True)
+    print("started", run.server, run.process.pid, flush=True)
     sys.stdin.readline()
 except RuntimeError as error:
     print("refused", error, flush=True)
@@ -453,15 +473,11 @@ class RealAdbServerTest(unittest.TestCase):
         except OSError:
             return False
 
-    def server_pid(self, evidence):
-        log = next(evidence.glob("adb.*.log")).read_text()
-        pid = int(re.findall(r"--- adb starting \(pid (\d+)\) ---", log)[-1])
-        self.addCleanup(self.stop, pid)
-        return pid
-
-    def stop(self, pid):
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
+    def stop_later(self, pid):
+        def stop():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        self.addCleanup(stop)
 
     def assert_exits(self, pid):
         for _ in range(100):
@@ -477,9 +493,17 @@ class RealAdbServerTest(unittest.TestCase):
                   "state": str(self.state), "port": self.port, "evidence": str(self.base / name)}
         child = subprocess.Popen([sys.executable, "-c", OPERATOR, json.dumps(config)], stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE, text=True)
-        self.addCleanup(child.wait, 10)
-        self.addCleanup(child.kill)
+        for cleanup in (child.stdout.close, child.stdin.close, lambda: child.wait(10), child.kill):
+            self.addCleanup(cleanup)
+        child.stdin.write("\n")
+        child.stdin.flush()
         return child
+
+    def report(self, child):
+        word, *rest = child.stdout.readline().split()
+        if word == "started":
+            self.stop_later(int(rest[1]))
+        return word, rest
 
     def test_closing_a_run_stops_only_its_own_server(self):
         foreign = self.base / "foreign"
@@ -489,9 +513,8 @@ class RealAdbServerTest(unittest.TestCase):
         run = verify.Run(self.base / "evidence")
         try:
             run.start_server()
-            own = run.server / "adb.sock"
+            own, pid = run.server / "adb.sock", run.process.pid
             self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
-            pid = self.server_pid(run.evidence)
         finally:
             run.close()
         self.assert_exits(pid)
@@ -511,42 +534,40 @@ class RealAdbServerTest(unittest.TestCase):
 
     def test_simultaneous_starts_admit_one_operator(self):
         children = [self.operator("first"), self.operator("second")]
-        for child in children:
-            child.stdin.write("\n")
-            child.stdin.flush()
-        lines = [child.stdout.readline().split(" ", 1) for child in children]
-        self.assertEqual(sorted(word for word, _ in lines), ["refused", "started"], lines)
-        winner = children[[word for word, _ in lines].index("started")]
-        loser = children[[word for word, _ in lines].index("refused")]
-        self.assertIn("Another verifier", lines[children.index(loser)][1])
-        self.assertEqual(loser.wait(10), 0)
-        own = Path(lines[children.index(winner)][1].strip()) / "adb.sock"
+        reports = [self.report(child) for child in children]
+        self.assertEqual(sorted(word for word, _ in reports), ["refused", "started"], reports)
+        winner = [word for word, _ in reports].index("started")
+        loser = 1 - winner
+        self.assertIn("Another verifier", " ".join(reports[loser][1]))
+        self.assertEqual(children[loser].wait(10), 0)
+        own = Path(reports[winner][1][0]) / "adb.sock"
         self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
-        winner.stdin.write("\n")
-        winner.stdin.flush()
-        self.assertEqual(winner.wait(10), 0)
+        children[winner].stdin.write("\n")
+        children[winner].stdin.flush()
+        self.assertEqual(children[winner].wait(10), 0)
+        self.assert_exits(int(reports[winner][1][1]))
         self.assertFalse(own.parent.exists())
 
     def test_killed_run_releases_the_lock_and_the_next_run_stops_its_server(self):
+        foreign = self.base / "foreign"
+        foreign.mkdir()
+        self.foreign_server("localfilesystem:" + str(foreign / "adb.sock"))
         child = self.operator("killed")
-        child.stdin.write("\n")
-        child.stdin.flush()
-        word, server = child.stdout.readline().split(" ", 1)
+        word, (server, pid) = self.report(child)
         self.assertEqual(word, "started")
-        orphan = Path(server.strip())
-        pid = self.server_pid(self.base / "killed")
         child.send_signal(signal.SIGKILL)
         child.wait(10)
+        orphan = Path(server)
         self.assertTrue(self.answers(socket.AF_UNIX, str(orphan / "adb.sock")))
         run = verify.Run(self.base / "evidence")
         try:
             run.start_server()
-            self.assert_exits(pid)
+            self.assert_exits(int(pid))
             self.assertFalse(orphan.exists())
             self.assertTrue(self.answers(socket.AF_UNIX, str(run.server / "adb.sock")))
+            self.assertTrue(self.answers(socket.AF_UNIX, str(foreign / "adb.sock")))
         finally:
             run.close()
-
 
 if __name__ == "__main__":
     unittest.main()

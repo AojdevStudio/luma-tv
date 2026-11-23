@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify Luma using one fixed TCL transport and private evidence."""
 import argparse
+import contextlib
 import errno
 import fcntl
 import hashlib
@@ -8,7 +9,9 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -93,7 +96,7 @@ class Run:
                     "JAVA_HOME": str(JDK), "LUMA_JDK": str(JDK),
                     "ANDROID_SDK_ROOT": str(SDK),
                     "LUMA_KEYSTORE": str(ROOT / ".signing/local.keystore")}
-        self.lock, self.fence, self.server = None, [], None
+        self.lock, self.holds, self.server, self.process = None, [], None, None
         self.summary = {"target": TARGET, "checks": {}, "skipped": [], "observed": {}}
 
     def command(self, name, args, timeout=30, check=True):
@@ -108,8 +111,7 @@ class Run:
             out, err, entry["exit"] = b"", str(error).encode(), "not-run"
         (self.evidence / (name + ".stdout")).write_bytes(out)
         (self.evidence / (name + ".stderr")).write_bytes(err)
-        with (self.evidence / "commands.jsonl").open("a") as log:
-            log.write(json.dumps(entry) + "\n")
+        self.log(entry)
         if entry["exit"] == "timeout":
             raise RuntimeError(name + " timed out after " + str(timeout) + "s. See " + name + ".stdout and " + name + ".stderr.")
         if entry["exit"] == "not-run":
@@ -117,6 +119,10 @@ class Run:
         if check and entry["exit"]:
             raise RuntimeError(name + " exited " + str(entry["exit"]) + ". See " + name + ".stderr.")
         return out
+
+    def log(self, entry):
+        with (self.evidence / "commands.jsonl").open("a") as log:
+            log.write(json.dumps(entry) + "\n")
 
     def adb_server(self, server):
         return [adb_bin(), "-L", "localfilesystem:" + str(server / "adb.sock")]
@@ -134,26 +140,49 @@ class Run:
             fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError("Another verifier is driving the TCL. It was left running.") from None
-        for stale in sorted(STATE.glob("adb-*")):
-            self.command("adb-reap", [*self.adb_server(stale), "kill-server"])
-            shutil.rmtree(stale)
+        stale = sorted(STATE.glob("adb-*"))
+        if stale:
+            listing = self.command("adb-reap", ["ps", "-A", "-ww", "-o", "pid=", "-o", "command="]).decode(errors="replace")
+            for server in stale:
+                for line in listing.splitlines():
+                    pid, _, command = line.strip().partition(" ")
+                    if self.adb_server(server)[2] in command.split():
+                        with contextlib.suppress(ProcessLookupError):
+                            os.kill(int(pid), signal.SIGKILL)
+                        self.log({"name": "adb-reap", "argv": ["kill", "-KILL", pid], "exit": 0})
+                shutil.rmtree(server)
         self.hold_legacy_port()
         self.server = Path(tempfile.mkdtemp(prefix="adb-", dir=STATE))
         self.env.update({"ANDROID_USER_HOME": str(KEYDIR), "ADB_VENDOR_KEYS": str(KEYDIR / "adbkey"),
                          "ADB_SERVER_SOCKET": self.adb_server(self.server)[2], "TMPDIR": str(self.evidence),
                          "ADB_MDNS_AUTO_CONNECT": "0", "ADB_MDNS": "0", "ADB_USB": "0", "ADB_EMU": "0"})
-        self.command("adb-start", [*self.adb_server(self.server), "start-server"])
+        argv = [str(arg) for arg in self.adb_server(self.server)] + ["fork-server", "server", "--reply-fd"]
+        read, write = os.pipe()
+        with open(read, "rb", buffering=0) as reply:
+            try:
+                # The command `adb start-server` runs, kept as our child so cleanup can signal it.
+                self.process = subprocess.Popen([*argv, str(write)], cwd=ROOT, env=self.env, stdin=subprocess.DEVNULL,
+                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, pass_fds=[write])
+            except OSError as error:
+                raise RuntimeError("adb-start could not start: " + str(error)) from error
+            finally:
+                os.close(write)
+            ready = bool(select.select([reply], [], [], 30)[0]) and reply.read(3) == b"OK\n"
+        status = 0 if ready else "timeout" if self.process.poll() is None else self.process.returncode
+        self.log({"name": "adb-start", "argv": [*argv, str(write)], "pid": self.process.pid, "exit": status})
+        if not ready:
+            raise RuntimeError("The ADB server did not report ready within 30s. See its adb.*.log in the evidence.")
 
     def hold_legacy_port(self):
         for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
             try:
-                fence = socket.socket(family)
-                self.fence.append(fence)
+                hold = socket.socket(family)
+                self.holds.append(hold)
                 if family == socket.AF_INET6:
-                    fence.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
-                fence.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                fence.bind((host, LEGACY_PORT))
-                fence.listen()
+                    hold.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                hold.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                hold.bind((host, LEGACY_PORT))
+                hold.listen()
             except OSError as error:
                 if family == socket.AF_INET6 and error.errno in (errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL):
                     continue
@@ -301,15 +330,23 @@ class Run:
 
     def close(self):
         try:
+            if self.process:
+                process, self.process = self.process, None
+                process.terminate()
+                try:
+                    process.wait(10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                self.log({"name": "adb-stop", "argv": ["kill", "-TERM", str(process.pid)], "exit": process.returncode})
             if self.server:
                 server, self.server = self.server, None
-                self.command("adb-stop", [*self.adb_server(server), "kill-server"])
                 shutil.rmtree(server)
         finally:
-            for held in [*self.fence, self.lock]:
+            for held in [*self.holds, self.lock]:
                 if held:
                     held.close()
-            self.lock, self.fence = None, []
+            self.lock, self.holds = None, []
 
 
 def main(argv=None):
