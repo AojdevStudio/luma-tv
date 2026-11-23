@@ -102,26 +102,64 @@ while (remaining := deadline - time.monotonic()) > 0:
 else:
     sys.exit(f'{serial}: did not become ready for install within 30 seconds')
 PY
-    for name in target fixture instrument "${extras[@]/#/app}"; do
+    for name in target fixture instrument; do
         echo "Installing $name on $serial"
         "${adb[@]}" install -r "$OUT/$name.apk"
     done
     "${adb[@]}" shell pm grant "$target" android.permission.READ_TV_LISTINGS
-    # A suite run that ends with "E2E NEXT <step>" runs again with -e step <step>, in a new Luma process.
-    local suite step
     : > "$OUT/result.txt"
+    local suite
     for suite in "${suites[@]}"; do
-        step=""
-        while :; do
-            "${adb[@]}" shell am instrument -w -r ${step:+-e step "$step"} "dev.luma.tv.e2e/dev.luma.tv.$suite" | tee "$OUT/run.txt"
-            cat "$OUT/run.txt" >> "$OUT/result.txt"
-            grep -q '^E2E \(PASS\|FAIL\)' "$OUT/run.txt" || { echo "E2E FAIL $suite step ${step:-first} did not report" >> "$OUT/result.txt"; break; }
-            step=$(sed -n 's/^E2E NEXT \([a-z-]*\).*/\1/p' "$OUT/run.txt")
-            [[ -n $step ]] || break
-        done
+        if [[ $suite == JourneysE2E ]]; then
+            run_journeys
+        else
+            run_phase "$suite" "" ""
+        fi
     done
-    ! grep -q '^E2E FAIL' "$OUT/result.txt"
 }
+
+run_phase() {
+    local suite=$1 step=$2 expected_next=$3
+    local args=()
+    [[ -z $step ]] || args=(-e step "$step")
+    "${adb[@]}" shell am instrument -w -r "${args[@]}" "dev.luma.tv.e2e/dev.luma.tv.$suite" | tee "$OUT/run.txt"
+    cat "$OUT/run.txt" >> "$OUT/result.txt"
+    local next
+    next=$(sed -n 's/^E2E NEXT //p' "$OUT/run.txt")
+    if ! grep -Fxq 'INSTRUMENTATION_CODE: -1' "$OUT/run.txt" ||
+       ! grep -Fxq 'E2E PASS' "$OUT/run.txt" ||
+       grep -q '^E2E FAIL' "$OUT/run.txt" || [[ $next != "$expected_next" ]]; then
+        echo "Failed instrumentation result for $suite step ${step:-first}" >&2
+        return 1
+    fi
+    if [[ $suite == JourneysE2E ]] && ! grep -Eq "^INSTRUMENTATION_RESULT: stream=step ${step:-first} pid [1-9][0-9]*$" "$OUT/run.txt"; then
+        echo "Missing journey result for step ${step:-first}" >&2
+        return 1
+    fi
+}
+
+run_journeys() (
+    local existing n package status=0 pkg=""
+    local installed=()
+    existing=$("${adb[@]}" shell pm list packages)
+    trap '
+        status=$?
+        for pkg in "${installed[@]}"; do
+            "${adb[@]}" uninstall "$pkg" || status=1
+        done
+        exit "$status"
+    ' EXIT
+    for n in "${extras[@]}"; do
+        package="dev.luma.tv.e2e.app$n"
+        if grep -Fxq "package:$package" <<< "$existing"; then continue; fi
+        "${adb[@]}" install "$OUT/app$n.apk"
+        installed+=("$package")
+    done
+    run_phase JourneysE2E "" sports-restarted
+    run_phase JourneysE2E sports-restarted default-restarted
+    run_phase JourneysE2E default-restarted guest-restarted
+    run_phase JourneysE2E guest-restarted ""
+)
 
 mode=${1:-all}
 suites=("${@:2}")
