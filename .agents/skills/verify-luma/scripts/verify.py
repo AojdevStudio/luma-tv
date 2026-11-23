@@ -2,19 +2,23 @@
 """Verify Luma using one fixed TCL transport and private evidence."""
 import argparse
 import errno
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[4]
 TARGET = "10.69.3.171:5555"
-PORT = 5042
+LEGACY_PORT = 5042
+STATE = Path.home() / ".luma-verify"
 MODEL, ANDROID = "BeyondTV5", "9"
 LUMA = "dev.luma.tv/.MainActivity"
 CLEAN = "com.gathin.tvhome"
@@ -89,7 +93,7 @@ class Run:
                     "JAVA_HOME": str(JDK), "LUMA_JDK": str(JDK),
                     "ANDROID_SDK_ROOT": str(SDK),
                     "LUMA_KEYSTORE": str(ROOT / ".signing/local.keystore")}
-        self.started = False
+        self.lock, self.fence, self.server = None, [], None
         self.summary = {"target": TARGET, "checks": {}, "skipped": [], "observed": {}}
 
     def command(self, name, args, timeout=30, check=True):
@@ -114,37 +118,53 @@ class Run:
             raise RuntimeError(name + " exited " + str(entry["exit"]) + ". See " + name + ".stderr.")
         return out
 
-    def adb(self, name, *args, check=True):
-        return self.command(name, [adb_bin(), "-P", str(PORT), "-s", TARGET, *args], check=check)
+    def adb_server(self, server):
+        return [adb_bin(), "-L", "localfilesystem:" + str(server / "adb.sock")]
 
-    def connect(self):
+    def adb(self, name, *args, check=True):
+        return self.command(name, [*self.adb_server(self.server), "-s", TARGET, *args], check=check)
+
+    def start_server(self):
         for name in ["adbkey", "adbkey.pub"]:
             if not (KEYDIR / name).is_file():
                 raise RuntimeError("Existing trusted ADB key missing. No key was created.")
+        STATE.mkdir(mode=0o700, exist_ok=True)
+        self.lock = (STATE / "tcl.lock").open("a")
+        try:
+            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("Another verifier is driving the TCL. It was left running.") from None
+        for stale in sorted(STATE.glob("adb-*")):
+            self.command("adb-reap", [*self.adb_server(stale), "kill-server"])
+            shutil.rmtree(stale)
+        self.hold_legacy_port()
+        self.server = Path(tempfile.mkdtemp(prefix="adb-", dir=STATE))
+        self.env.update({"ANDROID_USER_HOME": str(KEYDIR), "ADB_VENDOR_KEYS": str(KEYDIR / "adbkey"),
+                         "ADB_SERVER_SOCKET": self.adb_server(self.server)[2], "TMPDIR": str(self.evidence),
+                         "ADB_MDNS_AUTO_CONNECT": "0", "ADB_MDNS": "0", "ADB_USB": "0", "ADB_EMU": "0"})
+        self.command("adb-start", [*self.adb_server(self.server), "start-server"])
+
+    def hold_legacy_port(self):
         for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
-            address = (host, PORT)
             try:
-                with socket.socket(family) as probe:
-                    probe.settimeout(1)
-                    result = probe.connect_ex(address)
-                if result == 0:
-                    raise RuntimeError(f"Port {PORT} is busy on {host}. The listener was left running.")
-                if result != errno.ECONNREFUSED:
-                    raise OSError(result, os.strerror(result))
-                with socket.socket(family) as probe:
-                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    probe.bind(address)
+                fence = socket.socket(family)
+                self.fence.append(fence)
+                if family == socket.AF_INET6:
+                    fence.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                fence.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                fence.bind((host, LEGACY_PORT))
+                fence.listen()
             except OSError as error:
                 if family == socket.AF_INET6 and error.errno in (errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL):
                     continue
                 if error.errno == errno.EADDRINUSE:
-                    raise RuntimeError(f"Port {PORT} is busy on {host}. Its owner was left running.") from error
-                raise RuntimeError(f"Could not check port {PORT} on {host}: {error}") from error
-        self.env.update({"ANDROID_USER_HOME": str(KEYDIR), "ADB_VENDOR_KEYS": str(KEYDIR / "adbkey"),
-                         "ADB_MDNS_AUTO_CONNECT": "0", "ADB_SERVER_SOCKET": "tcp:localhost:" + str(PORT)})
-        self.command("adb-start", [adb_bin(), "-P", str(PORT), "start-server"])
-        self.started = True
-        output = self.command("adb-connect", [adb_bin(), "-P", str(PORT), "connect", TARGET], 12)
+                    raise RuntimeError(f"Port {LEGACY_PORT} is in use on {host}. An older verifier or another "
+                                       "program may own it. It was left running.") from error
+                raise RuntimeError(f"Could not hold port {LEGACY_PORT} on {host}: {error}") from error
+
+    def connect(self):
+        self.start_server()
+        output = self.command("adb-connect", [*self.adb_server(self.server), "connect", TARGET], 12)
         if b"connected to " + TARGET.encode() not in output:
             raise RuntimeError("TCL did not accept the connection. Stop. Do not retry or accept a prompt on the TV.")
         if self.adb("adb-ready", "get-state", check=False).strip() != b"device":
@@ -238,7 +258,7 @@ class Run:
         if before["clean"] != "package:" + CLEAN:
             raise RuntimeError("CleanYourTV is not enabled. Launcher change refused.")
         if action == "install":
-            self.command("install", [adb_bin(), "-P", str(PORT), "-s", TARGET,
+            self.command("install", [*self.adb_server(self.server), "-s", TARGET,
                                      "install", "--no-incremental", "-r", ROOT / "dist/luma-tv.apk"], 90)
             if not journal.is_file() or journal.read_bytes() != saved:
                 raise RuntimeError("Restore journal changed during install. HOME was not selected.")
@@ -280,9 +300,16 @@ class Run:
         self.summary["checks"]["launch_home_and_baseline"] = "PASS"
 
     def close(self):
-        if self.started:
-            self.started = False
-            self.command("adb-stop", [adb_bin(), "-P", str(PORT), "kill-server"])
+        try:
+            if self.server:
+                server, self.server = self.server, None
+                self.command("adb-stop", [*self.adb_server(server), "kill-server"])
+                shutil.rmtree(server)
+        finally:
+            for held in [*self.fence, self.lock]:
+                if held:
+                    held.close()
+            self.lock, self.fence = None, []
 
 
 def main(argv=None):

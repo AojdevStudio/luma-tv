@@ -6,7 +6,7 @@ The primary surface is the TCL launcher and its remote. All live commands use th
 
 - The TCL address is `10.69.3.171:5555` and its existing ADB key is trusted.
 - The source build key already exists. No run creates credentials.
-- One operator drives this TV at a time. Stop if another run owns port 5042.
+- One operator drives this TV at a time. Stop if a run reports `Another verifier is driving the TCL` or `Port 5042 is in use`.
 - For `safe`, the TV is awake and Luma is already HOME.
 - Leave permission and installation prompts to Ossie. Keep CleanYourTV enabled and preserve the existing disabled packages.
 

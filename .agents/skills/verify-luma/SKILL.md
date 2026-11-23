@@ -60,7 +60,7 @@ python3 .agents/skills/verify-luma/scripts/verify.py offline --evidence "$HOME/B
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .agents/skills/verify-luma/scripts -p test_verify.py -v
 ```
 
-The offline action compiles every `tools/*Test.java` suite against `src`, runs each `dev.luma.tv` test class, then runs `tools/test_luma.py`. On Linux, put JDK 17 on `PATH`. Missing baseline Java suites or the launcher suite produce PARTIAL and a nonzero exit code. The evidence records the JVM version. The discovery regression compiles and runs real Java in a temporary checkout. Device tests in the helper suite use fake ADB and contact no device.
+The offline action compiles every `tools/*Test.java` suite against `src`, runs each `dev.luma.tv` test class, then runs `tools/test_luma.py`. On Linux, put JDK 17 on `PATH`. Missing baseline Java suites or the launcher suite produce PARTIAL and a nonzero exit code. The evidence records the JVM version. The discovery regression compiles and runs real Java in a temporary checkout. Device tests in the helper suite use fake ADB and contact no device. The server ownership tests start real ADB servers with scratch keys, private sockets, and device discovery off. They never contact a device or the default ADB server. They use `LUMA_TEST_ADB`, else the helper's SDK `adb`, else `adb` on `PATH`, and skip when none exists. CI sets `LUMA_TEST_ADB`, so they cannot skip there.
 
 ## Evidence
 
@@ -70,7 +70,13 @@ PASS covers the selected action only. PARTIAL identifies skipped checks. FAIL id
 
 ## Cleanup
 
-The helper stops only the isolated ADB server it started on port 5042. It refuses an occupied port. Cleanup preserves the evidence, installed app, existing keys, and TV state. Confirm `adb-stop` succeeded in the transcript and that the screenshots and summary remain after cleanup.
+Each live run starts its own ADB server on a Unix socket in a new private directory under `~/.luma-verify/`. No other process can reach that socket, so `adb-stop` stops only that server. The server has USB, emulator, and mDNS discovery turned off. Its log goes to the evidence directory.
+
+One run drives the TCL at a time. A live run holds a lock on `~/.luma-verify/tcl.lock` until cleanup ends. A second run fails with `Another verifier is driving the TCL` and leaves the first one running. The system releases the lock when a run exits or is killed. The next run then stops a killed run's server before it starts its own.
+
+Older checkouts of this helper used a shared server on port 5042 and do not take the lock. A live run therefore also holds port 5042 on `127.0.0.1` and `::1`. While it does, older helpers see the port in use and stop. If an older helper or another program holds the port, the run fails with `Port 5042 is in use` and leaves that program running. Remove this hold when no older checkout can drive the TCL.
+
+Cleanup preserves the evidence, installed app, existing keys, and TV state. Confirm `adb-stop` succeeded in the transcript and that the screenshots and summary remain after cleanup.
 
 ## Helpers
 
