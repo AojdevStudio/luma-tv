@@ -18,11 +18,11 @@ java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --self
 It needs no device, SDK, network, or secret. It takes about 20 seconds. `--source <file>` checks another copy of `UpNextWidget.java`, for example an older commit:
 
 ```sh
-git show 1ff9447:src/dev/luma/tv/UpNextWidget.java > /tmp/UpNextWidget.old.java
+git show 11f1b1b:src/dev/luma/tv/UpNextWidget.java > /tmp/UpNextWidget.old.java
 java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --source /tmp/UpNextWidget.old.java
 ```
 
-At 1ff9447 all three properties fail. That is the bug this check was built for.
+At 11f1b1b all three properties fail. CI replays that exact source and requires a counterexample for each property.
 
 ## How it works
 
@@ -84,7 +84,7 @@ If a later change renames these lines, update the mutant text in `scripts/UpNext
 | `loading`, `stale`, `refresh()` | `src/dev/luma/tv/UpNextWidget.java`, between the constructor and `load()` |
 | `WidgetBoard.IO` pool size and order | `src/dev/luma/tv/WidgetBoard.java` |
 
-Sync commit: `c129cff` (fix: keep overlapping Up Next refreshes from drawing older rows). The cut text hash at that commit is `674104e092fdb145`, printed on the `region` line of every run.
+Sync commit: `4b4a73d` (fix: keep overlapping Up Next refreshes from drawing older rows). The cut text hash at that commit is `674104e092fdb145`, printed on the `region` line of every run.
 
 When the hash changes, read the new cut text and confirm the fakes still match how Android and `WidgetBoard.IO` behave. Then run the check. Move the sync commit and hash forward only after that review. Never weaken a property, lower the bound, or drop a mutant to get a pass. For an intended change in behavior, use `/t3-pstack:maintain-formal-verification-skill`.
 

@@ -1,8 +1,5 @@
 name: upnext-refresh
 
-# Up Next must never show an older Watch Next read after a newer one (issue #38).
-# This job model-checks the real refresh() source from UpNextWidget.java over every bounded schedule.
-# It needs only a JDK. No device, SDK, network, or secret is involved.
 on:
   pull_request:
     paths:
@@ -30,9 +27,22 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Refresh ordering checker with self-check
         run: java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --self-check
+
+      - name: Reject the refresh race from issue 38
+        shell: bash
+        run: |
+          git show 11f1b1b2b5cd0cc37ab22172893694077f808d0e:src/dev/luma/tv/UpNextWidget.java > "$RUNNER_TEMP/UpNextWidget.java"
+          status=0
+          java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --source "$RUNNER_TEMP/UpNextWidget.java" > "$RUNNER_TEMP/refresh-history.log" || status=$?
+          cat "$RUNNER_TEMP/refresh-history.log"
+          test "$status" -eq 1
+          for property in one_read_at_a_time never_shows_older newest_request_lands; do
+            grep -Eq "^FAIL +${property}:" "$RUNNER_TEMP/refresh-history.log" || { echo "Restore the historical counterexample for $property"; exit 1; }
+          done
