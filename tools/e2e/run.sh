@@ -120,9 +120,9 @@ PY
 
 run_phase() {
     local suite=$1 step=$2 expected_next=$3
-    local args=()
-    [[ -z $step ]] || args=(-e step "$step")
-    "${adb[@]}" shell am instrument -w -r "${args[@]}" "dev.luma.tv.e2e/dev.luma.tv.$suite" | tee "$OUT/run.txt"
+    local args=(shell am instrument -w -r)
+    [[ -z $step ]] || args+=(-e step "$step")
+    "${adb[@]}" "${args[@]}" "dev.luma.tv.e2e/dev.luma.tv.$suite" | tee "$OUT/run.txt"
     cat "$OUT/run.txt" >> "$OUT/result.txt"
     local next
     next=$(sed -n 's/^E2E NEXT //p' "$OUT/run.txt")
@@ -144,9 +144,11 @@ run_journeys() (
     existing=$("${adb[@]}" shell pm list packages)
     trap '
         status=$?
-        for pkg in "${installed[@]}"; do
-            "${adb[@]}" uninstall "$pkg" || status=1
-        done
+        if (( ${#installed[@]} )); then
+            for pkg in "${installed[@]}"; do
+                "${adb[@]}" uninstall "$pkg" || status=1
+            done
+        fi
         exit "$status"
     ' EXIT
     for n in "${extras[@]}"; do
