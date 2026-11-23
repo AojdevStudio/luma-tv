@@ -7,8 +7,11 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 final class SupportInfo {
+    private static final String SEPARATOR_SPACE = "[\\p{Z}\\t-\\r\\u0085]*";
+    private static final Pattern SEPARATOR = Pattern.compile(SEPARATOR_SPACE + "\\|" + SEPARATOR_SPACE);
     static final String SOURCE_IMAGE = "qr_source";
 
     static final class Coin {
@@ -42,7 +45,7 @@ final class SupportInfo {
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
-                if (!line.isEmpty() && !line.startsWith("#")) result.add(line.split("\\s*\\|\\s*", -1));
+                if (!line.isEmpty() && !line.startsWith("#")) result.add(SEPARATOR.split(line, -1));
             }
         }
         return result;

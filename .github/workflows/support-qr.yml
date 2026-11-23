@@ -10,6 +10,7 @@ on:
       - src/dev/luma/tv/MainActivity.java
       - src/dev/luma/tv/SupportInfo.java
       - tools/SupportQrPayloads.java
+      - tools/SupportInfoTest.java
       - tools/support-qr.sh
       - .github/workflows/support-qr.yml
 jobs:
@@ -26,4 +27,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - run: sudo apt-get update && sudo apt-get install -y zbar-tools
+      - name: Check the displayed address with Unicode separator whitespace
+        run: |
+          javac -encoding UTF-8 -d "$RUNNER_TEMP" src/dev/luma/tv/SupportInfo.java tools/SupportInfoTest.java
+          java -cp "$RUNNER_TEMP" dev.luma.tv.SupportInfoTest
       - run: tools/support-qr.sh --check
