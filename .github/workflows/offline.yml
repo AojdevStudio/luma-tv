@@ -16,7 +16,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - run: python3 -m unittest discover -s .agents/skills/verify-luma/scripts -v
+      - run: LUMA_TEST_ADB="$ANDROID_HOME/platform-tools/adb" python3 -m unittest discover -s .agents/skills/verify-luma/scripts -v
       - run: python3 .agents/skills/verify-luma/scripts/verify.py offline --evidence "$RUNNER_TEMP/luma-offline"
       - uses: actions/upload-artifact@v4
         if: failure()
