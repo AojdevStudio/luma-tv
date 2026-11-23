@@ -883,6 +883,9 @@
             },
             "disabled_recorded_once": {
               "$ref": "#/$defs/mutation"
+            },
+            "missing_disable_entry": {
+              "$ref": "#/$defs/mutation"
             }
           },
           "required": [
@@ -892,7 +895,8 @@
             "restore_failure_not_success",
             "baseline_immutable",
             "original_predates_luma",
-            "disabled_recorded_once"
+            "disabled_recorded_once",
+            "missing_disable_entry"
           ],
           "additionalProperties": false
         }

@@ -16,6 +16,7 @@ import difflib
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -35,7 +36,7 @@ PROPERTY_TEXT = {
     "restore_returns_original": "A restore that exits zero returns to the recorded original Home and enables recorded launchers.",
     "restore_failure_not_success": "A failed Android restore command is reported by a nonzero exit and retains the journal for retry.",
     "baseline_immutable": "Home and install keep the first recorded original unchanged until restore.",
-    "original_predates_luma": "The saved original is the Home the TV had before luma.sh changed it.",
+    "original_predates_luma": "When the prior Home is known, the saved original matches it.",
     "disabled_recorded_once": "The journal records each switched-off launcher once.",
 }
 ACTIONS = ("home", "install", "restore")
@@ -329,6 +330,9 @@ def violations(run: Run, prior: str | None) -> dict[str, Event]:
                 result.setdefault("baseline_immutable", event)
             if baseline is None and saved is not None:
                 baseline = saved
+    if run.action == "home" and any(c.operation == "disable" and c.selected == "accept" for c in run.choices):
+        if "disabled=com.google.android.tvlauncher" not in (run.end.journal or "").splitlines():
+            result.setdefault("disabled_recorded_once", run.events[-1])
     if run.action == "restore":
         saved = original(run.start.journal)
         disabled = run.start.journal is not None and "disabled=com.google.android.tvlauncher\n" in run.start.journal
@@ -505,6 +509,8 @@ def self_check(source: str, output: Path) -> dict[str, object]:
         source.splitlines(keepends=True), control.splitlines(keepends=True),
         fromfile="checked-luma.sh", tofile="scratch-control-luma.sh")))
     stock, stock_absent = Node(State("S", True, True, None), "S"), Node(State("S", False, True, None), "S")
+    record = '            grep -qxF "disabled=$pkg" "$state" || printf \'disabled=%s\\n\' "$pkg" >> "$state"'
+    select = '            tv cmd package set-home-activity --user 0 "$LUMA" >/dev/null'
     mutations: dict[str, tuple[str, Node, tuple[str, ...]]] = {
         "no_luma_original": (replace_once(control, guard, ''),
                              Node(State("L", True, True, None), None), ("home",)),
@@ -526,10 +532,13 @@ def self_check(source: str, output: Path) -> dict[str, object]:
             stock, ("home", "restore", "install", "home")),
     }
     results: dict[str, object] = {}
-    for prop, (mutant, initial, actions) in mutations.items():
-        (output / f"mutation-{prop}.patch").write_text("".join(difflib.unified_diff(
+    cases = [(prop, prop, mutation) for prop, mutation in mutations.items()]
+    late_record = replace_once(control, f"{record}\n{select} ;;", f"{select}\n{record} ;;")
+    cases.append(("missing_disable_entry", "disabled_recorded_once", (late_record, stock, ("home",))))
+    for case, prop, (mutant, initial, actions) in cases:
+        (output / f"mutation-{case}.patch").write_text("".join(difflib.unified_diff(
             control.splitlines(keepends=True), mutant.splitlines(keepends=True),
-            fromfile="scratch-control-luma.sh", tofile=f"scratch-mutant-{prop}-luma.sh")))
+            fromfile="scratch-control-luma.sh", tofile=f"scratch-mutant-{case}-luma.sh")))
         counts: dict[str, int] = {}
         witnesses: dict[str, object] = {}
         for label, text in (("control", control), ("mutant", mutant)):
@@ -554,13 +563,13 @@ def self_check(source: str, output: Path) -> dict[str, object]:
                 raise VerificationError(f"Actual-source mutation was not detected: {prop}.")
             if witness is not None:
                 witnesses[label] = [run.data() for run in witness]
-        results[prop] = {"status": "pass", "control_sha256": digest(control.encode()),
+        results[case] = {"status": "pass", "control_sha256": digest(control.encode()),
                          "mutant_sha256": digest(mutant.encode()), "outcome_traces": counts,
                          "source_executions": {label: count * 2 for label, count in counts.items()},
                          "operator_sequence": list(actions), "witness": witnesses.get("mutant")}
-        print(f"Mutation caught. {prop}.", flush=True)
+        print(f"Mutation caught. {case} ({prop}).", flush=True)
     write_json(output / "mutations.json", {"schema_version": ARTIFACT_VERSION, "checks": results})
-    return {"status": "pass", "properties_caught": sorted(results),
+    return {"status": "pass", "properties_caught": sorted(mutations),
             "method": "Differential actual-source scratch mutations. Exhaustive outcomes within each stated witness sequence. Not a full fixed-point proof of the scratch control."}
 
 
@@ -582,6 +591,8 @@ def history_check(output: Path, workers: int) -> dict[str, object]:
         if not (isinstance(commit, str) and isinstance(path, str) and isinstance(sha, str) and isinstance(bug, str)
                 and isinstance(must_fail, list) and must_fail and set(must_fail) <= PROPERTY_TEXT.keys()):
             raise VerificationError("A history entry has invalid fields.")
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise VerificationError("Set commit in model/history.json to the full 40-character lowercase Git SHA.")
         source = (HERE.parent / path).read_bytes()
         if digest(source) != sha:
             raise VerificationError(f"History source {path} differs from its recorded hash.")
@@ -670,7 +681,7 @@ def main() -> int:
         search_result = "Fixed point reached." if result["fixed_point"] else "Stopped on a counterexample. Remaining properties are unproven."
         lines = [f"Overall {'FAIL' if failed else 'PASS'}. Exit {exit_code}.",
                  f"{search_result} Discovered {result['quiescent_states']} quiescent states. Explored {result['operation_transitions']} operation outcomes in {result['source_executions']} shell invocations.",
-                 f"Observed {result['boundary_transition_occurrences']} internal boundary transitions."]
+                 f"Graph-edge boundary-transition occurrences: {result['boundary_transition_occurrences']}."]
         for name, value in properties.items():
             if not isinstance(value, dict):
                 raise VerificationError("Invalid property result.")

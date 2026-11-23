@@ -26,12 +26,12 @@ This is an explicit-state model checker, not a hand-written replacement for the 
 | restore_returns_original | A restore that returns success selects the recorded original and enables the recorded launcher. |
 | restore_failure_not_success | A failed Android restore command returns an error and retains the journal. |
 | baseline_immutable | Home and install preserve the first recorded original until restore. |
-| original_predates_luma | The saved original is the Home the TV had before luma.sh changed it. |
+| original_predates_luma | When the prior Home is known, the saved original matches it. |
 | disabled_recorded_once | The journal records each switched-off launcher once. |
 
 An incorrect baseline can strand the user in the wrong launcher. A discarded journal removes the information needed to retry restore. A repeated journal line grows the journal on every retry, so no fixed point exists.
 
-`original_predates_luma` needs history the TV does not keep. The search carries a prior Home beside each state. A seed's prior is its Home, or unknown when the seed already opens Luma. A restore that exits zero and leaves no journal sets the prior to the Home it ends on. The shell never reads the prior.
+`original_predates_luma` needs history the TV does not keep. The search carries a prior Home beside each state. A seed's prior is its Home, or unknown when the seed already opens Luma. A restore that exits zero and leaves no journal sets the prior to the Home it ends on. While the prior is unknown, the checker cannot establish which original Home was correct. The shell never reads the prior.
 
 ## Read the result
 
