@@ -9,11 +9,8 @@ final class Promo {
     static final String[] ORDER={"upnext","weather","inputs","music","control"};
     static final double[] MIAMI={25.77,-80.19};
     static final String CITY="Miami";
-    static final Object[][] VIDEOS={
-        {"Under the Milky Way","18 min left · YouTube","A night under the stars · 18 min left in YouTube",R.drawable.wp_milkyway,.62f},
-        {"Calm Sea, 4K","Next episode · YouTube","Waves at sunrise · Next episode in YouTube",R.drawable.wp_sea,.0f},
-        {"First Light","6 min left · YouTube","Dawn over the mountains · 6 min left in YouTube",R.drawable.wp_dawn,.86f},
-    };
+    /** Poster for each demo Up Next card, in MediaContext.DEMO order. */
+    static final int[] POSTERS={R.drawable.wp_milkyway,R.drawable.wp_sea,R.drawable.wp_dawn};
     static final String SONG="Golden Hour",ARTIST="Nova Lane",SOURCE="YouTube Music";
     static final long SONG_LENGTH=412000,SONG_START=38000;
     static long since=0,offset=SONG_START;static boolean playing=true;

@@ -50,7 +50,7 @@ final class UpNextWidget extends Widget {
         ArrayList<Item> items=new ArrayList<>();HashSet<String> seen=new HashSet<>();
         if(Promo.on){
             for(int n=0;n<MediaContext.DEMO.length;n++){MediaContext.Demo d=MediaContext.DEMO[n];
-                Item i=new Item();i.pkg=PLEX;i.key="demo:"+d.title;i.title=d.title;i.media=d.context;i.line=join(d.context.progressText(),d.context.source);i.detail=d.context.summaryText();i.art="res:"+Promo.VIDEOS[n%Promo.VIDEOS.length][3];items.add(i);}
+                Item i=new Item();i.pkg=PLEX;i.key="demo:"+d.title;i.title=d.title;i.media=d.context;i.line=join(d.context.progressText(),d.context.source);i.detail=d.context.summaryText();i.art="res:"+Promo.POSTERS[n%Promo.POSTERS.length];items.add(i);}
             return items;
         }
         boolean listings=context.checkSelfPermission(LISTINGS)==PackageManager.PERMISSION_GRANTED;
