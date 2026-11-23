@@ -1,0 +1,20 @@
+name: Support QR codes
+on:
+  pull_request:
+    paths:
+      - res/raw/support.txt
+      - res/raw/about.txt
+      - res/drawable-nodpi/qr_*.png
+      - tools/support-qr.sh
+      - .github/workflows/support-qr.yml
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y zbar-tools
+      - run: tools/support-qr.sh --check
