@@ -240,6 +240,30 @@ class VerifyTest(unittest.TestCase):
         with socket.create_connection(listener.getsockname()[:2]):
             pass
 
+    def test_reaping_an_abandoned_run_preserves_evidence_with_a_server_prefix(self):
+        evidence = verify.STATE / "adb-doctor"
+        run = verify.Run(evidence)
+        saved = b'{"status":"PASS"}'
+        (evidence / "summary.json").write_bytes(saved)
+        unmarked = verify.STATE / "run" / "old-saved"
+        unmarked.mkdir(parents=True)
+        (unmarked / "summary.json").write_bytes(saved)
+        run.start_server()
+        abandoned = run.server
+        run.server = None  # Leave the directory behind, as after an interrupted verifier.
+        run.close()
+        code, summary = self.run_verify("doctor")
+        self.assertEqual(code, 0, summary)
+        self.assertFalse(abandoned.exists())
+        self.assertEqual((evidence / "summary.json").read_bytes(), saved)
+        self.assertEqual((unmarked / "summary.json").read_bytes(), saved)
+
+    def test_verifier_rejects_evidence_inside_its_private_runtime_directory(self):
+        path = verify.STATE / "run" / "adb-doctor"
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            verify.main(["offline", "--evidence", str(path)])
+        self.assertFalse(path.exists())
+
     def test_safe_run_passes_with_launcher_suite(self):
         (self.root / "tools/test_luma.py").write_bytes(b"")
         code, summary = self.run_verify("safe")
@@ -283,7 +307,7 @@ class VerifyTest(unittest.TestCase):
             code, summary = self.run_verify("doctor")
         self.assertEqual(summary["status"], "PASS", summary)
         server = self.tools.adb_calls()[0][:3]
-        self.assertRegex(server[2], "^localfilesystem:" + str(verify.STATE) + "/adb-[^/]+/adb.sock$")
+        self.assertRegex(server[2], "^localfilesystem:" + str(verify.STATE / "run") + "/adb-[^/]+/adb.sock$")
         for call in self.tools.adb_calls():
             self.assertEqual(call[:3], server)
             self.assertTrue(call[3:6] == SERVER or call[3:] == ["connect", verify.TARGET]
@@ -341,7 +365,7 @@ class VerifyTest(unittest.TestCase):
         self.evidence = self.evidence.with_name("after-time-wait")
         code, summary = self.run_verify("doctor")
         self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
-        self.assertIn("retry in a minute", summary["error"])
+        self.assertIn("retry after about a minute", summary["error"])
         self.assertEqual(sum(call[3:6] == SERVER for call in self.tools.adb_calls()), 3)
         self.assertEqual(list(verify.STATE.glob("*-*")), [])
         self.assert_lock_free()

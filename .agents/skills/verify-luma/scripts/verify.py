@@ -224,10 +224,21 @@ class Run:
             fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError("Another verifier is driving the TCL. It was left running.") from None
-        for stale in sorted([*STATE.glob("adb-*"), *STATE.glob("old-*")]):
-            self.stop_server(stale, "adb-reap")
+        runtime = STATE / "run"
+        if runtime.is_symlink():
+            raise RuntimeError("Private ADB runtime directory is a symlink: " + str(runtime))
+        runtime.mkdir(mode=0o700, exist_ok=True)
+        for stale in sorted([*runtime.glob("adb-*"), *runtime.glob("old-*")]):
+            marker = stale / ".owner"
+            if not stale.is_symlink() and not marker.is_symlink() and marker.is_file() and marker.samefile(self.lock.name):
+                self.stop_server(stale, "adb-reap")
+        for legacy in [*STATE.glob("adb-*"), *STATE.glob("old-*")]:
+            if (legacy / "adb.sock").is_socket():
+                raise RuntimeError("An earlier checkout left an unmarked ADB socket at " + str(legacy)
+                                   + ". Verify its owner before continuing.")
         self.hold_legacy_port()
-        self.server = Path(tempfile.mkdtemp(prefix="adb-", dir=STATE))
+        self.server = Path(tempfile.mkdtemp(prefix="adb-", dir=runtime))
+        (self.server / ".owner").hardlink_to(self.lock.name)
         # ADB reads keys from $HOME/.android and creates a key there when none exists. A private home that holds
         # only a copy of the trusted key keeps the operator's own keys out, and ADB never opens a trusted path.
         home = self.server / "home"
@@ -276,7 +287,10 @@ class Run:
             if server.name.startswith("adb-"):
                 # Clients know only the adb- path, so after the rename none of them can start a server on this socket.
                 # The new name has the same length, so a socket path that was short enough to bind stays reachable.
-                server = server.rename(server.with_name("old-" + server.name[4:]))
+                retired = server.with_name("old-" + server.name[4:])
+                if os.path.lexists(retired):
+                    raise RuntimeError("Cannot retire ADB directory because the destination exists: " + str(retired))
+                server = server.rename(retired)
             for _ in range(5):
                 if not self.stop_listener(name, server / "adb.sock"):
                     shutil.rmtree(server)
@@ -286,9 +300,8 @@ class Run:
     def stop_listener(self, name, path):
         """Stop the server that listens on path through a connection to it. Return False when nothing listens.
 
-        The server holds its end of the connection until it exits, so an open connection proves that the pid it
-        reported still names that server. `host:kill` needs no pid. ADB 37.0.1 sometimes hangs in its exit path after
-        that request when it has just started, so a server that keeps the connection open is then killed."""
+        The shutdown request goes through the connected socket. If ADB hangs, only a stable process handle can
+        authorize escalation. Without one the directory stays for the next recovery attempt."""
         if not path.exists():
             return False  # Nothing bound here. This also covers a path too long to bind.
         with socket.socket(socket.AF_UNIX) as connection:
@@ -315,14 +328,12 @@ class Run:
                     self.log({"name": name, "argv": ["host:kill", str(path)], "pid": pid, "exit": 0})
                 else:
                     self.log({"name": name, "argv": ["host:kill", str(path)], "pid": pid, "exit": "hung"})
-                    if handle is not None:
-                        with contextlib.suppress(ProcessLookupError):
-                            signal.pidfd_send_signal(handle, signal.SIGKILL)
-                        self.log({"name": name, "argv": ["kill", "-KILL", str(pid)], "exit": 0})
-                    elif not closed(connection, 0):
-                        with contextlib.suppress(ProcessLookupError):
-                            os.kill(pid, signal.SIGKILL)  # Still connected, so pid is still this hung server.
-                        self.log({"name": name, "argv": ["kill", "-KILL", str(pid)], "exit": 0})
+                    if handle is None:
+                        raise RuntimeError("ADB did not close its socket after host:kill. No stable process handle "
+                                           "is available. The server directory was retained: " + str(path.parent))
+                    with contextlib.suppress(ProcessLookupError):
+                        signal.pidfd_send_signal(handle, signal.SIGKILL)
+                    self.log({"name": name, "argv": ["kill", "-KILL", str(pid)], "exit": 0})
                     if not closed(connection, 10):
                         raise RuntimeError("ADB server " + str(pid) + " did not exit within 10s of SIGKILL.")
                 if handle is not None:
@@ -357,7 +368,7 @@ class Run:
                 if error.errno == errno.EADDRINUSE:
                     raise RuntimeError(f"Port {LEGACY_PORT} is in use on {host}. An older verifier or another "
                                        "program may own it. It was left running. A connection that closed in the "
-                                       "last minute also holds it, so retry in a minute if nothing uses it.") from error
+                                       "last minute also holds it, so retry after about a minute if nothing uses it.") from error
                 raise RuntimeError(f"Could not hold port {LEGACY_PORT} on {host}: {error}") from error
 
     def connect(self):
@@ -542,6 +553,9 @@ def main(argv=None):
     evidence = args.evidence.resolve()
     if evidence == ROOT or ROOT in evidence.parents:
         parser.error("Evidence must live outside the repository.")
+    runtime = (STATE / "run").resolve()
+    if evidence == runtime or runtime in evidence.parents or evidence == (STATE / "tcl.lock").resolve():
+        parser.error("Evidence must live outside the verifier's private runtime directory and lock.")
     if evidence.exists():
         parser.error("Evidence path already exists. Choose a new one.")
     os.umask(0o077)
