@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "purpose": "Each source is the exact luma.sh at a past commit that shipped a launcher recovery bug. verify.py --self-check must reject each one for every listed property, so a weaker checker fails CI.",
+  "sources": [
+    {
+      "commit": "8f0dbc46f8295c486637b5fb71306177e04d40b1",
+      "source": "history/8f0dbc46f829.sh",
+      "source_sha256": "75562144b8fd8213147e35d68b30784909f334444a61c6e781efb8743036bace",
+      "bug": "Upstream before PR 4. Install reset Home to the chooser before home saved it, issue 1. Restore ignored Android errors and deleted the journal.",
+      "must_fail": [
+        "original_predates_luma",
+        "restore_failure_not_success",
+        "restore_returns_original"
+      ]
+    },
+    {
+      "commit": "dbb37f2576554518ae609475396bbbbf0fa982cc",
+      "source": "history/dbb37f257655.sh",
+      "source_sha256": "63a24845a5ba6cd842a51b6647b15858306ebc9393b43c4ffcd511c3cf6b444f",
+      "bug": "First PR 4 fix. Saved Luma or an empty Home as the original.",
+      "must_fail": [
+        "no_luma_original",
+        "no_empty_original"
+      ]
+    },
+    {
+      "commit": "a72d96b27764ae8c9567ac271731c8c026e76f0c",
+      "source": "history/a72d96b27764.sh",
+      "source_sha256": "5514b097b79019aef44d94083fb67962add456aca6c77772bae24a35fe01a937",
+      "bug": "Second PR 4 fix. Still saved an empty Home as the original.",
+      "must_fail": [
+        "no_empty_original"
+      ]
+    },
+    {
+      "commit": "ecbc58f0a42148b81f52411f6a9db5223a49987d",
+      "source": "history/ecbc58f0a421.sh",
+      "source_sha256": "5e13e84de6fb6d2c0ff109b6394389fe53c565915f143bb5d0aa872939151209",
+      "bug": "Third PR 4 fix. Restore still ignored Android errors and deleted the journal.",
+      "must_fail": [
+        "restore_failure_not_success",
+        "restore_returns_original"
+      ]
+    },
+    {
+      "commit": "700ffcca4675e9be9aad1802e3aba57e1fbc3566",
+      "source": "history/700ffcca4675.sh",
+      "source_sha256": "4019f1a9d116637d0af1e02a3ad70e448e2739acc6320dff7644aa8b169300cf",
+      "bug": "Fourth PR 4 fix. Home saved Luma as the original, issue 5. Each retry appended another disabled line.",
+      "must_fail": [
+        "no_luma_original",
+        "disabled_recorded_once"
+      ]
+    }
+  ]
+}

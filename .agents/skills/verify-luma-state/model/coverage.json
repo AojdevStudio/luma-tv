@@ -1,75 +1,84 @@
 {
   "schema_version": 1,
   "source": "luma.sh",
-  "source_sha256": "a1ab06bd3180b451cb752da472cd81e6a85620445a436f371148d00bf3ac9252",
-  "sync_commit": "14b526d2104c47c0ead57ee54a6b851e6aa9e8c8",
+  "source_sha256": "b083f77055693ea22fd41a6e22385dcc0af003717de03915e40a4ab9b93083af",
+  "sync_commit": "0daecb6677508d5357e92449190a582f7323f0f0",
   "instrumentation": "Unchanged luma.sh copied into a private fixture. A Bash wrapper loads the observer and sources luma.sh with its own path as $0 and the normal arguments. DEBUG and EXIT traps record the actual source. No journal function or shell branch is mocked. Only the adb executable is replaced.",
   "source_spans": {
     "tv_transport": [
-      27,
-      27
+      24,
+      24
     ],
     "home_resolution": [
-      28,
-      28
+      25,
+      25
     ],
     "journal_path": [
-      29,
-      29
+      26,
+      26
     ],
     "remember_home": [
-      30,
-      38
+      27,
+      35
     ],
     "installed_query": [
-      39,
-      39
+      36,
+      36
     ],
     "asleep_home_display": [
-      40,
-      40
+      37,
+      37
     ],
     "install": [
-      45,
-      49
+      42,
+      46
     ],
     "home": [
-      50,
-      71
+      47,
+      68
     ],
     "restore": [
-      80,
-      96
+      76,
+      92
     ]
   },
   "property_source_lines": {
     "no_luma_original": [
-      30,
-      35,
-      36,
-      48,
-      54
+      27,
+      32,
+      33,
+      45,
+      51
     ],
     "no_empty_original": [
-      33,
-      34,
-      36
+      30,
+      31,
+      33
     ],
     "restore_returns_original": [
-      91,
-      92,
-      94
+      87,
+      88,
+      90
     ],
     "restore_failure_not_success": [
-      89,
-      91,
-      92,
-      94
+      85,
+      87,
+      88,
+      90
     ],
     "baseline_immutable": [
-      32,
-      36,
-      94
+      29,
+      33,
+      90
+    ],
+    "original_predates_luma": [
+      27,
+      30,
+      33,
+      45
+    ],
+    "disabled_recorded_once": [
+      61
     ]
   },
   "update_rule": "After any source change, inspect the actual source, Android boundary semantics, domain, and mutation anchors. Update the SHA and source lines only after that review. Rerun the fixed-point checker and differential mutation self-check. Move sync_commit only after checking source correspondence. Do not replace a failing invariant with a weaker one."
