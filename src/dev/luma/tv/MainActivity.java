@@ -56,6 +56,7 @@ public final class MainActivity extends Activity {
     private CapabilityCenter capabilityOverlay;
     private WidgetBoard board;
     private int homePage;
+    /** Widget readers can retain the previous discovery snapshot on background threads. */
     private volatile Map<String,App> appIndex=Collections.emptyMap();
     private static final String HOUSE_CONTROL="dev.housecontrol.tv";
     private final BroadcastReceiver packages=new BroadcastReceiver(){
@@ -456,6 +457,7 @@ public final class MainActivity extends Activity {
         int before=previous.equals("home")?0:previous.equals("apps")?1:2;
         int after=page.equals("home")?0:page.equals("apps")?1:2;
         float direction=after>=before?1:-1;
+        // Full-screen cross-fades exceed the TV GPU fill-rate budget.
         ArrayList<View> entering=new ArrayList<>();
         for(int i=0;i<content.getChildCount();i++)if(!(content.getChildAt(i) instanceof ScrollView)&&!"scroll-frame".equals(content.getChildAt(i).getTag()))entering.add(content.getChildAt(i));
         if(page.equals("settings")) {
@@ -646,6 +648,7 @@ public final class MainActivity extends Activity {
     }
     private void trapFocus(boolean on){int mode=on?ViewGroup.FOCUS_BLOCK_DESCENDANTS:ViewGroup.FOCUS_BEFORE_DESCENDANTS;content.setDescendantFocusability(mode);((ViewGroup)nav()).setDescendantFocusability(mode);}
     private FrameLayout openOverlay(int scrim){
+        // A nested overlay returns focus to the page control that opened the first one.
         View back=overlay!=null?overlayReturn:getCurrentFocus();overlayReturn=null;closeOverlay(false);overlayReturn=back;
         trapFocus(true);
         overlay=new FrameLayout(this);overlay.setBackgroundColor(scrim);overlay.setClipChildren(false);overlay.setTranslationZ(px(120));

@@ -69,6 +69,7 @@ final class WeatherWidget extends Widget {
     static boolean fahrenheit(android.content.SharedPreferences prefs){
         String unit=prefs.getString("temp_unit","auto");if(!unit.equals("auto"))return unit.equals("f");
         if(Promo.on)return true;
+        // TVs outside the US often use US English.
         String zone=TimeZone.getDefault().getID();
         if(zone.startsWith("US/")||zone.equals("Pacific/Honolulu")||zone.startsWith("America/Indiana/")||zone.startsWith("America/Kentucky/")||zone.startsWith("America/North_Dakota/"))return true;
         return zone.startsWith("America/")&&Arrays.asList("New_York","Chicago","Denver","Los_Angeles","Phoenix","Anchorage","Adak","Boise","Detroit","Juneau","Menominee","Metlakatla","Nome","Sitka","Yakutat").contains(zone.substring(8));

@@ -221,6 +221,8 @@ class Executor:
             (root / "build.sh").write_text("#!/bin/bash\nexit 98\n")
             shutil.copyfile(HERE / "fake-adb.bash", root / "bin/adb")
             os.chmod(root / "bin/adb", 0o700)
+            # No inherited PATH, HOME, SDK, device, credentials, or shell hooks.
+            # Only these local text tools and fake adb are executable by name.
             for tool in ("bash", "dirname", "tr", "tail", "mkdir", "grep", "sed", "head", "rm", "mv"):
                 executable = shutil.which(tool, path="/usr/bin:/bin")
                 if executable is None:
@@ -276,6 +278,9 @@ class Executor:
                     for alternative in reversed(choice.options[1:]):
                         plans.append(prefix + ((choice.operation, alternative),))
                 normalized = lambda text: text.replace(str(root), "<fixture>")
+                # Replay this complete tape through a normal, uninstrumented
+                # bash invocation. The observer and source wrapper must not
+                # alter exit, output, Android writes, or actual journal bytes.
                 expected_journal = journal.read_text() if journal.exists() else None
                 expected_android = (root / "android.env").read_text()
                 expected_choices = choices_path.read_text() if choices_path.exists() else ""
@@ -423,6 +428,7 @@ def check(source: str, output: Path, workers: int, until: frozenset[str] | None 
             tasks = [(node, action) for node in frontier for action in ACTIONS]
             pending = list(dict.fromkeys((node.state, action) for node, action in tasks
                                          if (node.state, action) not in outcomes))
+            # map preserves deterministic breadth-first order despite parallel execution.
             for key, runs in zip(pending, pool.map(lambda task: executor.outcomes(*task), pending), strict=True):
                 audit_outcome_tree(runs)
                 outcomes[key] = runs
@@ -645,6 +651,7 @@ def main() -> int:
         tooling_paths = sorted([HERE / "verify.py", HERE / "observe.bash", HERE / "fake-adb.bash", *MODEL.glob("*.json"),
                                *(HERE.parent / "history").glob("*.sh")])
         tooling_hashes = {str(path.relative_to(HERE.parent)): digest(path.read_bytes()) for path in tooling_paths}
+        # Preserve the exact checked source, independent of later branch changes.
         (output / "luma.sh.checked").write_bytes(source_bytes)
         source = source_bytes.decode()
         result = check(source, output, args.workers)

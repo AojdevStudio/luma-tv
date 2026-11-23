@@ -38,6 +38,7 @@ final class WidgetBoard extends FrameLayout {
         default:return "Wi-Fi, picture and sound, accessories and settings in one place.";}}
     static float width(String id){switch(id){case "upnext":return 560;case "weather":return 288;case "inputs":return InputsWidget.widthFor(InputsWidget.count);default:return 424;}}
 
+    /** A new widget follows its predecessor in IDS when reading a saved layout. */
     static ArrayList<String> order(SharedPreferences prefs){
         ArrayList<String> ids=new ArrayList<>();if(Promo.on){ids.addAll(Arrays.asList(Promo.ORDER));return ids;}
         for(String id:prefs.getString("widget_order","").split(","))if(Arrays.asList(IDS).contains(id)&&!ids.contains(id))ids.add(id);
@@ -158,6 +159,7 @@ final class WidgetBoard extends FrameLayout {
             out.animate().translationX(-direction*px(56)).alpha(0).setDuration(240).setInterpolator(ease).withLayer().withEndAction(()->{if(pageViews.indexOf(out)!=index){out.setVisibility(INVISIBLE);out.setTranslationX(0);out.setAlpha(1);}}).start();
             in.setTranslationX(direction*px(72));in.setAlpha(0);in.animate().translationX(0).alpha(1).setDuration(460).setStartDelay(40).setInterpolator(ease).withLayer().start();
         } else {out.setVisibility(INVISIBLE);in.setTranslationX(0);in.setAlpha(1);}
+        // Binder calls and decoding compete with the page transition on a TV.
         final int shown=index;postDelayed(()->{if(index==shown)for(Widget w:widgets.get(shown))w.setActive(active);},host.motion()?480:0);
         paintDots(true);
         host.pageChanged(onHouse(),direction);

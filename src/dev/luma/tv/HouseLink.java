@@ -84,6 +84,7 @@ final class HouseLink {
         next();
     }
 
+    /** Recheck queued requests when the worker is ready to send them. */
     private void next() {
         while (!busy && !queue.isEmpty()) {
             if (binder == null) { connect(); return; }
