@@ -753,39 +753,67 @@ class RealAdbServerTest(unittest.TestCase):
         self.assertTrue(self.answers(socket.AF_UNIX, str(foreign / "adb.sock")))
         self.assertTrue(self.answers(socket.AF_INET, ("127.0.0.1", tcp_port)))
 
-    def test_server_that_adb_restarts_during_a_run_is_stopped_at_cleanup(self):
+    def close_with_replacement(self, run, child, evidence_lost=False):
+        original = run.server
+        retired = original.with_name("old-" + original.name[4:])
+        socket_stat = (original / "adb.sock").stat()
+        failure = ""
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            closing = worker.submit(run.close)
+            # The fixture is the replacement's parent. Reap it while cleanup waits for its PID to disappear.
+            while not closing.done() and child.poll() is None:
+                time.sleep(0.05)
+            try:
+                closing.result()
+            except RuntimeError as error:
+                failure = str(error)
+        self.assertFalse(original.exists())
+        if evidence_lost:
+            failure, separator, detail = failure.partition("Could not write commands.jsonl: ")
+            self.assertTrue(separator, failure)
+            self.assertIn(str(run.evidence / "commands.jsonl"), detail)
+        if failure.strip():
+            self.assertFalse(HAS_PIDFD, failure)
+            self.assertEqual(failure.strip(), "ADB did not close its socket after host:kill. No stable "
+                             "process handle is available. The server directory was retained: " + str(retired))
+            self.assertIsNone(child.poll())
+            self.assertTrue(os.path.samestat(socket_stat, (retired / "adb.sock").stat()))
+            stop_child(child)
+        else:
+            child.wait(10)
+            self.assertFalse(retired.exists())
+
+    def test_restarted_adb_is_stopped_or_retained_if_it_hangs_without_a_pidfd(self):
         for lost in (False, True):
-            with self.subTest(evidence_lost=lost), ThreadPoolExecutor(max_workers=1) as reaper:
+            with self.subTest(evidence_lost=lost):
                 evidence = self.base / ("evidence-" + str(lost))
                 run = verify.Run(evidence)
-                try:
+                with contextlib.ExitStack() as cleanup:
+                    cleanup.callback(run.close)
                     run.start_server()
                     own = run.server / "adb.sock"
                     run.process.kill()
                     run.process.wait()
                     restarted = self.start_adb("localfilesystem:" + str(own), run.env)
-                    exited = reaper.submit(restarted.wait, 30)
                     self.assertEqual(self.listener(own), restarted.pid)
                     self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
                     if lost:
                         shutil.rmtree(evidence)
-                finally:
-                    if lost:
-                        with self.assertRaisesRegex(RuntimeError, "Could not write commands.jsonl"):
-                            run.close()
-                    else:
-                        run.close()
-                exited.result()
-                self.assertEqual(list((self.state / "run").glob("*-*")), [])
+                    cleanup.pop_all()
+                self.close_with_replacement(run, restarted, evidence_lost=lost)
                 if not lost:
                     log = [json.loads(line) for line in (evidence / "commands.jsonl").read_text().splitlines()]
-                    self.assertIn({"name": "adb-sweep", "argv": ["host:kill", str(own).replace("/adb-", "/old-")],
-                                   "pid": restarted.pid, "exit": 0}, log)
+                    sweep = [entry for entry in log if entry["name"] == "adb-sweep"]
+                    self.assertEqual(sweep[0]["argv"], ["host:kill", str(own).replace("/adb-", "/old-")])
+                    self.assertTrue(all(entry["pid"] == restarted.pid for entry in sweep))
+                    outcomes = [entry["exit"] for entry in sweep]
+                    self.assertIn(outcomes, [[0], ["hung", 0] if HAS_PIDFD else ["hung"]])
 
     def test_server_reads_only_a_private_copy_of_the_selected_key(self):
         keys = {name: (self.keys / name).read_bytes() for name in ["adbkey", "adbkey.pub"]}
         run = verify.Run(self.base / "evidence")
-        with ThreadPoolExecutor(max_workers=1) as reaper, contextlib.closing(run):
+        with contextlib.ExitStack() as cleanup:
+            cleanup.callback(run.close)
             run.start_server()
             home = Path(run.env["HOME"])
             self.assertEqual(home, run.server / "home")
@@ -803,9 +831,9 @@ class RealAdbServerTest(unittest.TestCase):
             run.process.wait()
             own = run.server / "adb.sock"
             restarted = self.start_adb("localfilesystem:" + str(own), run.env)
-            exited = reaper.submit(restarted.wait, 30)
             self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
-        exited.result()
+            cleanup.pop_all()
+        self.close_with_replacement(run, restarted)
         self.assertEqual(list(self.keys.iterdir()), [])
 
     def test_failed_start_reports_the_daemon_reason(self):
