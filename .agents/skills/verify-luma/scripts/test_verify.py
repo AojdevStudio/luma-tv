@@ -165,7 +165,8 @@ class VerifyTest(unittest.TestCase):
         stops = [call for call in self.tools.calls if call[0] == "terminate"]
         self.assertEqual(len(starts), 1)
         self.assertEqual(stops, [["terminate", starts[0][2]]])
-        self.assertEqual(self.tools.calls[-1], stops[0])
+        after = self.tools.calls[self.tools.calls.index(stops[0]) + 1:]
+        self.assertEqual([call[0] for call in after], ["ps"])
         self.assertEqual(list(verify.STATE.glob("adb-*")), [])
         self.assert_lock_free()
 
@@ -520,6 +521,20 @@ class RealAdbServerTest(unittest.TestCase):
         self.assert_exits(pid)
         self.assertFalse(own.parent.exists())
         self.assertTrue(self.answers(socket.AF_UNIX, str(foreign / "adb.sock")))
+
+    def test_server_that_adb_restarts_during_a_run_is_stopped_at_cleanup(self):
+        run = verify.Run(self.base / "evidence")
+        try:
+            run.start_server()
+            spec = run.adb_server(run.server)[2]
+            run.process.kill()
+            run.process.wait()
+            run.command("restart", [ADB, "-L", spec, "start-server"])
+            self.assertTrue(self.answers(socket.AF_UNIX, spec.split(":", 1)[1]))
+        finally:
+            run.close()
+        listing = subprocess.run(["ps", "-U", str(os.getuid()), "-ww", "-o", "command="], capture_output=True, text=True)
+        self.assertNotIn(spec, listing.stdout)
 
     def test_old_verifier_server_on_the_fixed_port_is_left_running(self):
         self.foreign_server("tcp:localhost:" + str(self.port))

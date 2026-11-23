@@ -70,9 +70,9 @@ PASS covers the selected action only. PARTIAL identifies skipped checks. FAIL id
 
 ## Cleanup
 
-Each live run starts its own ADB server as a child process. The server listens only on a Unix socket in a new private directory under `~/.luma-verify/`, so no other process can reach it. Cleanup (`adb-stop`) signals that child and nothing else. It does not use `adb kill-server`, because ADB 37.0.1 sometimes hangs after that request. The server has USB, emulator, and mDNS discovery turned off. Its log goes to the evidence directory.
+Each live run starts its own ADB server as a child process. The server listens only on a Unix socket in a new private directory under `~/.luma-verify/`, so no other process can reach it. Cleanup (`adb-stop`) signals that child. It does not use `adb kill-server`, because ADB 37.0.1 sometimes hangs after that request. Then `adb-sweep` stops any other process of this user whose arguments name that socket, such as a server that an `adb` command restarted, and removes the directory. The server has USB, emulator, and mDNS discovery turned off. Its log goes to the evidence directory.
 
-One run drives the TCL at a time. A live run holds a lock on `~/.luma-verify/tcl.lock` until cleanup ends. A second run fails with `Another verifier is driving the TCL` and leaves the first one running. The system releases the lock when a run exits or is killed. The next run then finds the killed run's ADB processes by their private socket path, stops them (`adb-reap`), and removes the directory before it starts its own server.
+One run drives the TCL at a time. A live run holds a lock on `~/.luma-verify/tcl.lock` until cleanup ends. A second run fails with `Another verifier is driving the TCL` and leaves the first one running. The system releases the lock when a run exits or is killed. The next run then stops the killed run's ADB processes the same way (`adb-reap`) before it starts its own server.
 
 Older checkouts of this helper used a shared server on port 5042 and do not take the lock. A live run therefore also holds port 5042 on `127.0.0.1` and `::1`. While it does, older helpers see the port in use and stop. If an older helper or another program holds the port, the run fails with `Port 5042 is in use` and leaves that program running. Remove this hold when no older checkout can drive the TCL.
 

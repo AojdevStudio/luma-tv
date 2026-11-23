@@ -140,17 +140,8 @@ class Run:
             fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError("Another verifier is driving the TCL. It was left running.") from None
-        stale = sorted(STATE.glob("adb-*"))
-        if stale:
-            listing = self.command("adb-reap", ["ps", "-A", "-ww", "-o", "pid=", "-o", "command="]).decode(errors="replace")
-            for server in stale:
-                for line in listing.splitlines():
-                    pid, _, command = line.strip().partition(" ")
-                    if self.adb_server(server)[2] in command.split():
-                        with contextlib.suppress(ProcessLookupError):
-                            os.kill(int(pid), signal.SIGKILL)
-                        self.log({"name": "adb-reap", "argv": ["kill", "-KILL", pid], "exit": 0})
-                shutil.rmtree(server)
+        for stale in sorted(STATE.glob("adb-*")):
+            self.remove_server(stale, "adb-reap")
         self.hold_legacy_port()
         self.server = Path(tempfile.mkdtemp(prefix="adb-", dir=STATE))
         self.env.update({"ANDROID_USER_HOME": str(KEYDIR), "ADB_VENDOR_KEYS": str(KEYDIR / "adbkey"),
@@ -172,6 +163,16 @@ class Run:
         self.log({"name": "adb-start", "argv": [*argv, str(write)], "pid": self.process.pid, "exit": status})
         if not ready:
             raise RuntimeError("The ADB server did not report ready within 30s. See its adb.*.log in the evidence.")
+
+    def remove_server(self, server, name):
+        listing = self.command(name, ["ps", "-U", str(os.getuid()), "-ww", "-o", "pid=", "-o", "command="])
+        for line in listing.decode(errors="replace").splitlines():
+            pid, _, args = line.strip().partition(" ")
+            if self.adb_server(server)[2] in args.split():
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(int(pid), signal.SIGKILL)
+                self.log({"name": name, "argv": ["kill", "-KILL", pid], "exit": 0})
+        shutil.rmtree(server)
 
     def hold_legacy_port(self):
         for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
@@ -341,7 +342,7 @@ class Run:
                 self.log({"name": "adb-stop", "argv": ["kill", "-TERM", str(process.pid)], "exit": process.returncode})
             if self.server:
                 server, self.server = self.server, None
-                shutil.rmtree(server)
+                self.remove_server(server, "adb-sweep")
         finally:
             for held in [*self.holds, self.lock]:
                 if held:
