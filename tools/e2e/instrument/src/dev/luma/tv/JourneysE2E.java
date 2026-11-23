@@ -300,6 +300,7 @@ public final class JourneysE2E extends Instrumentation {
 
     private void expectApps(List<String> home) {
         page("Apps");
+        waitFor("Guest Apps page", () -> shown("The apps on Home.") != null);
         List<String> apps = tiles(), sortedHome = new ArrayList<>(home);
         Collections.sort(apps);
         Collections.sort(sortedHome);
