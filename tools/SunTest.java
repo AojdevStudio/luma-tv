@@ -27,12 +27,47 @@ public final class SunTest {
         expect(night[0]==night[1]&&night[0]==local("Arctic/Longyearbyen","2026-12-21T00:00"),"polar night in Longyearbyen is an empty day at local midnight");
         expect(!svalbard.isDay(winter)&&svalbard.nextChange(winter)==local("Arctic/Longyearbyen","2026-12-22T00:00"),"polar night is night and next change is the next local midnight");
 
-        Sun resolute=sun(zones,"America/Resolute");
+        String resoluteZone="America/Resolute";
+        Sun resolute=sun(zones,resoluteZone);
         expect(resolute.isDay(solstice)&&!resolute.isDay(winter),"Resolute has polar day in June and polar night in December");
 
-        expect(resolute.nextChange(local("America/Resolute","2026-02-04T12:00"))==local("America/Resolute","2026-02-05T00:00"),"the final polar night in Resolute checks again at midnight");
+        long lastNight=local(resoluteZone,"2026-02-03T12:30");
+        expect(!resolute.isDay(lastNight)&&resolute.nextChange(lastNight)==local(resoluteZone,"2026-02-04T00:00"),"Resolute stays dark February 3 and checks at the next local midnight");
+        long firstDay=local(resoluteZone,"2026-02-04T12:30");
+        long[] firstLight=resolute.times(firstDay);
+        // Published sunrise 12:09 and sunset 12:58 in Resolute Bay.
+        expect(resolute.isDay(firstDay)&&Math.abs(firstLight[0]-local(resoluteZone,"2026-02-04T12:09"))<10*60000
+            &&Math.abs(firstLight[1]-local(resoluteZone,"2026-02-04T12:58"))<10*60000,"Resolute has a short daylight window on February 4");
+        expect(!resolute.isDay(firstLight[0]-1)&&resolute.nextChange(firstLight[0]-1)==firstLight[0]
+            &&resolute.isDay(firstLight[0])&&resolute.nextChange(firstDay)==firstLight[1]&&!resolute.isDay(firstLight[1])
+            &&resolute.nextChange(firstLight[1])==resolute.times(local(resoluteZone,"2026-02-05T12:30"))[0],"Resolute switches exactly at both February 4 events and schedules the next sunrise");
+
+        String trollZone="Antarctica/Troll";
+        Sun troll=sun(zones,trollZone);
+        long trollDay=local(trollZone,"2026-02-01T23:15"),trollNight=local(trollZone,"2026-02-01T23:50");
+        long trollSunset=troll.times(trollDay)[1];
+        long trollSunrise=troll.times(local(trollZone,"2026-02-02T00:00"))[0];
+        expect(troll.isDay(trollDay)&&!troll.isDay(trollNight)&&trollSunset==at("2026-02-01T23:36:24.509Z"),"Troll keeps its finite February 1 sunset after polar day");
+        expect(troll.nextChange(trollDay)==trollSunset&&!troll.isDay(trollSunset)
+            &&troll.nextChange(trollNight)==trollSunrise&&trollSunrise>local(trollZone,"2026-02-02T00:00"),"Troll schedules the exact sunset and the following sunrise");
+        long polarDayRise=troll.times(local(trollZone,"2026-11-10T12:00"))[0];
+        expect(Math.abs(polarDayRise-local(trollZone,"2026-11-09T23:55"))<5*60000
+            &&!troll.isDay(polarDayRise-1)&&troll.nextChange(polarDayRise-1)==polarDayRise&&troll.isDay(polarDayRise)
+            &&troll.nextChange(polarDayRise)==local(trollZone,"2026-11-10T00:00"),"Troll keeps the sunrise before midnight when polar day returns");
+
+        String svalbardZone="Arctic/Longyearbyen";
+        long lastPolarDay=local(svalbardZone,"2026-08-24T12:00"),afterMidnight=local(svalbardZone,"2026-08-25T00:10");
+        long lateSunset=svalbard.times(lastPolarDay)[1];
+        expect(svalbard.isDay(lastPolarDay)&&svalbard.isDay(afterMidnight)&&!svalbard.isDay(lateSunset)
+            &&Math.abs(lateSunset-local(svalbardZone,"2026-08-25T00:28"))<10*60000
+            &&svalbard.nextChange(lastPolarDay)==lateSunset&&svalbard.nextChange(afterMidnight)==lateSunset,"Longyearbyen keeps the first sunset after midnight on the right date");
+
         Sun thule=sun(zones,"America/Thule");
-        expect(thule.nextChange(local("America/Thule","2026-11-01T00:00"))==local("America/Thule","2026-11-02T00:00"),"Thule checks at the next midnight on a 25-hour polar night");
+        // Midnight starts at UTC−03:00 and the next midnight is at UTC−04:00.
+        long thuleStart=at("2026-11-01T03:00:00Z"),thuleNext=at("2026-11-02T04:00:00Z");
+        expect(local("America/Thule","2026-11-01T00:00")==thuleStart&&local("America/Thule","2026-11-02T00:00")==thuleNext
+            &&!thule.isDay(thuleStart+12*3600000L)&&thule.nextChange(thuleStart)==thuleNext
+            &&thule.nextChange(thuleNext-1)==thuleNext,"Thule stays dark and checks at the next local midnight on a 25-hour day");
 
         Sun oslo=sun(zones,"Europe/Oslo");long[] summer=oslo.times(solstice);
         expect(Math.abs(summer[0]-local("Europe/Oslo","2026-06-21T03:54"))<5*60000&&Math.abs(summer[1]-local("Europe/Oslo","2026-06-21T22:44"))<5*60000,"Oslo solstice sunrise near 03:54 and sunset near 22:44");
