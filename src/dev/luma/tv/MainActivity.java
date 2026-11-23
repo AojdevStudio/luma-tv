@@ -560,11 +560,19 @@ public final class MainActivity extends Activity {
         public View art(String pkg){App a=appIndex.get(pkg);return a==null?null:new Art(a);}
         public void launch(String pkg){App a=appIndex.get(pkg);if(a!=null)MainActivity.this.launch(a);else Toast.makeText(MainActivity.this,"This app is not installed.",Toast.LENGTH_SHORT).show();}
         public void start(Intent intent, Runnable unavailable){
-            ComponentName target=intent.resolveActivity(getPackageManager());
-            if(profiles.mode!=Profiles.Mode.NORMAL&&(target==null||!allowsApp(target.getPackageName()))){Toast.makeText(MainActivity.this,profiles.mode.name+" mode does not open this.",Toast.LENGTH_SHORT).show();return;}
-            try{startActivity(intent);}
-            catch(RuntimeException error){unavailable.run();return;}
-            overridePendingTransition(0,0);}
+            if(profiles.mode!=Profiles.Mode.NORMAL){
+                ComponentName target;
+                try{target=intent.resolveActivity(getPackageManager());}
+                catch(RuntimeException unavailableResolver){target=null;}
+                if(target==null||!allowsApp(target.getPackageName())){
+                    Toast.makeText(MainActivity.this,profiles.mode.name+" mode does not open this.",Toast.LENGTH_SHORT).show();
+                    return;
+                }
+            }
+            Intent launch=new Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            try{startActivity(launch);}
+            catch(RuntimeException error){unavailable.run();}
+        }
         public SharedPreferences prefs(){return prefs;}
         public Activity activity(){return MainActivity.this;}
     };
