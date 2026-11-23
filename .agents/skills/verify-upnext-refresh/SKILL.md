@@ -107,6 +107,6 @@ Sync commit: `7291c42` (complete a failed read on the UI thread). The cut text h
 
 When the hash changes, read the new cut text and confirm the fakes still match how Android and `WidgetBoard.IO` behave. Then run the check. Move the sync commit and hash forward only after that review. Never weaken a property, lower the bound, or drop a mutant to get a pass. For an intended change in behavior, use `/t3-pstack:maintain-formal-verification-skill`.
 
-CI also injects a failed read into the production refresh method. It checks that the old rows stay visible and that either a pending request or a later request draws fresh rows. This is a directed regression outside the bounded schedule count.
+CI also injects a failed read into the production refresh method. It checks that the old rows stay visible and that a refresh draws fresh rows at each of three points: before the worker runs, after it fails but before its UI callback, and after the callback. This is a directed regression outside the bounded schedule count.
 
 CI runs this check through `.github/workflows/upnext-refresh.yml`.

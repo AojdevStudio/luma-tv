@@ -7,14 +7,15 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public final class FailedReadTest {
+    private enum RefreshTime { BEFORE_READ, BEFORE_DELIVERY, AFTER_DELIVERY }
+
     public static void main(String[] args) throws Exception {
         String source = Files.readString(Path.of(UpNextRefreshCheck.DEFAULT_SOURCE));
         Class<?> widgetClass = UpNextRefreshCheck.compile(UpNextRefreshCheck.cutRefreshRegion(source));
-        checkRecovery(widgetClass, true);
-        checkRecovery(widgetClass, false);
+        for (RefreshTime time : RefreshTime.values()) checkRecovery(widgetClass, time);
     }
 
-    private static void checkRecovery(Class<?> widgetClass, boolean pending) throws Exception {
+    private static void checkRecovery(Class<?> widgetClass, RefreshTime time) throws Exception {
         var io = new ArrayDeque<Runnable>();
         var ui = new ArrayDeque<Runnable>();
         var drawn = new ArrayList<Integer>();
@@ -33,19 +34,22 @@ public final class FailedReadTest {
 
         read.set(null, (Supplier<Integer>) () -> { throw new SecurityException("read refused"); });
         refresh.invoke(widget);
+        if (time == RefreshTime.BEFORE_READ) refresh.invoke(widget);
         io.remove().run();
-        if (pending) refresh.invoke(widget);
+        if (time == RefreshTime.BEFORE_DELIVERY) refresh.invoke(widget);
         ui.remove().run();
         if (!drawn.equals(List.of(1))) throw new AssertionError("Failed read replaced the previous rows");
-        if (!pending && !io.isEmpty()) throw new AssertionError("Retried without another request");
 
         read.set(null, (Supplier<Integer>) () -> 2);
-        if (!pending) refresh.invoke(widget);
+        if (time == RefreshTime.AFTER_DELIVERY) {
+            if (!io.isEmpty()) throw new AssertionError("Retried without another request");
+            refresh.invoke(widget);
+        }
         if (io.size() != 1) throw new AssertionError("Expected one recovery read, got " + io.size());
         io.remove().run();
         ui.remove().run();
         if (!drawn.equals(List.of(1, 2)) || !io.isEmpty() || !ui.isEmpty())
             throw new AssertionError("Expected one fresh draw after recovery, saw " + drawn);
-        System.out.println("Passed failed read with " + (pending ? "a pending" : "a later") + " refresh");
+        System.out.println("Passed failed read with refresh at " + time);
     }
 }
