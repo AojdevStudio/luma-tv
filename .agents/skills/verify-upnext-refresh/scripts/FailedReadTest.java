@@ -33,8 +33,8 @@ public final class FailedReadTest {
 
         read.set(null, (Supplier<Integer>) () -> { throw new SecurityException("read refused"); });
         refresh.invoke(widget);
-        if (pending) refresh.invoke(widget);
         io.remove().run();
+        if (pending) refresh.invoke(widget);
         ui.remove().run();
         if (!drawn.equals(List.of(1))) throw new AssertionError("Failed read replaced the previous rows");
         if (!pending && !io.isEmpty()) throw new AssertionError("Retried without another request");
