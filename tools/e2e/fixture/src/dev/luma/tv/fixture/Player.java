@@ -43,6 +43,7 @@ public class Player extends Main {
         row.put(WatchNextPrograms.COLUMN_TYPE, WatchNextPrograms.TYPE_MOVIE);
         row.put(WatchNextPrograms.COLUMN_WATCH_NEXT_TYPE, WatchNextPrograms.WATCH_NEXT_TYPE_CONTINUE);
         row.put(WatchNextPrograms.COLUMN_TITLE, title);
+        if (getIntent().hasExtra("poster")) row.put(WatchNextPrograms.COLUMN_POSTER_ART_URI, getIntent().getStringExtra("poster"));
         row.put(WatchNextPrograms.COLUMN_SHORT_DESCRIPTION, "Fixture episode.");
         row.put(WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS, position);
         row.put(WatchNextPrograms.COLUMN_DURATION_MILLIS, DURATION);

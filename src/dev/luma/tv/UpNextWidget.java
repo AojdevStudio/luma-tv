@@ -188,7 +188,7 @@ final class UpNextWidget extends Widget {
                 boolean progress=next.media.progress>0;
                 track.setVisibility(progress?VISIBLE:GONE);fill.setVisibility(progress?VISIBLE:GONE);
                 if(progress)fill.setLayoutParams(pos((cardW-20)*Math.max(.03f,next.media.progress),3,10,cardH-10));
-                if(item==null||!Objects.equals(item.art,next.art)){
+                if(item==null||!Objects.equals(poster.getTag(),next.art)){
                     poster.setTag(next.art);poster.animate().cancel();poster.setAlpha(1f);poster.setImageDrawable(null);if(art!=null)art.setVisibility(VISIBLE);
                     if(next.art!=null)loadPoster(next.art,poster,art);
                 }
@@ -223,7 +223,16 @@ final class UpNextWidget extends Widget {
                 o=new BitmapFactory.Options();o.inSampleSize=sample;b=BitmapFactory.decodeByteArray(data,0,data.length,o);
             }catch(Exception|OutOfMemoryError ignored){}
             final Bitmap result=b;
-            if(result!=null)view.post(()->{synchronized(posters){posters.put(link,result);}if(!link.equals(view.getTag()))return;view.setImageBitmap(result);view.setAlpha(0f);view.animate().alpha(1).setDuration(motion()?320:0).withEndAction(()->{if(fallback!=null)fallback.setVisibility(INVISIBLE);}).start();});
+            view.post(()->{
+                if(result!=null)posters.put(link,result);
+                if(!link.equals(view.getTag()))return;
+                if(result==null){
+                    view.setTag(null); // A later refresh can retry the same poster.
+                    return;
+                }
+                view.setImageBitmap(result);view.setAlpha(0f);
+                view.animate().alpha(1).setDuration(motion()?320:0).withEndAction(()->{if(fallback!=null)fallback.setVisibility(INVISIBLE);}).start();
+            });
         });
     }
     private static byte[] read(Context context,String link)throws Exception{

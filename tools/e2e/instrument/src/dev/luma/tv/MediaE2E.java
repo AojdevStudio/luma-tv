@@ -6,7 +6,11 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.drawable.BitmapDrawable;
 import android.media.tv.TvContract.WatchNextPrograms;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
@@ -14,7 +18,10 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -45,6 +52,29 @@ public final class MediaE2E extends Instrumentation {
             seed("Fixture-Shown", 30_000, PLAYER, "Fixture-Shown", 30_000, PLAYER);
             Activity luma = launchLuma(null);
             expectCard(luma, "Fixture-Shown · 1 m left · Fixture", .5f);
+        });
+        test("A poster becomes visible after a failed read at the same address", () -> {
+            File file = File.createTempFile("upnext-poster", ".png", getTargetContext().getCacheDir());
+            try {
+                seed("Fixture-Poster", 30_000, PLAYER, "Fixture-Poster", 30_000, PLAYER, Uri.fromFile(file).toString());
+                Activity luma = launchLuma(null);
+                expectCard(luma, "Fixture-Poster · 1 m left · Fixture", .5f);
+                settle();
+                Bitmap bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+                bitmap.eraseColor(Color.MAGENTA);
+                try (FileOutputStream out = new FileOutputStream(file)) {
+                    if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) throw new AssertionError("Could not write poster");
+                }
+                UpNextWidget widget = (UpNextWidget) find(luma, v -> v instanceof UpNextWidget);
+                runOnMainSync(widget::refresh);
+                waitFor("the fixture poster to appear", () -> find(luma, v -> {
+                    if (!(v instanceof ImageView) || !(((ImageView) v).getDrawable() instanceof BitmapDrawable)) return false;
+                    Bitmap shown = ((BitmapDrawable) ((ImageView) v).getDrawable()).getBitmap();
+                    return shown.getWidth() == 8 && shown.getPixel(0, 0) == Color.MAGENTA;
+                }) != null);
+            } finally {
+                if (!file.delete()) throw new AssertionError("Could not remove the test poster");
+            }
         });
         test("A valid provider link opens the programme", () -> {
             seed("Fixture-Link", 30_000, PLAYER, "Fixture-Link", 30_000, PLAYER);
@@ -93,10 +123,16 @@ public final class MediaE2E extends Instrumentation {
         test("Returning from playback shows a new title with the same time left", () -> {
             seed("Fixture-Title", 30_000, PLAYER, "Fixture-Retitled", 30_000, PLAYER);
             Activity luma = launchLuma(null);
-            press(expectCard(luma, "Fixture-Title · 1 m left · Fixture", .5f));
+            View card = expectCard(luma, "Fixture-Title · 1 m left · Fixture", .5f);
+            runOnMainSync(card::requestFocus);
+            View heading = (View) field(luma, "heroTitle");
+            waitFor("old title in the Home heading", () -> find(luma, v -> v == heading && text(v).equals("Fixture-Title")) != null);
+            press(card);
             waitResumed(PLAYER);
             back();
-            expectCard(luma, "Fixture-Retitled · 1 m left · Fixture", .5f);
+            View updated = expectCard(luma, "Fixture-Retitled · 1 m left · Fixture", .5f);
+            waitFor("new title on the card", () -> find(luma, v -> v != heading && text(v).equals("Fixture-Retitled") && v.getParent() == updated) != null);
+            waitFor("new title in the Home heading", () -> find(luma, v -> v == heading && text(v).equals("Fixture-Retitled")) != null);
         });
         test("Returning from playback opens the provider's new link", () -> {
             seed("Fixture-Relink", 30_000, PLAYER, "Fixture-Relink", 30_000, PLAYER_NEXT);
@@ -128,9 +164,13 @@ public final class MediaE2E extends Instrumentation {
     /** Replaces the fixture's Watch Next row and stores what its player saves when Luma opens it. Waits until the
      *  provider returns the row to Luma. */
     private void seed(String title, long position, String link, String nextTitle, long nextPosition, String nextLink) {
+        seed(title, position, link, nextTitle, nextPosition, nextLink, null);
+    }
+
+    private void seed(String title, long position, String link, String nextTitle, long nextPosition, String nextLink, String poster) {
         getContext().startActivity(new Intent().setComponent(ComponentName.unflattenFromString(PLAYER))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            .putExtra("clear", true).putExtra("finish", true)
+            .putExtra("poster", poster).putExtra("clear", true).putExtra("finish", true)
             .putExtra("title", title).putExtra("position", position).putExtra("link", uri(link))
             .putExtra("next_title", nextTitle).putExtra("next_position", nextPosition).putExtra("next_link", uri(nextLink)));
         waitFor("provider row " + title, () -> {
