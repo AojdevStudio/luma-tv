@@ -238,7 +238,7 @@ class Run:
                                    + ". Verify its owner before continuing.")
         self.hold_legacy_port()
         self.server = Path(tempfile.mkdtemp(prefix="adb-", dir=runtime))
-        (self.server / ".owner").hardlink_to(self.lock.name)
+        os.link(self.lock.name, self.server / ".owner")
         # ADB reads keys from $HOME/.android and creates a key there when none exists. A private home that holds
         # only a copy of the trusted key keeps the operator's own keys out, and ADB never opens a trusted path.
         home = self.server / "home"

@@ -226,7 +226,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(stops, [["terminate", starts[0][2]]])
         after = self.tools.calls[self.tools.calls.index(stops[0]) + 1:]
         self.assertEqual(after, [])
-        self.assertEqual(list(verify.STATE.glob("*-*")), [])
+        self.assertEqual(list((verify.STATE / "run").glob("*-*")), [])
         self.assert_lock_free()
 
     def assert_lock_free(self):
@@ -367,7 +367,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
         self.assertIn("retry after about a minute", summary["error"])
         self.assertEqual(sum(call[3:6] == SERVER for call in self.tools.adb_calls()), 3)
-        self.assertEqual(list(verify.STATE.glob("*-*")), [])
+        self.assertEqual(list((verify.STATE / "run").glob("*-*")), [])
         self.assert_lock_free()
 
     def test_missing_ipv6_loopback_holds_ipv4_only(self):
@@ -571,7 +571,7 @@ class VerifyTest(unittest.TestCase):
                 log = [json.loads(line) for line in (self.evidence / "commands.jsonl").read_text().splitlines()]
                 sweep = [(entry["argv"][0], entry["exit"]) for entry in log if entry["name"] == "adb-sweep"]
                 self.assertEqual(sweep, [("host:kill", 0)] if mode == "exit" else [("host:kill", "hung"), ("kill", 0)])
-                self.assertEqual(list(verify.STATE.glob("*-*")), [])
+                self.assertEqual(list((verify.STATE / "run").glob("*-*")), [])
                 self.assert_lock_free()
 
     def test_install_needs_flag_and_cleanyourtv_journal(self):
@@ -756,7 +756,7 @@ class RealAdbServerTest(unittest.TestCase):
                     else:
                         run.close()
                 self.assertFalse(self.alive(restarted))
-                self.assertEqual(list(self.state.glob("*-*")), [])
+                self.assertEqual(list((self.state / "run").glob("*-*")), [])
                 if not lost:
                     log = [json.loads(line) for line in (evidence / "commands.jsonl").read_text().splitlines()]
                     self.assertIn({"name": "adb-sweep", "argv": ["host:kill", str(own).replace("/adb-", "/old-")],
@@ -797,7 +797,7 @@ class RealAdbServerTest(unittest.TestCase):
                 run.start_server()
         finally:
             run.close()
-        self.assertEqual(list(self.state.glob("*-*")), [])
+        self.assertEqual(list((self.state / "run").glob("*-*")), [])
 
     def test_reserved_port_refuses_an_old_adb_server_and_its_clients(self):
         run = verify.Run(self.base / "evidence")
@@ -894,7 +894,7 @@ class RealAdbServerTest(unittest.TestCase):
                     else:
                         self.fail("The interrupted run kept the lock.")
                     self.assertEqual([pid for pid in (shell, sleeper, start["pid"]) if self.alive(pid)], [])
-                    self.assertEqual(list(self.state.glob("*-*")), [])
+                    self.assertEqual(list((self.state / "run").glob("*-*")), [])
                     fcntl.flock(lock, fcntl.LOCK_UN)
                 self.assertEqual(child.wait(10), 1)
                 child.stdout.close()
