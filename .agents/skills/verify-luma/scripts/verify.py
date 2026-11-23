@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify Luma using one fixed TCL transport and private evidence."""
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -120,12 +121,13 @@ class Run:
         for name in ["adbkey", "adbkey.pub"]:
             if not (KEYDIR / name).is_file():
                 raise RuntimeError("Existing trusted ADB key missing. No key was created.")
-        try:
-            with socket.socket() as check:
-                check.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                check.bind(("127.0.0.1", PORT))
-        except OSError:
+        with socket.socket() as check:
+            check.settimeout(1)
+            result = check.connect_ex(("127.0.0.1", PORT))
+        if result == 0:
             raise RuntimeError("Port " + str(PORT) + " is busy. Another adb server may own it. It was left running.")
+        if result != errno.ECONNREFUSED:
+            raise RuntimeError("Could not check port " + str(PORT) + ": " + os.strerror(result))
         self.env.update({"ANDROID_USER_HOME": str(KEYDIR), "ADB_VENDOR_KEYS": str(KEYDIR / "adbkey"),
                          "ADB_MDNS_AUTO_CONNECT": "0", "ADB_SERVER_SOCKET": "tcp:localhost:" + str(PORT)})
         self.command("adb-start", [adb_bin(), "-P", str(PORT), "start-server"])

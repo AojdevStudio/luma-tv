@@ -227,6 +227,16 @@ class VerifyTest(unittest.TestCase):
         self.assertIn("left running", summary["error"])
         self.assertEqual(self.tools.adb_calls(), [])
 
+    def test_wildcard_listener_with_address_reuse_stays_running(self):
+        with socket.socket() as foreign:
+            foreign.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            foreign.bind(("0.0.0.0", verify.PORT))
+            foreign.listen()
+            code, summary = self.run_verify("doctor")
+            self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
+            self.assertIn("left running", summary["error"])
+            self.assertEqual(self.tools.adb_calls(), [])
+
     def test_unauthorized_key_stops_without_retry_and_cleans_up(self):
         self.tools.state = b""
         code, summary = self.run_verify("doctor")
