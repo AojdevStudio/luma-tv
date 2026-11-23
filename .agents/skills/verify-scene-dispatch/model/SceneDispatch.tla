@@ -38,13 +38,14 @@ VARIABLES
     onScreen,      \* MainActivity.started
     status,        \* the pane's status line: "confirm" "starting" "result" "preview"
     clobbered,     \* a result replaced a newer pane
-    movedInSend,   \* history: the user moved to another pane while the worker held the scene
-    leftInSend     \* history: Luma left the screen while the worker held the scene
+    movedAfterSend,     \* history: the viewer left the owning pane after the scene ran, before its answer
+    leftInSend,         \* history: Luma left the screen while the worker held the scene
+    childRefusedAtTake  \* history: Take refused the queued scene while Child mode was active
 
 vars == <<mode, planRev, lumaRev, previewRev, run, queue, busy, posted, bound, readSeen, others,
           sent, modeAtHandOff, ranRev, outcome, resStatus, flagged, delivery,
-          overlay, pane, focus, onScreen, status, clobbered, movedInSend, leftInSend>>
-history == <<movedInSend, leftInSend>>
+          overlay, pane, focus, onScreen, status, clobbered, movedAfterSend, leftInSend, childRefusedAtTake>>
+history == <<movedAfterSend, leftInSend, childRefusedAtTake>>
 ui == <<overlay, pane, focus, onScreen>>
 
 Init ==
@@ -53,7 +54,7 @@ Init ==
     /\ readSeen = 0 /\ others = 0 /\ sent = 0 /\ modeAtHandOff = "none" /\ ranRev = 0 /\ outcome = "none"
     /\ resStatus = "none" /\ flagged = FALSE /\ delivery = "none"
     /\ overlay = "open" /\ pane = "run" /\ focus = "button" /\ onScreen = TRUE /\ status = "confirm"
-    /\ clobbered = FALSE /\ movedInSend = FALSE /\ leftInSend = FALSE
+    /\ clobbered = FALSE /\ movedAfterSend = FALSE /\ leftInSend = FALSE /\ childRefusedAtTake = FALSE
 
 (* Capabilities.refusal: the mode allows scenes and HouseScenes.refusal finds the cached read equal to the preview. *)
 Allowed(rev) == mode = "Normal" /\ rev = previewRev
@@ -61,6 +62,8 @@ Allowed(rev) == mode = "Normal" /\ rev = previewRev
 (* HouseLink.next runs in the same main-thread callback as request() or an answer. A main action may start only
    when that loop has nothing left to take. *)
 Settled == ~(busy = "none" /\ bound /\ queue # <<>>)
+
+ViewerInput == Settled /\ onScreen /\ overlay = "open"
 
 (* runAction's callback: where the result of this run goes. *)
 Deliver(st) ==
@@ -77,7 +80,7 @@ Deliver(st) ==
 
 (* CapabilityCenter.runAction -> Capabilities.run: the first refusal, then readHouse queues a code 1 read. *)
 Confirm ==
-    /\ Settled /\ run = "previewed" /\ overlay = "open" /\ pane = "run" /\ focus = "button"
+    /\ ViewerInput /\ run = "previewed" /\ pane = "run" /\ focus = "button"
     /\ IF Allowed(lumaRev)
          THEN /\ run' = "reading" /\ status' = "starting" /\ queue' = Append(queue, "run-read")
               /\ UNCHANGED <<resStatus, delivery, clobbered>>
@@ -87,7 +90,7 @@ Confirm ==
 
 (* CapabilityCenter.loadScenes, from choosing the Scenes section again: another code 1 read. *)
 OtherRead ==
-    /\ Settled /\ others < 1 /\ overlay = "open"
+    /\ ViewerInput /\ others < 1
     /\ others' = others + 1 /\ queue' = Append(queue, "other")
     /\ UNCHANGED <<mode, planRev, lumaRev, previewRev, run, busy, posted, bound, readSeen, sent, modeAtHandOff,
                    ranRev, outcome, resStatus, flagged, delivery, ui, status, clobbered, history>>
@@ -110,12 +113,14 @@ Take ==
     /\ queue' = Tail(queue)
     /\ IF Head(queue) = "scene"
          THEN IF CheckAtTake /\ ~Allowed(lumaRev)
-                THEN /\ busy' = "none" /\ Deliver("NOT_RUN") /\ UNCHANGED modeAtHandOff
+                THEN /\ busy' = "none" /\ Deliver("NOT_RUN") /\ childRefusedAtTake' = (mode = "Child")
+                     /\ UNCHANGED modeAtHandOff
                 ELSE /\ busy' = "scene" /\ run' = "sending" /\ modeAtHandOff' = mode
-                     /\ UNCHANGED <<resStatus, delivery, status, clobbered>>
-         ELSE /\ busy' = Head(queue) /\ UNCHANGED <<run, modeAtHandOff, resStatus, delivery, status, clobbered>>
+                     /\ UNCHANGED <<resStatus, delivery, status, clobbered, childRefusedAtTake>>
+         ELSE /\ busy' = Head(queue)
+              /\ UNCHANGED <<run, modeAtHandOff, resStatus, delivery, status, clobbered, childRefusedAtTake>>
     /\ UNCHANGED <<mode, planRev, lumaRev, previewRev, posted, bound, readSeen, others, sent, ranRev, outcome,
-                   flagged, ui, history>>
+                   flagged, ui, movedAfterSend, leftInSend>>
 
 (* HouseLink.fetch or send on the worker thread: one Binder transaction. HomeEngine.action runs the scene by id,
    under actionLock, from the plan it holds at that moment. A lost or unreadable reply may follow a run.
@@ -165,32 +170,31 @@ UserUnchanged == UNCHANGED <<planRev, lumaRev, previewRev, run, queue, busy, pos
 
 (* Back moves focus off the button to the section list. The pane is not rebuilt. *)
 Back ==
-    /\ Settled /\ overlay = "open" /\ focus = "button" /\ focus' = "rows"
+    /\ ViewerInput /\ focus = "button" /\ focus' = "rows"
     /\ UNCHANGED <<mode, overlay, pane, onScreen, status, history>> /\ UserUnchanged
 
 (* Back again closes the panel. *)
 Close ==
-    /\ Settled /\ overlay = "open" /\ focus = "rows" /\ overlay' = "closed"
+    /\ ViewerInput /\ focus = "rows" /\ overlay' = "closed"
     /\ UNCHANGED <<mode, pane, focus, onScreen, status, history>> /\ UserUnchanged
 
 (* Focus another scene row (showAction calls pane()), and maybe OK on it, which focuses its Confirm. *)
 MoveOn ==
-    /\ Settled /\ overlay = "open" /\ pane' = "other" /\ status' = "preview" /\ focus' \in {"rows", "button"}
-    /\ movedInSend' = (movedInSend \/ run = "sending")
-    /\ UNCHANGED <<mode, overlay, onScreen, leftInSend>> /\ UserUnchanged
+    /\ ViewerInput /\ pane' = "other" /\ status' = "preview" /\ focus' \in {"rows", "button"}
+    /\ movedAfterSend' = (movedAfterSend \/ (pane = "run" /\ sent = 1 /\ run = "sending"))
+    /\ UNCHANGED <<mode, overlay, onScreen, leftInSend, childRefusedAtTake>> /\ UserUnchanged
 
-(* The Mode section: select() rebuilds the pane, then Child is chosen. *)
+(* The Mode section: select() rebuilds the pane, then enterMode switches to Child and closes the panel. *)
 ChildMode ==
-    /\ Settled /\ overlay = "open" /\ mode = "Normal"
-    /\ mode' = "Child" /\ pane' = "other" /\ focus' = "rows" /\ status' = "preview"
-    /\ movedInSend' = (movedInSend \/ run = "sending")
-    /\ UNCHANGED <<overlay, onScreen, leftInSend>> /\ UserUnchanged
+    /\ ViewerInput /\ mode = "Normal"
+    /\ mode' = "Child" /\ overlay' = "closed" /\ pane' = "other" /\ focus' = "rows" /\ status' = "preview"
+    /\ UNCHANGED <<onScreen, history>> /\ UserUnchanged
 
 (* onPause and onResume. *)
 Leave ==
     /\ Settled /\ onScreen /\ onScreen' = FALSE
     /\ leftInSend' = (leftInSend \/ run = "sending")
-    /\ UNCHANGED <<mode, overlay, pane, focus, status, movedInSend>> /\ UserUnchanged
+    /\ UNCHANGED <<mode, overlay, pane, focus, status, movedAfterSend, childRefusedAtTake>> /\ UserUnchanged
 Return ==
     /\ Settled /\ ~onScreen /\ onScreen' = TRUE
     /\ delivery' = IF delivery = "held" THEN "shown-on-return" ELSE delivery
@@ -210,7 +214,7 @@ TypeOK ==
     /\ mode \in {"Normal", "Child"} /\ planRev \in 0..MaxRev /\ sent \in 0..1
     /\ run \in {"previewed", "reading", "queued", "sending", "finished"}
     /\ delivery \in {"none", "pane", "status", "toast", "held", "shown-on-return", "history", "lost"}
-    /\ movedInSend \in BOOLEAN /\ leftInSend \in BOOLEAN
+    /\ movedAfterSend \in BOOLEAN /\ leftInSend \in BOOLEAN /\ childRefusedAtTake \in BOOLEAN
 
 (* A scene reaches House Control only when Normal mode held at the moment the worker took it. *)
 NoChildHandOff == sent > 0 => modeAtHandOff = "Normal"
@@ -220,7 +224,7 @@ ResultInOwnPane == ~clobbered
 
 (* The same harm for a scene House Control really ran. Its counterexample must hand the scene to the worker, send it,
    move to another pane, and then deliver the late reply. A refusal at the take cannot stand in for it. *)
-ResultInOwnPaneAfterSend == (sent = 1 /\ movedInSend) => ~clobbered
+ResultInOwnPaneAfterSend == movedAfterSend => ~clobbered
 
 (* A failed or unknown result is never dropped unseen. Done results also stay in the history line. *)
 NoLostResult == delivery # "lost"
@@ -246,7 +250,7 @@ AtMostOneSend == sent <= 1
 (* Controls. Each must break, which proves its refusal path is still reachable. A property that holds only because
    these paths vanished from the model proves nothing. *)
 (* A scene queued behind a read is refused at the take because Child mode began. Nothing was handed off or sent. *)
-NeverQueuedChildRefusal == ~(mode = "Child" /\ modeAtHandOff = "none" /\ resStatus = "NOT_RUN" /\ sent = 0)
+NeverQueuedChildRefusal == ~childRefusedAtTake
 (* House Control refused the transaction before it ran anything: an untrusted Luma signer or a missing code. *)
 NeverRefusedBeforeRun == ~(outcome = "refused" /\ resStatus = "NOT_RUN" /\ sent = 0)
 

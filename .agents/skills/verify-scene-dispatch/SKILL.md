@@ -27,8 +27,8 @@ bash .agents/skills/verify-scene-dispatch/scripts/check.sh
 | `code` | With the flags set as the code stands, these hold in every reachable state: `NoChildHandOff`, `ResultInOwnPane`, `ResultInOwnPaneAfterSend`, `AtMostOneSend`, `TypeOK`. |
 | `finding-<property>` | An open defect. TLC must still find its counterexample. The trace below the line is the shortest path to it. |
 | `before-6aa4885` | Real past failure. Without the check at the worker handoff, Luma hands a queued scene to the worker while Child mode is active, and House Control runs it. |
-| `control-<property>` | Two refusal paths must stay reachable. Luma refuses a queued scene at the worker handoff while Child mode is active. House Control can also refuse a request before it runs anything. |
-| `before-fc47a32` | Real past failure. Without the pane check, a scene House Control ran answers after the user moved to another scene, and its late result replaces that scene's Confirm. The trace must show the handoff, the send, the move and the late reply. |
+| `control-<property>` | Two refusal paths must stay reachable. `Take` records when it refuses the queued scene in Child mode. House Control can also refuse a request before it runs anything. |
+| `before-fc47a32` | Real past failure. The trace shows the worker taking the scene, House Control running it, the viewer moving from the pane that started it to another scene, and the late reply replacing that scene's Confirm. |
 | `provider-gap` | Outside Luma. Code 2 carries only the scene id, so a plan import between Luma's last check and the transaction changes what runs. Only a House Control change can close it. |
 
 | Property | Harm when it breaks |
@@ -36,10 +36,10 @@ bash .agents/skills/verify-scene-dispatch/scripts/check.sh
 | `NoChildHandOff` | House Control runs a scene that Luma handed to the worker while Child mode was active. |
 | `ResultInOwnPane` | A late result covers the Confirm of the scene the user is looking at. |
 | `AtMostOneSend` | One Confirm changes the home twice. |
-| `ResultInOwnPaneAfterSend` | `ResultInOwnPane` for a scene House Control ran, after the user moved on while the worker held it. |
+| `ResultInOwnPaneAfterSend` | A late result covers another scene's Confirm after the viewer moved from the owning pane between provider execution and the reply callback. |
 | `NoLostResult` | A failed or unknown result disappears, so the user thinks nothing went wrong. Issue #26. |
-| `NoLostFailure` | Issue #26 as it happened: House Control ran the scene, Luma left the screen, and the late error reply disappears. |
-| `NoLostReply` | Issue #26 for a lost reply: House Control ran the scene, Luma left the screen, and the late Unknown result disappears. |
+| `NoLostFailure` | Issue #26. The viewer moves focus or closes the panel, then leaves Luma. Luma drops the late error result for the scene House Control ran. |
+| `NoLostReply` | The same path for a lost reply. Luma drops the Unknown result while away. |
 | `NoStaleStarting` | The pane says `Starting` after the run ended. Issue #26. |
 | `RanPlanReported` | House Control ran a plan imported after the preview, and the result does not say so. |
 | `NotRunMeansNothingRan` | Luma says Not run for a scene House Control already ran, because its reply could not be read. |
@@ -68,8 +68,11 @@ Sync commit: `f90c906`. The model was checked against the code at that commit.
 | `AnswerScene` | `HouseScenes.outcome`, `HouseScenes.unknown`, `Capabilities.finish`, the callback in `runAction` |
 | `Deliver` | the callback in `runAction`: `shows`, the Toast, `Capabilities.Away` |
 | `Import` | House Control `HomeEngine.importHome` and `setDemo` |
-| `Back`, `Close`, `MoveOn`, `ChildMode` | `CapabilityCenter.onFocus`, `dropPending`, `select`, `closeOverlay`, `modeControls` |
+| `Back`, `Close`, `MoveOn` | `MainActivity.onBackPressed`, `CapabilityCenter.back`, `onFocus`, `dropPending`, `closeOverlay` |
+| `ChildMode` | `CapabilityCenter.select` opens Mode. Confirm calls `enterMode`, which clears `capabilityOverlay` and closes the panel. |
 | `Leave`, `Return` | `MainActivity.onPause`, `onResume` |
+
+Viewer input needs Luma on screen and the panel open. Queued work, transactions, and their reply callbacks can continue while Luma is away.
 
 | Flag | Value at the sync commit | Code that sets it |
 |---|---|---|
