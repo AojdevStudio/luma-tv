@@ -563,7 +563,7 @@ public final class MainActivity extends Activity {
             ComponentName target=intent.resolveActivity(getPackageManager());
             if(profiles.mode!=Profiles.Mode.NORMAL&&(target==null||!allowsApp(target.getPackageName()))){Toast.makeText(MainActivity.this,profiles.mode.name+" mode does not open this.",Toast.LENGTH_SHORT).show();return;}
             try{startActivity(intent);}
-            catch(ActivityNotFoundException | SecurityException error){unavailable.run();return;}
+            catch(RuntimeException error){unavailable.run();return;}
             overridePendingTransition(0,0);}
         public SharedPreferences prefs(){return prefs;}
         public Activity activity(){return MainActivity.this;}
