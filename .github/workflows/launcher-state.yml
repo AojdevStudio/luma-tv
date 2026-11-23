@@ -1,0 +1,43 @@
+name: launcher-state
+
+# luma.sh writes the journal that restore needs to give a TV its own Home back.
+# This job runs the launcher regression tests and the offline state checker on every change to them.
+# Both use a fake adb. No TV, network, SDK, or secret is involved.
+on:
+  pull_request:
+    paths:
+      - luma.sh
+      - tools/test_luma.py
+      - .agents/skills/verify-luma-state/**
+      - .github/workflows/launcher-state.yml
+  push:
+    branches: [main]
+    paths:
+      - luma.sh
+      - tools/test_luma.py
+      - .agents/skills/verify-luma-state/**
+      - .github/workflows/launcher-state.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Launcher state
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Launcher regression tests
+        run: python3 -m unittest discover -s tools -p "test_luma.py" -v
+      - name: State checker with self-check
+        run: python3 .agents/skills/verify-luma-state/scripts/verify.py --self-check --output "$RUNNER_TEMP/launcher-state"
+      - name: Keep checker evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-state
+          path: ${{ runner.temp }}/launcher-state
+          if-no-files-found: ignore
