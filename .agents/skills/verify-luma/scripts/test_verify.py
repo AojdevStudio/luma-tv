@@ -264,11 +264,22 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual((evidence / "summary.json").read_bytes(), saved)
         self.assertEqual((unmarked / "summary.json").read_bytes(), saved)
 
-    def test_verifier_rejects_evidence_inside_its_private_runtime_directory(self):
-        path = verify.STATE / "run" / "adb-doctor"
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            verify.main(["offline", "--evidence", str(path)])
-        self.assertFalse(path.exists())
+    def test_first_run_keeps_evidence_disjoint_from_the_runtime_and_lock(self):
+        paths = [".", "state", "state/run", "state/run/report", "state/tcl.lock", "state/tcl.lock/report"]
+        if sys.platform == "darwin":
+            paths.extend(["STATE", "state/RUN/report", "state/TCL.LOCK/report"])
+        for index, relative in enumerate(paths):
+            parent = self.root.parent / str(index)
+            state = parent / "state"
+            with self.subTest(relative), mock.patch.object(verify, "STATE", state):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as refused:
+                    verify.main(["offline", "--evidence", str(parent / relative)])
+                self.assertEqual(refused.exception.code, 2)
+                self.assertFalse(parent.exists())
+
+        self.evidence = verify.STATE / "adb-doctor"
+        code, summary = self.run_verify("doctor")
+        self.assertEqual(code, 0, summary)
 
     def test_safe_run_passes_with_launcher_suite(self):
         (self.root / "tools/test_luma.py").write_bytes(b"")

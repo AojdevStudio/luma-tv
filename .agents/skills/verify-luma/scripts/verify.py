@@ -553,9 +553,13 @@ def main(argv=None):
     evidence = args.evidence.resolve()
     if evidence == ROOT or ROOT in evidence.parents:
         parser.error("Evidence must live outside the repository.")
-    runtime = (STATE / "run").resolve()
-    if evidence == runtime or runtime in evidence.parents or evidence == (STATE / "tcl.lock").resolve():
-        parser.error("Evidence must live outside the verifier's private runtime directory and lock.")
+    for reserved in (STATE / "run", STATE / "tcl.lock"):
+        private = reserved.resolve()
+        output = evidence
+        if sys.platform == "darwin":
+            private, output = Path(str(private).casefold()), Path(str(output).casefold())
+        if output == private or private in output.parents or output in private.parents:
+            parser.error("Evidence must be separate from the private runtime directory and lock.")
     if evidence.exists():
         parser.error("Evidence path already exists. Choose a new one.")
     os.umask(0o077)
