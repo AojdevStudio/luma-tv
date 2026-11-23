@@ -33,8 +33,7 @@ jobs:
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;36.0.0"'
       - name: Build the signed test APKs
         run: bash tools/e2e/run.sh build
-      # Emulator 37.1.11 (build 15917651) with 2048M RAM and a 128M heap is the setup that passes the whole suite
-      # locally. Without these inputs the action takes the newest stable emulator and the emulator's 1024MB RAM floor.
+      # Match the emulator build and guest RAM used by the local Android TV suite.
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -42,7 +41,6 @@ jobs:
           arch: x86
           emulator-build: 15917651
           ram-size: 2048M
-          heap-size: 128M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           pre-emulator-launch-script: adb start-server

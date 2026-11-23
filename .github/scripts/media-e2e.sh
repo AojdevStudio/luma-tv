@@ -5,7 +5,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit
 ADB="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?set ANDROID_SDK_ROOT}}/platform-tools/adb"
-export ANDROID_SERIAL="${ANDROID_SERIAL:-$("$ADB" -e get-serialno)}"
+: "${ANDROID_SERIAL:?android-emulator-runner must select the test emulator}"
 out=build/e2e/evidence
 mkdir -p "$out"
 
@@ -19,7 +19,7 @@ if (( status != 0 )); then
     save() {
         local file=$1 code=0
         shift
-        "$ADB" "$@" > "$out/$file" 2>&1 || code=$?
+        timeout --kill-after=2s 10s "$ADB" "$@" > "$out/$file" 2>&1 || code=$?
         (( code == 0 )) || echo "adb $* exited $code" | tee -a "$out/$file" >&2
     }
     save crash.txt logcat -d -b crash -v threadtime
@@ -28,6 +28,6 @@ if (( status != 0 )); then
     save meminfo.txt shell cat /proc/meminfo
     save getprop.txt shell getprop
 fi
-kill "$logcat"
-wait "$logcat"
+kill -KILL "$logcat" 2>/dev/null || true
+wait "$logcat" 2>/dev/null || true
 exit "$status"
