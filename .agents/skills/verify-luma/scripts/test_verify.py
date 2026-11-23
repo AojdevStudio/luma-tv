@@ -83,22 +83,22 @@ class OfflineDiscoveryTest(unittest.TestCase):
     def test_unregistered_failing_suite_fails_the_offline_command(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
-            repo = base / "repo"
+            repo = base / "café"
             script = repo / ".agents/skills/verify-luma/scripts/verify.py"
             script.parent.mkdir(parents=True)
             shutil.copyfile(verify.__file__, script)
             suites = repo / "tools"
             suites.mkdir()
-            (suites / "NewSuiteTest.java").write_text(
-                'package dev.luma.tv; public class NewSuiteTest {'
+            (suites / "CaféTest.java").write_text(
+                'package dev.luma.tv; public class CaféTest {'
                 'public static void main(String[] args) { assert false : "suite ran"; } }')
             evidence = base / "evidence"
             result = subprocess.run([sys.executable, script, "offline", "--evidence", evidence], capture_output=True)
             self.assertEqual(result.returncode, 1)
             summary = json.loads((evidence / "summary.json").read_text())
             self.assertEqual(summary["status"], "FAIL", summary)
-            self.assertIn("NewSuiteTest", summary["error"])
-            self.assertIn("suite ran", (evidence / "NewSuiteTest.stderr").read_text())
+            self.assertIn("CaféTest", summary["error"])
+            self.assertIn("suite ran", (evidence / "CaféTest.stderr").read_text())
 
 
 class VerifyTest(unittest.TestCase):
@@ -145,6 +145,15 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(summary["observed"]["installed"]["versionName"], "2.4")
         self.assertTrue((self.evidence / "screen-before.png").is_file() and (self.evidence / "screen.png").is_file())
         self.assert_cleaned_up_once()
+
+    def test_offline_suite_cannot_report_device_or_build_checks(self):
+        for name in ["DoctorTest", "SourceBuildTest"]:
+            (self.root / "tools" / (name + ".java")).touch()
+        _, summary = self.run_verify("offline")
+        self.assertNotIn("doctor", summary["checks"])
+        self.assertNotIn("source_build", summary["checks"])
+        self.assertEqual(summary["java_suites"]["DoctorTest"], "PASS")
+        self.assertEqual(summary["java_suites"]["SourceBuildTest"], "PASS")
 
     def test_missing_launcher_suite_is_partial_not_pass(self):
         code, summary = self.run_verify("offline")

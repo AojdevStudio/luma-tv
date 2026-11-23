@@ -22,6 +22,12 @@ JDK = Path("/opt/homebrew/opt/openjdk@17")
 KEYDIR = Path.home() / "Backups/cleanyourtv/office-tcl-20261019/checkout/tools/adbkey"
 SETTLE = 2
 SOURCE = ["AndroidManifest.xml", "build.sh", "luma.sh", "res", "src", "tools", ".local", ".signing/local.keystore"]
+LEGACY_SUITE_CHECKS = {
+    "CapabilitiesTest": "capabilities", "CapabilityPanelTest": "capability_panel",
+    "CommandsTest": "commands", "DevicesTest": "device_names", "HealthSnapshotTest": "health_snapshot",
+    "HomePresetsTest": "home_presets", "HouseScenesTest": "house_scenes", "MediaContextTest": "media_context",
+    "ProfilesTest": "profiles", "VoiceRequestsTest": "voice_requests", "WeatherLocationTest": "weather_location",
+}
 SNAPSHOT = {
     "home": "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME",
     "disabled": "pm list packages -d", "clean": "pm list packages -e " + CLEAN,
@@ -156,12 +162,16 @@ class Run:
         if not suites:
             raise RuntimeError("No offline Java suites found. Put each suite in tools/<Name>Test.java.")
         classes = self.evidence / "java-classes"
+        if sys.platform.startswith("linux"):
+            self.env["LC_ALL"] = "C.UTF-8"
+        self.summary["java_suites"] = {}
         self.command("java-compile", ["javac", "--release", "8", "-encoding", "UTF-8",
                                       "-sourcepath", "src", "-d", classes, *suites])
         for suite in suites:
             self.command(suite.stem, ["java", "-ea", "-cp", classes, "dev.luma.tv." + suite.stem])
-            name = re.sub(r"(?<!^)(?=[A-Z])", "_", suite.stem[:-4]).lower()
-            self.summary["checks"]["device_names" if name == "devices" else name] = "PASS"
+            self.summary["java_suites"][suite.stem] = "PASS"
+            if suite.stem in LEGACY_SUITE_CHECKS:
+                self.summary["checks"][LEGACY_SUITE_CHECKS[suite.stem]] = "PASS"
         if (ROOT / "tools/test_luma.py").is_file():
             self.env["PYTHONDONTWRITEBYTECODE"] = "1"
             self.command("offline-launcher-tests", [sys.executable, "-m", "unittest", "discover", "-s", "tools", "-p", "test_luma.py", "-v"])
