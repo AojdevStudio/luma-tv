@@ -33,12 +33,15 @@ jobs:
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;36.0.0"'
       - name: Build the signed test APKs
         run: bash tools/e2e/run.sh build
-      # Match the emulator build and guest RAM used by the local Android TV suite.
+      # Match the emulator build, TV display, and guest RAM used by the local Android TV suite.
+      # The default 320x640 portrait panel lacks SystemUI's land-television dimens, so SystemUI
+      # crash-loops until RescueParty reboots the guest mid-suite.
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           target: android-tv
           arch: x86
+          profile: tv_1080p
           emulator-build: 15917651
           ram-size: 2048M
           disable-animations: true
