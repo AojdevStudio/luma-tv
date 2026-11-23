@@ -165,9 +165,9 @@ class Run:
         if sys.platform.startswith("linux"):
             self.env["LC_ALL"] = "C.UTF-8"
         self.summary["java_suites"] = {}
+        self.command("java-version", ["java", "-version"])
         self.command("java-compile", ["javac", "--release", "8", "-encoding", "UTF-8",
                                       "-sourcepath", "src", "-d", classes, *suites])
-        self.command("java-version", ["java", "-version"])
         for suite in suites:
             self.command(suite.stem, ["java", "-ea", "-cp", classes, "dev.luma.tv." + suite.stem])
             self.summary["java_suites"][suite.stem] = "PASS"
