@@ -1,10 +1,13 @@
 name: Support QR codes
 on:
+  push:
+    branches: [main]
   pull_request:
     paths:
       - res/raw/support.txt
       - res/raw/about.txt
       - res/drawable-nodpi/qr_*.png
+      - src/dev/luma/tv/MainActivity.java
       - tools/support-qr.sh
       - .github/workflows/support-qr.yml
 jobs:

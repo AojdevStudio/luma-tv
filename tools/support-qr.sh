@@ -10,29 +10,38 @@ esac
 
 python3 - "${1:-}" <<'PY'
 from pathlib import Path
+import re
 import subprocess
 import sys
 
 raw = Path("res/raw")
 images = Path("res/drawable-nodpi")
-rows = (line.strip() for line in (raw / "support.txt").read_text(encoding="utf-8").splitlines())
+def raw_rows(name):
+    trim = "".join(map(chr, range(33)))
+    for line in (raw / name).read_text(encoding="utf-8").split("\n"):
+        line = line.strip(trim)
+        if line and not line.startswith("#"):
+            yield re.split(r"\s*\|\s*", line, flags=re.ASCII)
+
 payloads = {}
-for index, row in enumerate(line for line in rows if line and not line.startswith("#")):
-    fields = row.split("|")
-    if len(fields) < 3 or not fields[2].strip():
+for index, fields in enumerate(raw_rows("support.txt")):
+    if len(fields) < 3 or not fields[2]:
         sys.exit(f"Support row {index + 1} needs an address in its third field.")
-    payloads[images / f"qr_{index}.png"] = fields[2].strip()
-about = (line.strip() for line in (raw / "about.txt").read_text(encoding="utf-8").splitlines())
-source = next((line[len("source="):] for line in about if line.startswith("source=")), "")
+    payloads[images / f"qr_{index}.png"] = fields[2]
+source = next((row[0][len("source="):] for row in raw_rows("about.txt") if row[0].startswith("source=")), "")
 if not source:
-    sys.exit("Set source= in res/raw/about.txt to the URL shown on the About screen.")
+    sys.exit("Set source= in res/raw/about.txt to the source URL for the About screen.")
 payloads[images / "qr_source.png"] = source
 
 for image, payload in payloads.items():
     if sys.argv[1] == "--check":
         decoded = subprocess.run(["zbarimg", "--quiet", "--raw", str(image)], capture_output=True)
-        if decoded.returncode or decoded.stdout != payload.encode("utf-8") + b"\n":
-            sys.exit(f"{image} does not match its displayed value. Run tools/support-qr.sh to redraw it.")
+        if decoded.returncode:
+            sys.stderr.buffer.write(decoded.stderr)
+            sys.exit(f"Cannot decode {image}. Run tools/support-qr.sh to redraw it.")
+        expected = payload.encode("utf-8") + b"\n"
+        if decoded.stdout != expected:
+            sys.exit(f"{image}: expected {expected!r}, decoded {decoded.stdout!r}. Run tools/support-qr.sh to redraw it.")
     else:
         subprocess.run(["qrencode", "-t", "PNG", "-s", "12", "-m", "2", "-l", "M",
                         "-o", str(image), payload], check=True)
