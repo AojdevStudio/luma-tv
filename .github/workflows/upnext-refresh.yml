@@ -1,0 +1,76 @@
+name: upnext-refresh
+
+on:
+  pull_request:
+    paths:
+      - src/dev/luma/tv/UpNextWidget.java
+      - src/dev/luma/tv/WidgetBoard.java
+      - .agents/skills/verify-upnext-refresh/**
+      - .github/workflows/upnext-refresh.yml
+  push:
+    branches: [main]
+    paths:
+      - src/dev/luma/tv/UpNextWidget.java
+      - src/dev/luma/tv/WidgetBoard.java
+      - .agents/skills/verify-upnext-refresh/**
+      - .github/workflows/upnext-refresh.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Up Next refresh ordering
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Refresh ordering checker with self-check
+        run: java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --self-check
+
+      - name: Recover after a failed provider read
+        shell: bash
+        run: |
+          scripts=.agents/skills/verify-upnext-refresh/scripts
+          javac -d "$RUNNER_TEMP" "$scripts/UpNextRefreshCheck.java" "$scripts/FailedReadTest.java"
+          java -cp "$RUNNER_TEMP" FailedReadTest
+
+      - name: Reject invalid bounds with no result
+        shell: bash
+        run: |
+          for args in "--refreshes -1" "--refreshes 0" "--writes 2x" "--writes" \
+                      "--refreshes 5" "--writes 4" "--refreshes 429496730" \
+                      "--writes 2147483647" "--writes 2147483648"; do
+            read -ra bounds <<< "$args"
+            status=0
+            output=$(java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java "${bounds[@]}") || status=$?
+            printf '%s\n' "$output"
+            test "$status" -eq 2 || { echo "'$args' exited $status, expected 2 (no result)"; exit 1; }
+            [[ "$output" == "no result: ${bounds[0]} "* ]] || { echo "'$args' was not rejected during argument parsing"; exit 1; }
+          done
+
+      - name: Replay the historical refresh and poster queue failures
+        shell: bash
+        run: |
+          git show 11f1b1b2b5cd0cc37ab22172893694077f808d0e:src/dev/luma/tv/UpNextWidget.java > "$RUNNER_TEMP/UpNextWidget.java"
+          status=0
+          java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --source "$RUNNER_TEMP/UpNextWidget.java" > "$RUNNER_TEMP/refresh-history.log" || status=$?
+          cat "$RUNNER_TEMP/refresh-history.log"
+          test "$status" -eq 1
+          for property in one_read_at_a_time never_shows_older newest_request_lands; do
+            grep -Eq "^FAIL +${property}:" "$RUNNER_TEMP/refresh-history.log" || { echo "Restore the historical counterexample for $property"; exit 1; }
+          done
+
+          git show a6b656837af66c6d8cd1a0b778adbbf426e58efc:src/dev/luma/tv/UpNextWidget.java > "$RUNNER_TEMP/UpNextWidget.java"
+          status=0
+          java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --source "$RUNNER_TEMP/UpNextWidget.java" > "$RUNNER_TEMP/poster-queue.log" || status=$?
+          cat "$RUNNER_TEMP/poster-queue.log"
+          test "$status" -eq 1
+          grep -Eq '^FAIL +pending_read_before_posters:' "$RUNNER_TEMP/poster-queue.log"
