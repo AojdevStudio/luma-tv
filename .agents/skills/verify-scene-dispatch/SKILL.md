@@ -55,7 +55,7 @@ An `error` result means TLC did not finish, such as a parse error or a missing J
 
 ## Coverage
 
-Sync commit: `f90c906`. The model was checked against the code at that commit.
+Sync commit: `2545516`. The model was checked against the code at that commit.
 
 | Model action | Code |
 |---|---|
