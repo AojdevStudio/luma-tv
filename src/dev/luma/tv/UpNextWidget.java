@@ -37,7 +37,6 @@ final class UpNextWidget extends Widget {
     final float cardW=(w-PAD*2-GAP_X*(SLOTS-1))/SLOTS,cardH=cardW*9/16;
     final FrameLayout cards;
     final TextView tag,empty;
-    String shown=null;   // null: nothing shown yet, so an empty list still shows its message
 
     UpNextWidget(Context context,WidgetBoard.Host host){
         super(context,host,WidgetBoard.width("upnext"));
@@ -125,54 +124,106 @@ final class UpNextWidget extends Widget {
     static String join(String a,String b){return a==null||a.isEmpty()?(b==null?"":b):b==null||b.isEmpty()?a:a+" · "+b;}
     static String ago(long at){long m=Math.max(0,(System.currentTimeMillis()-at)/60000);if(m<2)return "Just now";if(m<60)return m+" min ago";if(m<1440)return m/60+" h ago";long d=m/1440;return d==1?"Yesterday":d+" days ago";}
 
-    /** Rebuilds the cards only when the list changed, and keeps focus on the same slot. */
+    /** Rebinds a card in place while the same row stays in its slot, so focus and an OK press held across a refresh
+     *  survive. A different row in a slot gets a new card: a press held on the old row never opens the new one. */
     private void show(ArrayList<Item> items){
-        StringBuilder key=new StringBuilder();for(Item i:items)key.append(i.key).append('|').append(i.line).append('|').append(i.detail).append(';');
-        if(key.toString().equals(shown)||!isAttachedToWindow())return;shown=key.toString();
+        if(!isAttachedToWindow())return;
         ArrayList<String> sources=new ArrayList<>();for(Item i:items)if(!i.allow)sources.add(i.media!=null?i.media.source:i.title);
         tag.setText(MediaContext.tag(Promo.on?MediaContext.Data.DEMO:MediaContext.Data.LIVE,sources));
-        int focusedSlot=-1;for(int s=0;s<cards.getChildCount();s++)if(cards.getChildAt(s).hasFocus())focusedSlot=s;
-        cards.removeAllViews();
+        int focusedSlot=-1;for(int s=0;s<shown.size();s++)if(shown.get(s).cell.hasFocus())focusedSlot=s;
         empty.setVisibility(items.isEmpty()?VISIBLE:GONE);
-        for(int s=0;s<items.size();s++)cards.addView(card(items.get(s),s),pos(cardW,cardH+46,PAD+s*(cardW+GAP_X),CARD_Y));
-        if(focusedSlot>=0&&cards.getChildCount()>0)cards.getChildAt(Math.min(focusedSlot,cards.getChildCount()-1)).requestFocus();
-    }
-    private View card(Item item,int slot){
-        Context c=getContext();
-        FrameLayout cell=new FrameLayout(c);cell.setClipChildren(false);
-        FrameLayout face=new FrameLayout(c);face.setClipToOutline(true);face.setElevation(px(2));
-        GradientDrawable bg=round(item.allow?(light()?0x14000000:0x1AFFFFFF):0xFF1C1C1E,12);face.setBackground(bg);
-        cell.addView(face,pos(cardW,cardH,0,0));
-        if(item.allow){
-            Glyph g=new Glyph(c).kind("tv").color(ink(0xD9));face.addView(g,pos(30,30,(cardW-30)/2,cardH/2-24));
-            TextView t=text("Allow access",12,ink(0xD9),"sans-serif-medium");t.setGravity(Gravity.CENTER);face.addView(t,pos(cardW,16,0,cardH/2+12));
-        } else if(item.app){
-            View art=host.art(item.pkg);if(art!=null)face.addView(art,new LayoutParams(-1,-1));
-        } else {
-            ImageView poster=new ImageView(c);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);face.addView(poster,new LayoutParams(-1,-1));
-            View art=host.art(item.pkg);if(art!=null){art.setAlpha(1);face.addView(art,0,new LayoutParams(-1,-1));}
-            if(item.art!=null)loadPoster(item.art,poster,art);
-            View shade=new View(c);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00000000,0x00000000,0x8C000000}));face.addView(shade,new LayoutParams(-1,-1));
-            if(item.media.progress>0){
-                View track=new View(c);track.setBackground(round(0x59FFFFFF,1.5f));face.addView(track,pos(cardW-20,3,10,cardH-10));
-                View fill=new View(c);fill.setBackground(round(Color.WHITE,1.5f));face.addView(fill,pos((cardW-20)*Math.max(.03f,item.media.progress),3,10,cardH-10));
-            }
+        ArrayList<Card> next=new ArrayList<>();
+        for(int s=0;s<items.size();s++){
+            Item item=items.get(s);Card card=s<shown.size()?shown.get(s):null;
+            if(card!=null&&card.item.key.equals(item.key))card.bind(item);
+            else{if(card!=null)cards.removeView(card.cell);card=new Card(item,s);cards.addView(card.cell,s,pos(cardW,cardH+46,PAD+s*(cardW+GAP_X),CARD_Y));}
+            next.add(card);
         }
-        GradientDrawable rim=round(Color.TRANSPARENT,12);rim.setStroke(px(1.2f),0xF0FFFFFF);rim.setAlpha(0);face.setForeground(rim);
-        TextView title=text(item.title,13,ink(0xF2),"sans-serif-medium");cell.addView(title,pos(cardW,17,1,cardH+9));
-        TextView line=text(item.line==null?"":item.line,11.5f,ink(0x99),"sans-serif");cell.addView(line,pos(cardW,15,1,cardH+28));
-        face.setPivotX(px(cardW/2));face.setPivotY(px(cardH/2));
-        cell.setFocusable(true);cell.setFocusableInTouchMode(true);cell.setSoundEffectsEnabled(false);cell.setContentDescription(join(item.title,item.line));
-        cell.setOnFocusChangeListener((v,f)->{
-            face.animate().cancel();title.animate().cancel();line.animate().cancel();float s=f?1.08f:1;
-            if(motion()){face.animate().scaleX(s).scaleY(s).translationY(f?-px(2):0).setDuration(f?460:300).setInterpolator(f?spring:ease).start();
-                title.animate().translationY(f?px(5):0).setDuration(300).setInterpolator(ease).start();line.animate().translationY(f?px(5):0).setDuration(300).setInterpolator(ease).start();}
-            else{face.setScaleX(s);face.setScaleY(s);}
-            face.setElevation(px(f?14:2));rim.setAlpha(f?220:0);cell.setTranslationZ(px(f?20:0));
-            if(f){host.hero("upnext:"+item.key,item.title,item.detail);host.step(slot);}
-        });
-        cell.setOnClickListener(v->{host.open();press(face,1.08f);open(item);});
-        return cell;
+        for(int s=items.size();s<shown.size();s++)cards.removeView(shown.get(s).cell);
+        shown=next;
+        if(focusedSlot>=0&&!next.isEmpty()){View cell=next.get(Math.min(focusedSlot,next.size()-1)).cell;if(!cell.hasFocus())cell.requestFocus();}
+    }
+    private ArrayList<Card> shown=new ArrayList<>();
+    /** One Up Next card. Its row (key) never changes; bind applies the row's current title, line, progress, poster and link. */
+    private final class Card{
+        final FrameLayout cell,face;final TextView title,line;final GradientDrawable rim;
+        ImageView poster;View art,track,fill;Item item;
+        String posterLink;long posterRequest;
+        Card(Item first,int slot){
+            Context c=getContext();
+            cell=new FrameLayout(c);cell.setClipChildren(false);
+            face=new FrameLayout(c);face.setClipToOutline(true);face.setElevation(px(2));
+            face.setBackground(round(first.allow?(light()?0x14000000:0x1AFFFFFF):0xFF1C1C1E,12));
+            cell.addView(face,pos(cardW,cardH,0,0));
+            if(first.allow){
+                Glyph g=new Glyph(c).kind("tv").color(ink(0xD9));face.addView(g,pos(30,30,(cardW-30)/2,cardH/2-24));
+                TextView t=text("Allow access",12,ink(0xD9),"sans-serif-medium");t.setGravity(Gravity.CENTER);face.addView(t,pos(cardW,16,0,cardH/2+12));
+            } else if(first.app){
+                art=host.art(first.pkg);if(art!=null)face.addView(art,new LayoutParams(-1,-1));
+            } else {
+                poster=new ImageView(c);poster.setScaleType(ImageView.ScaleType.CENTER_CROP);face.addView(poster,new LayoutParams(-1,-1));
+                art=host.art(first.pkg);if(art!=null){art.setAlpha(1);face.addView(art,0,new LayoutParams(-1,-1));}
+                View shade=new View(c);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x00000000,0x00000000,0x8C000000}));face.addView(shade,new LayoutParams(-1,-1));
+                track=new View(c);track.setBackground(round(0x59FFFFFF,1.5f));face.addView(track,pos(cardW-20,3,10,cardH-10));
+                fill=new View(c);fill.setBackground(round(Color.WHITE,1.5f));face.addView(fill,pos(0,3,10,cardH-10));
+            }
+            rim=round(Color.TRANSPARENT,12);rim.setStroke(px(1.2f),0xF0FFFFFF);rim.setAlpha(0);face.setForeground(rim);
+            title=text("",13,ink(0xF2),"sans-serif-medium");cell.addView(title,pos(cardW,17,1,cardH+9));
+            line=text("",11.5f,ink(0x99),"sans-serif");cell.addView(line,pos(cardW,15,1,cardH+28));
+            face.setPivotX(px(cardW/2));face.setPivotY(px(cardH/2));
+            cell.setFocusable(true);cell.setFocusableInTouchMode(true);cell.setSoundEffectsEnabled(false);
+            cell.setOnFocusChangeListener((v,f)->{
+                face.animate().cancel();title.animate().cancel();line.animate().cancel();float s=f?1.08f:1;
+                if(motion()){face.animate().scaleX(s).scaleY(s).translationY(f?-px(2):0).setDuration(f?460:300).setInterpolator(f?spring:ease).start();
+                    title.animate().translationY(f?px(5):0).setDuration(300).setInterpolator(ease).start();line.animate().translationY(f?px(5):0).setDuration(300).setInterpolator(ease).start();}
+                else{face.setScaleX(s);face.setScaleY(s);}
+                face.setElevation(px(f?14:2));rim.setAlpha(f?220:0);cell.setTranslationZ(px(f?20:0));
+                if(f){host.hero("upnext:"+item.key,item.title,item.detail);host.step(slot);}
+            });
+            cell.setOnClickListener(v->{host.open();press(face,1.08f);open(item);});
+            bind(first);
+        }
+        void bind(Item next){
+            title.setText(next.title);line.setText(next.line==null?"":next.line);cell.setContentDescription(join(next.title,next.line));
+            if(poster!=null){
+                boolean progress=next.media.progress>0;
+                track.setVisibility(progress?VISIBLE:GONE);fill.setVisibility(progress?VISIBLE:GONE);
+                if(progress)fill.setLayoutParams(pos((cardW-20)*Math.max(.03f,next.media.progress),3,10,cardH-10));
+                if(!Objects.equals(posterLink,next.art)){
+                    posterLink=next.art;posterRequest++;
+                    poster.animate().cancel();poster.setAlpha(1f);poster.setImageDrawable(null);if(art!=null)art.setVisibility(VISIBLE);
+                    if(next.art!=null)loadPoster(next.art,posterRequest);
+                }
+            }
+            boolean changed=item!=null&&!(Objects.equals(item.title,next.title)&&Objects.equals(item.detail,next.detail));
+            item=next;
+            if(changed&&cell.hasFocus())host.hero("upnext:"+next.key,next.title,next.detail);
+        }
+        /** Loads a poster off the main thread (content:, android.resource: or https: links), scaled to the card. */
+        private void loadPoster(String link,long request){
+            Bitmap cached=posters.get(link);if(cached!=null){poster.setImageBitmap(cached);if(art!=null)art.setVisibility(INVISIBLE);return;}
+            final Context context=getContext().getApplicationContext();final int width=px(cardW)*2;
+            WidgetBoard.IO.execute(()->{
+                Bitmap b=null;
+                try{
+                    byte[] data=read(context,link);
+                    BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(data,0,data.length,o);
+                    int sample=1;while(o.outWidth/(sample*2)>=width)sample*=2;
+                    o=new BitmapFactory.Options();o.inSampleSize=sample;b=BitmapFactory.decodeByteArray(data,0,data.length,o);
+                }catch(Exception|OutOfMemoryError ignored){}
+                final Bitmap result=b;
+                poster.post(()->{
+                    if(request!=posterRequest)return;
+                    if(result==null){
+                        posterLink=null; // A later refresh can retry the same poster.
+                        return;
+                    }
+                    posters.put(link,result);
+                    poster.setImageBitmap(result);poster.setAlpha(0f);
+                    poster.animate().alpha(1).setDuration(motion()?320:0).withEndAction(()->{if(art!=null)art.setVisibility(INVISIBLE);}).start();
+                });
+            });
+        }
     }
     private void open(Item item){
         if(item.allow){
@@ -185,22 +236,6 @@ final class UpNextWidget extends Widget {
             try{item.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);host.start(item.intent);return;}catch(RuntimeException ignored){}
         }
         host.launch(item.pkg);
-    }
-    /** Loads a poster off the main thread (content:, android.resource: or https: links), scaled to the card. */
-    private void loadPoster(String link,ImageView view,View fallback){
-        Bitmap cached=posters.get(link);if(cached!=null){view.setImageBitmap(cached);if(fallback!=null)fallback.setVisibility(INVISIBLE);return;}
-        final Context context=getContext().getApplicationContext();final int width=px(cardW)*2;
-        WidgetBoard.IO.execute(()->{
-            Bitmap b=null;
-            try{
-                byte[] data=read(context,link);
-                BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(data,0,data.length,o);
-                int sample=1;while(o.outWidth/(sample*2)>=width)sample*=2;
-                o=new BitmapFactory.Options();o.inSampleSize=sample;b=BitmapFactory.decodeByteArray(data,0,data.length,o);
-            }catch(Exception|OutOfMemoryError ignored){}
-            final Bitmap result=b;
-            if(result!=null)view.post(()->{synchronized(posters){posters.put(link,result);}view.setImageBitmap(result);view.setAlpha(0f);view.animate().alpha(1).setDuration(motion()?320:0).withEndAction(()->{if(fallback!=null)fallback.setVisibility(INVISIBLE);}).start();});
-        });
     }
     private static byte[] read(Context context,String link)throws Exception{
         InputStream in;

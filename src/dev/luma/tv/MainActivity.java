@@ -38,7 +38,7 @@ public final class MainActivity extends Activity {
     private View sceneryShade;
     private Wallpaper wallpaper;
     private TextView heroTitle, heroDescription, clock;
-    private String heroKey="";
+    private String heroKey="", requestedHeroTitle="", requestedHeroDetail="";
     private boolean holdGreeting;
     private ScrollView scroll;
     private LinearLayout rows;
@@ -409,6 +409,8 @@ public final class MainActivity extends Activity {
         boolean housePage=false;for(ArrayList<String> p:layout)housePage|=p.contains("house");
         content.addView(hero,pos(864,88,48,home?(!layout.isEmpty()?96:272):100));
         heroKey=home?"@greeting":"";
+        requestedHeroTitle=heroTitle.getText().toString();
+        requestedHeroDetail=heroDescription.getText().toString();
         if(home&&housePage){
             houseWidgets=new HouseWidgets(this,unit,shown.scenes,houseRead,new HouseWidgets.Callbacks(){
                 public void up(){tabs.get(0).requestFocus();}
@@ -596,7 +598,9 @@ public final class MainActivity extends Activity {
     }
     /** Cross-fades the hero to a new title and line. */
     private void setHero(String key,String title,String detail){
-        if(heroTitle==null||key.equals(heroKey))return;heroKey=key;
+        if(heroTitle==null)return;
+        if(key.equals(heroKey)&&Objects.equals(title,requestedHeroTitle)&&Objects.equals(detail,requestedHeroDetail))return;
+        heroKey=key;requestedHeroTitle=title;requestedHeroDetail=detail;
         final TextView t=heroTitle,d=heroDescription;t.animate().cancel();d.animate().cancel();
         boolean media=key.startsWith("upnext:")||key.startsWith("music:");
         d.setSingleLine(!media);d.setMaxLines(media?2:1);

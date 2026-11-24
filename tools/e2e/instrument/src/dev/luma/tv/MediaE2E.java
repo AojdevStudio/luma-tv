@@ -6,7 +6,11 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.drawable.BitmapDrawable;
 import android.media.tv.TvContract.WatchNextPrograms;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
@@ -14,7 +18,10 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,17 +51,55 @@ public final class MediaE2E extends Instrumentation {
         test("Up Next shows the provider row and its progress", () -> {
             seed("Fixture-Shown", 30_000, PLAYER, "Fixture-Shown", 30_000, PLAYER);
             Activity luma = launchLuma(null);
-            expectBar(card(luma, "Fixture-Shown"), .5f);
+            expectCard(luma, "Fixture-Shown · 1 m left · Fixture", .5f);
+        });
+        test("A poster becomes visible after a failed read at the same address", () -> {
+            File file = File.createTempFile("upnext-poster", ".png", getTargetContext().getCacheDir());
+            try {
+                seed("Fixture-Poster", 30_000, PLAYER, "Fixture-Poster", 30_000, PLAYER, Uri.fromFile(file).toString());
+                Activity luma = launchLuma(null);
+                expectCard(luma, "Fixture-Poster · 1 m left · Fixture", .5f);
+                settle();
+                Bitmap bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+                bitmap.eraseColor(Color.MAGENTA);
+                try (FileOutputStream out = new FileOutputStream(file)) {
+                    if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) throw new AssertionError("Could not write poster");
+                }
+                UpNextWidget widget = (UpNextWidget) find(luma, v -> v instanceof UpNextWidget);
+                runOnMainSync(widget::refresh);
+                waitFor("the fixture poster to appear", () -> find(luma, v -> {
+                    if (!(v instanceof ImageView) || !(((ImageView) v).getDrawable() instanceof BitmapDrawable)) return false;
+                    Bitmap shown = ((BitmapDrawable) ((ImageView) v).getDrawable()).getBitmap();
+                    return shown.getWidth() == 8 && shown.getPixel(0, 0) == Color.MAGENTA;
+                }) != null);
+            } finally {
+                if (!file.delete()) throw new AssertionError("Could not remove the test poster");
+            }
         });
         test("A valid provider link opens the programme", () -> {
             seed("Fixture-Link", 30_000, PLAYER, "Fixture-Link", 30_000, PLAYER);
             Activity luma = launchLuma(null);
-            press(card(luma, "Fixture-Link"));
+            press(expectCard(luma, "Fixture-Link · 1 m left · Fixture", .5f));
+            waitResumed(PLAYER);
+        });
+        test("An OK press held across an unchanged refresh opens the programme", () -> {
+            seed("Fixture-Held", 30_000, PLAYER, "Fixture-Held", 30_000, PLAYER);
+            Activity luma = launchLuma(null);
+            View card = expectCard(luma, "Fixture-Held · 1 m left · Fixture", .5f);
+            runOnMainSync(card::requestFocus);
+            waitForIdleSync();
+            long down = SystemClock.uptimeMillis();
+            sendKeySync(new KeyEvent(down, down, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 0));
+            View upNext = find(luma, v -> v instanceof UpNextWidget);
+            runOnMainSync(((UpNextWidget) upNext)::refresh);
+            settle();
+            expectCard(luma, "Fixture-Held · 1 m left · Fixture", .5f);
+            sendKeySync(new KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER, 0));
             waitResumed(PLAYER);
         });
         test("Child mode hides Up Next and refuses an unapproved provider link", () -> {
             seed("Fixture-Child", 30_000, PLAYER, "Fixture-Child", 30_000, PLAYER);
-            card(launchLuma(null), "Fixture-Child");
+            expectCard(launchLuma(null), "Fixture-Child · 1 m left · Fixture", .5f);
             Activity luma = launchLuma(Profiles.DEFAULT.enter(Profiles.Mode.CHILD).line());
             waitFor("Child mode chip", () -> find(luma, v -> "Child mode".equals(text(v))) != null);
             if (find(luma, v -> "Up Next".equals(text(v))) != null) throw new AssertionError("Child mode shows Up Next");
@@ -66,6 +111,46 @@ public final class MediaE2E extends Instrumentation {
             });
             SystemClock.sleep(3_000);
             if (!resumed().equals(LUMA)) throw new AssertionError("Child mode opened an unapproved provider link: " + resumed());
+        });
+        test("Returning from playback shows progress saved in the same minute", () -> {
+            seed("Fixture-Progress", 1_000, PLAYER, "Fixture-Progress", 50_000, PLAYER);
+            Activity luma = launchLuma(null);
+            press(expectCard(luma, "Fixture-Progress · 1 m left · Fixture", .03f));
+            waitResumed(PLAYER);
+            back();
+            expectCard(luma, "Fixture-Progress · 1 m left · Fixture", 50f / 60f);
+        });
+        test("Returning from playback shows a new title with the same time left", () -> {
+            seed("Fixture-Title", 30_000, PLAYER, "Fixture-Retitled", 30_000, PLAYER);
+            Activity luma = launchLuma(null);
+            View card = expectCard(luma, "Fixture-Title · 1 m left · Fixture", .5f);
+            runOnMainSync(card::requestFocus);
+            View heading = (View) field(luma, "heroTitle");
+            waitFor("old title in the Home heading", () -> find(luma, v -> v == heading && text(v).equals("Fixture-Title")) != null);
+            press(card);
+            waitResumed(PLAYER);
+            back();
+            View updated = expectCard(luma, "Fixture-Retitled · 1 m left · Fixture", .5f);
+            waitFor("new title on the card", () -> find(luma, v -> v != heading && text(v).equals("Fixture-Retitled") && v.getParent() == updated) != null);
+            runOnMainSync(updated::requestFocus);
+            waitFor("updated title on focus", () -> find(luma, v -> v == heading && text(v).equals("Fixture-Retitled")) != null);
+            String reply = shell("am broadcast -n " + FIXTURE + "/.RenameProgramme --es title Fixture-Live");
+            if (!reply.contains("result=1")) throw new AssertionError("Fixture rename failed: " + reply);
+            UpNextWidget widget = (UpNextWidget) find(luma, v -> v instanceof UpNextWidget);
+            runOnMainSync(widget::refresh);
+            expectCard(luma, "Fixture-Live · 1 m left · Fixture", .5f);
+            waitFor("live title in the focused Home heading", () -> find(luma, v -> v == heading && text(v).equals("Fixture-Live")) != null);
+        });
+        test("Returning from playback opens the provider's new link", () -> {
+            seed("Fixture-Relink", 30_000, PLAYER, "Fixture-Relink", 30_000, PLAYER_NEXT);
+            Activity luma = launchLuma(null);
+            press(expectCard(luma, "Fixture-Relink · 1 m left · Fixture", .5f));
+            waitResumed(PLAYER);
+            back();
+            // Only the link changed, so nothing visible marks the reload: wait for it to finish, then check the card.
+            settle();
+            press(expectCard(luma, "Fixture-Relink · 1 m left · Fixture", .5f));
+            waitResumed(PLAYER_NEXT);
         });
         Bundle result = new Bundle();
         report.append(failures == 0 ? "E2E PASS\n" : "E2E FAIL " + failures + "\n");
@@ -86,9 +171,13 @@ public final class MediaE2E extends Instrumentation {
     /** Replaces the fixture's Watch Next row and stores what its player saves when Luma opens it. Waits until the
      *  provider returns the row to Luma. */
     private void seed(String title, long position, String link, String nextTitle, long nextPosition, String nextLink) {
+        seed(title, position, link, nextTitle, nextPosition, nextLink, null);
+    }
+
+    private void seed(String title, long position, String link, String nextTitle, long nextPosition, String nextLink, String poster) {
         getContext().startActivity(new Intent().setComponent(ComponentName.unflattenFromString(PLAYER))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            .putExtra("clear", true).putExtra("finish", true)
+            .putExtra("poster", poster).putExtra("clear", true).putExtra("finish", true)
             .putExtra("title", title).putExtra("position", position).putExtra("link", uri(link))
             .putExtra("next_title", nextTitle).putExtra("next_position", nextPosition).putExtra("next_link", uri(nextLink)));
         waitFor("provider row " + title, () -> {
@@ -122,14 +211,29 @@ public final class MediaE2E extends Instrumentation {
         return luma;
     }
 
-    /** The Up Next card whose title is exactly this one. */
-    private View card(Activity luma, String title) {
-        AtomicReference<View> found = new AtomicReference<>();
-        waitFor("Up Next card " + title, () -> {
-            found.set(find(luma, v -> v.isLaidOut() && v.isFocusable() && description(v).startsWith(title + " · ")));
-            return found.get() != null;
-        });
-        return found.get();
+    /** Waits until an Up Next card reads exactly this description (title, time left, app) and draws this share of its
+     *  progress bar, and returns it. */
+    private View expectCard(Activity luma, String description, float progress) {
+        long end = SystemClock.uptimeMillis() + WAIT_MS;
+        String seen;
+        do {
+            View card = find(luma, v -> v.isLaidOut() && v.isFocusable() && description.equals(description(v)));
+            if (card == null) seen = "no card";
+            else {
+                float share = bar(card);
+                if (Math.abs(share - progress) <= .02f) return card;
+                seen = "a progress bar of " + share;
+            }
+            SystemClock.sleep(200);
+        } while (SystemClock.uptimeMillis() < end);
+        throw new AssertionError("expected Up Next card '" + description + "' with a progress bar of " + progress + ", saw " + seen);
+    }
+
+    /** Waits until Up Next's background reads finish and Luma has drawn their results. */
+    private void settle() {
+        java.util.concurrent.ThreadPoolExecutor io = (java.util.concurrent.ThreadPoolExecutor) WidgetBoard.IO;
+        waitFor("Up Next reads to finish", () -> io.getCompletedTaskCount() == io.getTaskCount());
+        waitForIdleSync();
     }
 
     /** Focuses the card and presses OK on the remote, as a viewer would. */
@@ -146,15 +250,15 @@ public final class MediaE2E extends Instrumentation {
         waitForIdleSync();
     }
 
-    /** The drawn length of the card's progress bar as a share of its track. */
-    private void expectBar(View card, float expected) {
+    /** The drawn length of the card's progress bar as a share of its track, or -1 when it shows no bar. */
+    private float bar(View card) {
         int[] widths = new int[2];
         runOnMainSync(() -> {
             ViewGroup face = (ViewGroup) ((ViewGroup) card).getChildAt(0);
             ArrayList<View> bars = new ArrayList<>();
             for (int i = 0; i < face.getChildCount(); i++) {
                 View child = face.getChildAt(i);
-                if (child.getClass() == View.class && child.getHeight() > 0 && child.getHeight() * 10 < face.getHeight()) bars.add(child);
+                if (child.getClass() == View.class && child.isShown() && child.getHeight() > 0 && child.getHeight() * 10 < face.getHeight()) bars.add(child);
             }
             if (bars.size() == 2) {
                 // Up Next adds the track first and draws the fill over it.
@@ -162,12 +266,7 @@ public final class MediaE2E extends Instrumentation {
                 widths[1] = bars.get(1).getWidth();
             }
         });
-        int trackWidth = widths[0], fillWidth = widths[1];
-        if (trackWidth <= 0 || fillWidth <= 0) {
-            throw new AssertionError("expected positive progress track and fill widths, got " + trackWidth + " and " + fillWidth);
-        }
-        float share = fillWidth / (float) trackWidth;
-        if (Math.abs(share - expected) > .02f) throw new AssertionError("progress bar shows " + share + ", expected " + expected);
+        return widths[0] > 0 && widths[1] > 0 ? widths[1] / (float) widths[0] : -1;
     }
 
     private void waitResumed(String component) {

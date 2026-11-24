@@ -3,10 +3,10 @@ name: media-e2e
 # Runs tools/e2e/run.sh: Luma's Up Next card against the real Android TV Watch Next provider on an emulator.
 on:
   pull_request:
-    paths: [src/**, res/**, AndroidManifest.xml, build.sh, tools/e2e/**, .github/workflows/media-e2e.yml]
+    paths: [src/**, res/**, AndroidManifest.xml, build.sh, tools/e2e/**, .github/workflows/media-e2e.yml, .github/scripts/media-e2e.sh]
   push:
     branches: [main]
-    paths: [src/**, res/**, AndroidManifest.xml, build.sh, tools/e2e/**, .github/workflows/media-e2e.yml]
+    paths: [src/**, res/**, AndroidManifest.xml, build.sh, tools/e2e/**, .github/workflows/media-e2e.yml, .github/scripts/media-e2e.sh]
 
 permissions:
   contents: read
@@ -33,12 +33,27 @@ jobs:
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;36.0.0"'
       - name: Build the signed test APKs
         run: bash tools/e2e/run.sh build
+      # Match the emulator build, TV display, and guest RAM used by the local Android TV suite.
+      # The default 320x640 portrait panel lacks SystemUI's land-television dimens, so SystemUI
+      # crash-loops until RescueParty reboots the guest mid-suite.
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           target: android-tv
           arch: x86
+          profile: tv_1080p
+          emulator-build: 15917651
+          ram-size: 2048M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           pre-emulator-launch-script: adb start-server
-          script: bash tools/e2e/run.sh test
+          script: bash .github/scripts/media-e2e.sh
+      - name: Upload guest crash evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-e2e-evidence
+          path: |
+            build/e2e/evidence
+            build/e2e/result.txt
+          if-no-files-found: warn
