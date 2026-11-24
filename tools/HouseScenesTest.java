@@ -75,6 +75,17 @@ public final class HouseScenesTest {
         expect(live.home.scene("away").changes.size() == 2 && live.home.scene("away").changes.get(1).equals("Studio AC off."),
             "a scene names lights and air conditioners separately");
         expect(live.home.scene("garden").changes.isEmpty(), "a scene for a device the plan lacks changes nothing");
+        HouseScenes.Home offWithSettings = HouseScenes.read(home("r1", true, list(
+            scene("dim", "Dim off", "lights", map("main.tv", map("on", false, "brightness", 0.25, "temp", 5000)),
+                "acs", map("main.ac", map("on", false, "mode", "cool", "target", 18, "fan", "high")))))).home;
+        expect(offWithSettings.scene("dim").changes.equals(Arrays.asList("TV ambient light off, requested settings: 25%, 5000 K.", "Studio AC off, requested settings: cool, 18°, fan high.")),
+            "a patch that switches a device off names its other settings as requested, not as applied");
+        HouseScenes.Home nullColour = HouseScenes.read(home("r1", true, list(
+            scene("plain", "Plain", "lights", map("main.tv", map("color", null))),
+            scene("warm", "Warm", "lights", map("main.tv", map("temp", 3000, "color", null)))))).home;
+        expect(nullColour.scene("plain").changes.equals(Arrays.asList("TV ambient light set to no colour."))
+            && nullColour.scene("warm").changes.equals(Arrays.asList("TV ambient light set to 3000 K, no colour.")),
+            "a null colour clears the colour and never promises white light");
 
         HouseScenes.Read demo = HouseScenes.read(map("mode", "demo", "demo", true, "controlReady", true, "revision", "demo-1",
             "plan", map("lights", list(light("main.tv", "TV ambient light", "main")), "scenes", list(scene("movie", "Movie", "lights", map("*", map("on", true)))))));

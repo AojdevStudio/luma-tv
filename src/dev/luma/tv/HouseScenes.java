@@ -74,11 +74,11 @@ final class HouseScenes {
     }
 
     static Read read(Object reply) {
-        Map<String, Object> home = map(reply);
+        Map<?, ?> home = map(reply);
         if (home == null) return Read.failed("House Control sent a reply Luma cannot read.");
         String error = text(home.get("error"));
         if (!error.isEmpty()) return Read.failed(error);
-        Map<String, Object> plan = map(home.get("plan"));
+        Map<?, ?> plan = map(home.get("plan"));
         if (plan == null) return Read.failed("House Control sent no home plan. Open House Control to finish setup.");
         Source source = Boolean.TRUE.equals(home.get("demo")) ? Source.DEMO : Source.LIVE;
         String revision = text(home.get("revision")), label = text(home.get("connectionLabel"));
@@ -86,10 +86,10 @@ final class HouseScenes {
             : "House Control is not ready. " + (label.isEmpty() ? "Open House Control to connect your devices." : label + ".");
         Map<String, String> names = names(plan);
         // The demo home marks every device linked:false and its source already says no real device changes.
-        Predicate<Map<String, Object>> simulated = device -> source == Source.LIVE && Boolean.FALSE.equals(device.get("linked"));
+        Predicate<Map<?, ?>> simulated = device -> source == Source.LIVE && Boolean.FALSE.equals(device.get("linked"));
         ArrayList<Scene> scenes = new ArrayList<>();
         for (Object item : list(plan.get("scenes"))) {
-            Map<String, Object> scene = map(item);
+            Map<?, ?> scene = map(item);
             String id = scene == null ? "" : text(scene.get("id"));
             boolean repeated = false;
             for (Scene earlier : scenes) repeated |= earlier.id.equals(id);
@@ -113,7 +113,7 @@ final class HouseScenes {
 
     /** The reply to code 2 or 4. House Control answers ok, or an error that does not say whether some devices changed. */
     static Outcome outcome(Scene scene, Object reply) {
-        Map<String, Object> result = map(reply);
+        Map<?, ?> result = map(reply);
         if (result == null) return unknown(scene);
         if (Boolean.TRUE.equals(result.get("ok")))
             return new Outcome(Capabilities.Status.DONE, Boolean.TRUE.equals(result.get("demo")) ? "Started " + scene.name + " on the demo home"
@@ -128,22 +128,22 @@ final class HouseScenes {
     }
     static Outcome notRun(String why) { return new Outcome(Capabilities.Status.NOT_RUN, why); }
 
-    private static Map<String, String> names(Map<String, Object> plan) {
+    private static Map<String, String> names(Map<?, ?> plan) {
         HashMap<String, String> rooms = new HashMap<>();
         for (Object item : list(plan.get("rooms"))) {
-            Map<String, Object> room = map(item);
+            Map<?, ?> room = map(item);
             if (room != null) rooms.put(text(room.get("id")), text(room.get("name")));
         }
         HashMap<String, Integer> uses = new HashMap<>();
-        ArrayList<Map<String, Object>> devices = new ArrayList<>();
+        ArrayList<Map<?, ?>> devices = new ArrayList<>();
         for (String section : new String[]{"lights", "acs"}) for (Object item : list(plan.get(section))) {
-            Map<String, Object> device = map(item);
+            Map<?, ?> device = map(item);
             if (device == null) continue;
             devices.add(device);
             uses.merge(text(device.get("name")), 1, Integer::sum);
         }
         HashMap<String, String> names = new HashMap<>();
-        for (Map<String, Object> device : devices) {
+        for (Map<?, ?> device : devices) {
             String id = text(device.get("id")), name = text(device.get("name")), room = text(device.get("room"));
             String shown = name.isEmpty() ? id : name;
             if (uses.get(name) > 1) shown += " in " + (rooms.containsKey(room) && !rooms.get(room).isEmpty() ? rooms.get(room) : room);
@@ -152,18 +152,18 @@ final class HouseScenes {
         return names;
     }
 
-    private static List<String> changes(Map<String, Object> scene, Map<String, Object> plan, Map<String, String> names, Predicate<Map<String, Object>> devices) {
+    private static List<String> changes(Map<?, ?> scene, Map<?, ?> plan, Map<String, String> names, Predicate<Map<?, ?>> devices) {
         ArrayList<String> lines = new ArrayList<>();
         for (String section : new String[]{"lights", "acs"}) {
-            Map<String, Object> patches = map(scene.get(section));
+            Map<?, ?> patches = map(scene.get(section));
             if (patches == null) continue;
             LinkedHashMap<String, List<String>> groups = new LinkedHashMap<>();
             for (Object item : list(plan.get(section))) {
-                Map<String, Object> device = map(item);
+                Map<?, ?> device = map(item);
                 String id = device == null ? "" : text(device.get("id"));
                 if (id.isEmpty() || !devices.test(device)) continue;
-                LinkedHashMap<String, Object> patch = new LinkedHashMap<>();
-                Map<String, Object> all = map(patches.get("*")), own = map(patches.get(id));
+                LinkedHashMap<Object, Object> patch = new LinkedHashMap<>();
+                Map<?, ?> all = map(patches.get("*")), own = map(patches.get(id));
                 if (all != null) patch.putAll(all);
                 if (own != null) patch.putAll(own);
                 String setting = section.equals("lights") ? light(patch) : ac(patch, device);
@@ -174,20 +174,19 @@ final class HouseScenes {
         return lines;
     }
 
-    /** What House Control sets on a light, with its limits: brightness 5 to 100 percent, 2200 to 6500 K. */
-    private static String light(Map<String, Object> patch) {
-        if (Boolean.FALSE.equals(patch.get("on"))) return "off";
+    /** What House Control sets on a light, with its limits: brightness 5 to 100 percent, 2200 to 6500 K.
+     *  A null colour clears the stored colour and sends no colour command, so it is not white light. */
+    private static String light(Map<?, ?> patch) {
         ArrayList<String> parts = new ArrayList<>();
         Double brightness = number(patch.get("brightness")), temp = number(patch.get("temp"));
         if (brightness != null) parts.add(Math.round(clamp(brightness, .05, 1) * 100) + "%");
         if (temp != null) parts.add(Math.round(clamp(temp, 2200, 6500)) + " K");
-        if (patch.containsKey("color")) parts.add(patch.get("color") == null ? "white" : "colour " + text(patch.get("color")));
+        if (patch.containsKey("color")) parts.add(patch.get("color") == null ? "no colour" : "colour " + text(patch.get("color")));
         return setting(patch, parts);
     }
 
     /** What House Control sets on an air conditioner. The target stays inside the unit's range, 16 to 30 by default. */
-    private static String ac(Map<String, Object> patch, Map<String, Object> device) {
-        if (Boolean.FALSE.equals(patch.get("on"))) return "off";
+    private static String ac(Map<?, ?> patch, Map<?, ?> device) {
         ArrayList<String> parts = new ArrayList<>();
         Double target = number(patch.get("target")), min = number(device.get("min")), max = number(device.get("max"));
         if (!text(patch.get("mode")).isEmpty()) parts.add(text(patch.get("mode")));
@@ -196,9 +195,12 @@ final class HouseScenes {
         return setting(patch, parts);
     }
 
-    private static String setting(Map<String, Object> patch, List<String> parts) {
+    /** A device switched off may skip the patch's other settings. Infrared air conditioners send only the power key and
+     *  Home Assistant may not apply them, so the preview names them as requested, not as changes. */
+    private static String setting(Map<?, ?> patch, List<String> parts) {
         String detail = String.join(", ", parts);
         if (Boolean.TRUE.equals(patch.get("on"))) return detail.isEmpty() ? "on" : "on, " + detail;
+        if (Boolean.FALSE.equals(patch.get("on"))) return detail.isEmpty() ? "off" : "off, requested settings: " + detail;
         return detail.isEmpty() ? null : "set to " + detail;
     }
 
@@ -213,6 +215,6 @@ final class HouseScenes {
         return value instanceof Number && Double.isFinite(((Number) value).doubleValue()) ? ((Number) value).doubleValue() : null;
     }
     private static String text(Object value) { return value instanceof String ? ((String) value).trim() : ""; }
-    @SuppressWarnings("unchecked") private static Map<String, Object> map(Object value) { return value instanceof Map ? (Map<String, Object>) value : null; }
-    @SuppressWarnings("unchecked") private static List<Object> list(Object value) { return value instanceof List ? (List<Object>) value : Collections.emptyList(); }
+    private static Map<?, ?> map(Object value) { return value instanceof Map ? (Map<?, ?>) value : null; }
+    private static List<?> list(Object value) { return value instanceof List ? (List<?>) value : Collections.emptyList(); }
 }
