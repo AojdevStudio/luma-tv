@@ -23,10 +23,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-/** Luma's one path to House Control's HomeService for scenes.
- *  Code 1 reads the home, 2 runs a scene on the real home and 4 on House Control's isolated demo home. HomeService
- *  polls its devices while a client is bound, so the link binds on demand and lets go once it has been idle a while.
- *  Answers arrive on the main thread, and none arrive after close(). */
+/** House Control transaction 1 reads the home, 2 runs a live scene, and 4 runs a demo scene.
+ *  HomeService polls devices while a client is bound. Callbacks run on the main thread until close(). */
 final class HouseLink {
     static final ComponentName SERVICE = new ComponentName("dev.housecontrol.tv", "dev.housecontrol.tv.HomeService");
     private static final String NO_ANSWER = "House Control did not answer. Open House Control to reconnect.";
@@ -86,7 +84,7 @@ final class HouseLink {
         next();
     }
 
-    /** The worker takes one request at a time, so the next one is handed over, and checked, only once it is free. */
+    /** Recheck queued requests when the worker is ready to send them. */
     private void next() {
         while (!busy && !queue.isEmpty()) {
             if (binder == null) { connect(); return; }
@@ -142,8 +140,7 @@ final class HouseLink {
         return HouseScenes.outcome(scene, parse(reply));
     }
 
-    /** The reply string. A RuntimeException means House Control refused the call before running anything: it lacks the
-     *  code, or HomeService wrote an exception, such as SecurityException for a Luma signed with a key it does not trust. */
+    /** House Control rejects unsupported transactions and untrusted signing keys. */
     private static String transact(IBinder target, int code, String scene) throws RemoteException {
         Parcel in = Parcel.obtain(), out = Parcel.obtain();
         try {

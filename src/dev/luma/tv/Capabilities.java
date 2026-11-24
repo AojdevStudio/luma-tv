@@ -182,7 +182,7 @@ final class Capabilities {
         return String.join(" ", shown);
     }
 
-    /** Answers once through done. */
+    /** Answers once through done while the TV callback remains active. */
     static void run(Action previewed, Tv tv, long now, Consumer<Result> done) {
         String refused = refusal(previewed, tv);
         if (refused != null) { done.accept(new Result(previewed.capability, Status.NOT_RUN, refused, now)); return; }
@@ -250,7 +250,6 @@ final class Capabilities {
         return null;
     }
 
-    /** Why a previewed action may not run now, or null. */
     static String refusal(Action previewed, Tv tv) {
         String blocked = blocked(previewed.capability, tv);
         if (blocked != null) return blocked;

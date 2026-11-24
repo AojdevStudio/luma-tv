@@ -1,5 +1,3 @@
-# Abstract "Silk" wallpaper: dark flowing fabric lit by two soft coloured lights.
-# blender -b --factory-startup -P silk.py -- out.png [w h samples]
 import bpy, sys, math
 from mathutils import Vector
 argv = sys.argv[sys.argv.index('--') + 1:]

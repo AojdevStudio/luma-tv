@@ -8,23 +8,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** The active mode (Normal, Guest or Child) and the policy Home, Apps, the capability center and personal media ask
- *  before they show or run anything. It is a launcher presentation policy, not an account or an OS sandbox.
- *  Entering Normal is never gated, so the remote can always return. */
+/** Modes restrict what the launcher shows. They provide no OS sandbox. The remote can always return to Normal. */
 final class Profiles {
     static final String KEY = "profile";
     static final Profiles DEFAULT = new Profiles(Mode.NORMAL, Collections.<String>emptyList());
 
     enum Content {
-        /** Weather, time and other information that says nothing about the household. */
         INFO,
-        /** The owner's watch history, what is playing and the greeting name. */
         PERSONAL,
-        /** Settings, the Control widget, app menus and anything that changes Luma or the TV. */
         SETTINGS,
-        /** House Control scenes and household state. */
         HOUSE,
-        /** HDMI inputs and live TV. */
         INPUTS
     }
 
@@ -55,7 +48,6 @@ final class Profiles {
 
     boolean allows(Content content) { return mode.allowed.contains(content); }
     List<String> home(List<String> homeApps) { return mode == Mode.CHILD ? childApps : homeApps; }
-    /** Whether an app may be listed or opened from anywhere in Luma. Guest keeps the apps on Home. */
     boolean allowsApp(String pkg, boolean onHome) {
         switch (mode) {
             case NORMAL: return true;

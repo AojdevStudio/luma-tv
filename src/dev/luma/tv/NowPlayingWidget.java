@@ -21,9 +21,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.*;
 
-/** Now Playing: the media session of the app playing on this TV (Spotify, YouTube Music, SoundCloud…) with its
- *  artwork, progress and previous / play-pause / next. Android hands media sessions only to a notification
- *  listener, so Luma declares one (MediaListener) that reads no notifications; the user allows it once. */
 final class NowPlayingWidget extends Widget {
     static final String[] MUSIC={"com.spotify.tv.android","com.google.android.youtube.tvmusic","com.soundcloud.android","com.apple.android.music","deezer.android.tv","com.amazon.music.tv","com.aspiro.tidal","ru.yandex.music","com.google.android.youtube.tv"};
     static final float PAD=18,ART=104,TX=136,CTRL_Y=130;
@@ -82,7 +79,6 @@ final class NowPlayingWidget extends Widget {
         addView(b,pos(size,size,x,y));return b;
     }
     private TextView pill(String label,int index,Runnable action){return pill(label,index,null,action);}
-    /** A rounded text button; hero overrides the Home title while it is focused (app shortcuts). */
     private TextView pill(String label,int index,String[] hero,Runnable action){
         TextView p=text(label,12.5f,ink(0xF2),"sans-serif-medium");p.setGravity(Gravity.CENTER);p.setPadding(px(16),0,px(16),0);
         control(p,index,1.08f,f->{p.setBackground(round(f?focusFill():restFill(),16));p.setTextColor(f?focusInk():ink(0xF2));},()->hero!=null?hero:hero(),action);
@@ -100,7 +96,6 @@ final class NowPlayingWidget extends Widget {
     }
     @Override void refresh(){if(active)repick();}
     private void repick(){try{pick(sessions.getActiveSessions(listener));}catch(SecurityException e){access=false;use(null);}}
-    /** The session to show: one that is playing, else the most recent one with a title. */
     private void pick(List<MediaController> list){
         MediaController best=null;
         if(list!=null){for(MediaController c:list){if(c.getPackageName().equals(getContext().getPackageName()))continue;if(c.getPlaybackState()!=null&&c.getPlaybackState().getState()==PlaybackState.STATE_PLAYING){best=c;break;}}
@@ -123,7 +118,6 @@ final class NowPlayingWidget extends Widget {
         return MediaContext.watched(appName(controller.getPackageName()),MediaContext.Data.LIVE,s==null?0:s.getPosition(),m==null?0:m.getLong(MediaMetadata.METADATA_KEY_DURATION),d==null?null:d.toString());
     }
 
-    /** Updates the widget in place; focus moves to a visible control if its control disappears. */
     private void render(){
         if(Promo.on){promo();return;}
         View focused=findFocus();
@@ -150,7 +144,6 @@ final class NowPlayingWidget extends Widget {
         }
         if(focused!=null&&(focused.getVisibility()!=VISIBLE||focused.getParent()==null||!focused.isShown())){View first=firstControl();if(first!=null)first.requestFocus();}
     }
-    /** The promo demo's song (Promo): the same layout as a real session, on a made-up clock. */
     private void promo(){
         for(View v:new View[]{prev,play,next,track,fill,elapsed,remaining,openPill})v.setVisibility(VISIBLE);
         shortcuts.setVisibility(GONE);prev.setAlpha(1);next.setAlpha(1);

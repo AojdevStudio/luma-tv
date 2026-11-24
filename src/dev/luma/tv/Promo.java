@@ -2,17 +2,13 @@ package dev.luma.tv;
 
 import android.graphics.*;
 
-/** QA and promo films: am start -n dev.luma.tv/.MainActivity --es luma.demo promo|off fills the widgets with
- *  made-up content, not saved: the weather in Miami, three Up Next videos whose pictures are Luma's own CC0
- *  wallpapers, a song with drawn artwork, and consoles on HDMI ports (also on a stick, which has none). */
+/** The three demo video posters use the CC0 wallpapers credited in the README. */
 final class Promo {
     static volatile boolean on;
-    /** Widget order for the film: Up Next and Weather, then Inputs with Now Playing, then Control. Smart Home is left
-     *  out: on a real TV it would show the owner's own home. */
+    /** Smart Home would show the owner's real home on film. */
     static final String[] ORDER={"upnext","weather","inputs","music","control"};
     static final double[] MIAMI={25.77,-80.19};
     static final String CITY="Miami";
-    /** {title, line, detail, wallpaper, progress} */
     static final Object[][] VIDEOS={
         {"Under the Milky Way","18 min left · YouTube","A night under the stars · 18 min left in YouTube",R.drawable.wp_milkyway,.62f},
         {"Calm Sea, 4K","Next episode · YouTube","Waves at sunrise · Next episode in YouTube",R.drawable.wp_sea,.0f},
@@ -25,7 +21,6 @@ final class Promo {
     static void toggle(){offset=position();since=android.os.SystemClock.elapsedRealtime();playing=!playing;}
     static void start(){since=android.os.SystemClock.elapsedRealtime();offset=SONG_START;playing=true;}
 
-    /** Square cover art for the song: a warm dusk gradient with a low sun and its reflection. */
     static Bitmap artwork(int size){
         Bitmap b=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
         p.setShader(new LinearGradient(0,0,0,size,new int[]{0xFF2B1B5A,0xFFB1416B,0xFFF59E5B,0xFFFFD08A},new float[]{0,.45f,.72f,1},Shader.TileMode.CLAMP));

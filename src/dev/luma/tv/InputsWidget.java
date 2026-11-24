@@ -6,20 +6,12 @@ import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import java.util.*;
 
-/** Inputs: the TV's HDMI ports (and its antenna tuner) as tiles. OK switches the TV with Android TV's standard
- *  passthrough link, which the TV's own Live TV app opens; Back or Home returns to Luma. A device announced over
- *  HDMI-CEC is recognised (Devices) and shown under its own name, glyph and colour ("PlayStation 5" in PlayStation
- *  blue while it is on), with its port underneath; a port renamed in the TV's settings keeps its name.
- *  Only TVs list inputs: a TV stick has none (it is plugged into one), so there the widget is not offered. */
 final class InputsWidget extends Widget {
     static final float PAD=18,GAP=12;
     static final class Input{String id,name,glyph,vendor,port="";boolean tuner,cec,made,synthetic;int state,color=0xFF0A84FF;}
     static volatile boolean demo;
-    /** How many inputs the last look found; WidgetBoard sizes the widget by it (two or three columns). */
     static volatile int count;
 
-    /** The inputs to show: hardware passthrough inputs (a CEC device replaces its port), then the tuner of the same
-     *  vendor. Streaming apps' own inputs (IPTV and the like) are left out. */
     static ArrayList<Input> list(Context context){
         ArrayList<Input> out=new ArrayList<>();
         if(Promo.on){promo(out);count=out.size();return out;}
@@ -39,7 +31,7 @@ final class InputsWidget extends Widget {
             try{in.state=manager.getInputState(shown.getId());}catch(RuntimeException e){in.state=TvInputManager.INPUT_STATE_CONNECTED;}
             if(tuner)in.glyph="antenna";
             else if(in.cec){int[] cec=cec(shown);Devices.Device d=Devices.identify(in.name,cec[0],cec[1]);in.port=label(info,context);in.name=d.name;in.glyph=d.glyph;in.color=d.color;}
-            else{Devices.Device d=Devices.identify(in.name,-1,-1);in.glyph=d.glyph;in.color=d.color;} // a port renamed "PlayStation" keeps its name
+            else{Devices.Device d=Devices.identify(in.name,-1,-1);in.glyph=d.glyph;in.color=d.color;}
             if(tuner)tuners.add(in);else{out.add(in);vendors.add(in.vendor);}
         }
         Collections.sort(out,(a,b)->natural(a.cec?a.port:a.name,b.cec?b.port:b.name));
@@ -55,7 +47,6 @@ final class InputsWidget extends Widget {
         catch(ReflectiveOperationException|RuntimeException ignored){}
         return new int[]{-1,-1};
     }
-    /** The promo demo's ports: a PlayStation that is on, an Xbox and an Apple TV asleep, and the tuner. */
     private static void promo(ArrayList<Input> out){
         String[][] made={{"PS5","1","0"},{"Xbox Series X","2","1"},{"Apple TV","3","1"}};
         for(String[] m:made){Devices.Device d=Devices.identify(m[0],-1,Devices.PLAYBACK);Input in=new Input();in.id="promo:"+m[1];in.port="HDMI "+m[1];in.cec=true;in.made=true;in.synthetic=true;
@@ -77,7 +68,6 @@ final class InputsWidget extends Widget {
         if(custom!=null&&custom.toString().trim().length()>0)return custom.toString().trim();
         CharSequence l=info.loadLabel(c);return l==null?"":l.toString().trim();
     }
-    /** "HDMI 2" before "HDMI 10". */
     private static int natural(String a,String b){
         String x=a.replaceAll("\\d+",""),y=b.replaceAll("\\d+","");int c=x.compareToIgnoreCase(y);if(c!=0)return c;
         String p=a.replaceAll("\\D+",""),q=b.replaceAll("\\D+","");
@@ -103,7 +93,6 @@ final class InputsWidget extends Widget {
         paintStates();
     }
     @Override void setActive(boolean value){boolean was=active;super.setActive(value);removeCallbacks(tick);if(value&&!was)post(tick);}
-    /** Connection states change as devices are plugged in or wake; names and the list itself rebuild with Home. */
     @Override void refresh(){
         TvInputManager manager=(TvInputManager)getContext().getSystemService(Context.TV_INPUT_SERVICE);if(manager==null)return;
         for(Input in:inputs)if(!in.made)try{in.state=manager.getInputState(in.id);}catch(RuntimeException ignored){}

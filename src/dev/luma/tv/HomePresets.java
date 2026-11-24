@@ -9,9 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Home layouts. Each one chooses a wallpaper, Home widgets, Home apps and scene shortcuts together. The owner's own Home stays in
- *  its existing settings and is never written here, so choosing Default always brings it back. A layout is previewed
- *  before it applies, and parts the TV lacks are reported, not dropped. */
 final class HomePresets {
     static final String KEY = "home_presets";
     static final String PLEX = "com.plexapp.android";
@@ -108,7 +105,6 @@ final class HomePresets {
         this.custom = custom;
     }
 
-    /** Default first, then the built-in layouts, then saved ones in the order they were first saved. */
     List<Selection> choices() {
         ArrayList<Selection> choices = new ArrayList<>();
         choices.add(Selection.DEFAULT);

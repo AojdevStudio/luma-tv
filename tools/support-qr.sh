@@ -1,5 +1,4 @@
 #!/bin/bash
-# Redraws the QR codes in res/drawable-nodpi from res/raw/support.txt and the source link in res/raw/about.txt.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 command -v qrencode >/dev/null || { echo "Install qrencode first (brew install qrencode / apt install qrencode)." >&2; exit 1; }

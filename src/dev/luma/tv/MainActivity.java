@@ -19,7 +19,6 @@ import java.util.*;
 import java.util.concurrent.*;
 import org.json.*;
 
-/** An offline, remote-first home screen. No network, analytics, or accessibility service. */
 public final class MainActivity extends Activity {
     private final ExecutorService loader = Executors.newSingleThreadExecutor();
     /** Health checks run here, never on the main thread: package and storage queries can block. */
@@ -47,20 +46,17 @@ public final class MainActivity extends Activity {
     private HouseScenes.Read houseRead;
     private HouseLink houseLink;
     private TextView brand;
-    /** The wallpaper is pale (Silver by day): text and glyphs turn dark and glass turns white. */
     private boolean light;
     private Sun daylight;
     private final Runnable daylightTick=this::syncDaylight;
     private FrameLayout tabBar;
     private TextView modeChip;
-    /** House Control TV is installed and enabled: only then does Home show the scenes and the 3D home. */
     private boolean house;
     private int capabilitiesRow;
     private CapabilityCenter capabilityOverlay;
-    /** Home pages of widgets chosen in Settings (WidgetBoard); homePage is the page shown, kept across rebuilds. */
     private WidgetBoard board;
     private int homePage;
-    /** Installed apps by package, replaced as a whole on each discovery: widgets read it from their own threads. */
+    /** Widget readers can retain the previous discovery snapshot on background threads. */
     private volatile Map<String,App> appIndex=Collections.emptyMap();
     private static final String HOUSE_CONTROL="dev.housecontrol.tv";
     private final BroadcastReceiver packages=new BroadcastReceiver(){
@@ -104,7 +100,6 @@ public final class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         sonic=new SonicFeedback(this);
         daylight=Daylight.sun(this);
-        // 2.2 introduces Silver, light by day and dark after sunset, as the default wallpaper.
         if(!prefs.getBoolean("silver_default",false))prefs.edit().putInt("wallpaper",SILVER).putBoolean("silver_default",true).apply();
         light=pale(variant(wallpaperStyle()));
         house=houseInstalled();
@@ -141,12 +136,13 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() { try{unregisterReceiver(packages);}catch(IllegalArgumentException ignored){} if(wallpaper!=null){wallpaper.pauseAmbient();wallpaper.surfaceThread.quitSafely();}super.onDestroy(); handler.removeCallbacksAndMessages(null); loader.shutdownNow(); healthReads.shutdownNow(); houseLink.close(); if(sonic!=null)sonic.release(); }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        // QA intents accept luma.daylight day|night|auto and luma.demo promo|off.
         String look=intent.getStringExtra("luma.daylight");
         if(look!=null&&look.matches("day|night|auto")){daylightOverride=look;if(started)syncDaylight();}
-        String demo=intent.getStringExtra("luma.demo");if(demo!=null){Promo.on=demo.equals("promo");if(Promo.on)Promo.start();board=null;homePage=0;showPage("home",true);} // board=null: start on the first page
-        String inputs=intent.getStringExtra("luma.inputs");if(inputs!=null){InputsWidget.demo=inputs.equals("demo");showPage(page,true);} // arrives while paused
+        String demo=intent.getStringExtra("luma.demo");if(demo!=null){Promo.on=demo.equals("promo");if(Promo.on)Promo.start();board=null;homePage=0;showPage("home",true);}
+        String inputs=intent.getStringExtra("luma.inputs");if(inputs!=null){InputsWidget.demo=inputs.equals("demo");showPage(page,true);}
         applyWeatherLocation(intent);
-        if (intent.hasCategory(Intent.CATEGORY_HOME)){selectedPackage="com.google.android.youtube.tv";if(started)homePage=0;showPage("home", true);} // Home pressed on Home: back to the first page
+        if (intent.hasCategory(Intent.CATEGORY_HOME)){selectedPackage="com.google.android.youtube.tv";if(started)homePage=0;showPage("home", true);}
     }
     private void applyWeatherLocation(Intent intent){String weatherLocation=intent.getStringExtra("luma.weather.location");if(weatherLocation!=null){String[] fields=weatherLocation.split("\\|",-1);if(fields.length==3)setWeatherLocation(fields[0],fields[1],fields[2]);else resetInvalidWeatherLocation();}}
     private void setWeatherLocation(String city,String lat,String lon){WeatherLocation location=WeatherLocation.parse(city,lat,lon);if(location==null){resetInvalidWeatherLocation();return;}prefs.edit().putString("weather_city",location.city).putString("weather_lat",Double.toString(location.lat)).putString("weather_lon",Double.toString(location.lon)).remove("weather_json").remove("weather_key").apply();showPage(page,true);}
@@ -169,7 +165,6 @@ public final class MainActivity extends Activity {
             +" scenes="+(read==null||read.home==null?0:read.home.scenes.size())+" ready="+(read!=null&&read.home!=null&&read.home.blocked==null));
     }
     private boolean houseInstalled(){try{return getPackageManager().getApplicationInfo(HOUSE_CONTROL,0).enabled;}catch(PackageManager.NameNotFoundException e){return false;}}
-    /** Rebuilds Home when House Control TV is installed, removed, switched on or off. */
     private void syncHouse(){
         boolean now=houseInstalled();if(now==house)return;house=now;
         if(!now)houseRead=null;
@@ -194,9 +189,7 @@ public final class MainActivity extends Activity {
     private GradientDrawable shape(int color, float radius) {
         GradientDrawable gd = new GradientDrawable(); gd.setColor(color); gd.setCornerRadius(px(radius)); return gd;
     }
-    /** Text and glyph colour with the given alpha: near-black on a pale wallpaper, white elsewhere. */
     private int ink(int alpha){return (alpha<<24)|(light?0x1D1D1F:0xFFFFFF);}
-    /** Unfocused glass: frosted white on a pale wallpaper, a faint white veil on dark ones. */
     private int glass(){return light?0x8CFFFFFF:0x1FFFFFFF;}
     private void shadow(TextView t,float radius){if(light)t.setShadowLayer(0,0,0,0);else t.setShadowLayer(px(radius),0,px(1),0x55000000);}
     private int wallpaperStyle(){return Math.max(0,Math.min(WALLPAPERS.length-1,layout().wallpaper));}
@@ -213,19 +206,16 @@ public final class MainActivity extends Activity {
     private boolean allowsApp(String pkg){return profiles.allowsApp(pkg,homeApps().contains(pkg));}
     private String homeLayout(){return presets.active.equals(HomePresets.Selection.DEFAULT)?null:presets.active.name();}
     private String lockedLine(){return "Home shows the "+homeLayout()+" layout. To change your own Home, choose Default in Settings, Capabilities, Layouts.";}
-    /** Silver shows its light picture between sunrise and sunset and its dark one at night. */
     private int variant(int style){return style==SILVER&&!isDay()?SILVER_NIGHT:style;}
-    /** QA: am start -n dev.luma.tv/.MainActivity --es luma.daylight day|night|auto previews either look (not saved). */
     private String daylightOverride="auto";
     private boolean isDay(){return daylightOverride.equals("auto")?daylight.isDay(System.currentTimeMillis()):daylightOverride.equals("day");}
     private static boolean pale(int variant){return variant==SILVER;}
-    /** Follows sunrise and sunset: switches Silver's picture and, with it, the colours of the page. */
     private void syncDaylight(){
         handler.removeCallbacks(daylightTick);
         if(!started)return;
         long now=System.currentTimeMillis();
         handler.postDelayed(daylightTick,Math.max(30000,Math.min(3600000,daylight.nextChange(now)-now+2000)));
-        if(overlay!=null)return; // the wallpaper picker previews freely; the theme follows once it closes
+        if(overlay!=null)return;
         wallpaper.update();
         boolean next=pale(variant(wallpaperStyle()));
         if(next==light)return;
@@ -264,7 +254,6 @@ public final class MainActivity extends Activity {
         sceneryShade=new View(this);sceneryShade.setBackgroundColor(0x80000000);sceneryShade.setAlpha(0);
         root.addView(sceneryShade,new FrameLayout.LayoutParams(-1,-1));
         content = new FrameLayout(this); content.setClipChildren(false); root.addView(content, new FrameLayout.LayoutParams(-1, -1));
-        // No wordmark: the page opens with the greeting, as on tvOS.
         brand = text("luma", 23, Color.WHITE, "sans-serif-medium"); brand.setVisibility(View.GONE);
         root.addView(brand, pos(120, 32, 48, 29));
         LinearLayout navigation = new LinearLayout(this); navigation.setGravity(Gravity.CENTER);
@@ -288,7 +277,6 @@ public final class MainActivity extends Activity {
             tab.setPadding(px(17), px(9), px(17), px(9)); tab.setGravity(Gravity.CENTER);
             tab.setFocusable(true); tab.setFocusableInTouchMode(true); tab.setSoundEffectsEnabled(false);
             tab.setOnClickListener(v -> { sound(); showPage(pages[index], true); });
-            // One pill slides between tabs; leaving the bar it settles, translucent, on the current page.
             tab.setOnFocusChangeListener((v, focus) -> { if(focus) moveTabIndicator(true); else tab.post(()->{ if(focusedTab()<0) moveTabIndicator(true); }); });
             tab.setOnKeyListener((v,key,e) -> {
                 if (e.getAction()==KeyEvent.ACTION_DOWN && key==KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -404,7 +392,6 @@ public final class MainActivity extends Activity {
         heroDescription.setSingleLine(true); heroDescription.setEllipsize(android.text.TextUtils.TruncateAt.END); shadow(heroDescription,8); hero.addView(heroDescription,pos(home?392:860,22,1,60));
         HomePresets.Layout shown=layout();
         ArrayList<String> widgets=new ArrayList<>();for(String id:shown.widgets)if(profiles.allowsWidget(id))widgets.add(id);
-        // Without widgets, the greeting moves down to sit just above the favourites and the wallpaper stays open above it.
         ArrayList<ArrayList<String>> layout=home?WidgetBoard.pages(widgets,house,!InputsWidget.list(this).isEmpty()):new ArrayList<>();
         boolean housePage=false;for(ArrayList<String> p:layout)housePage|=p.contains("house");
         content.addView(hero,pos(864,88,48,home?(!layout.isEmpty()?96:272):100));
@@ -470,8 +457,7 @@ public final class MainActivity extends Activity {
         int before=previous.equals("home")?0:previous.equals("apps")?1:2;
         int after=page.equals("home")?0:page.equals("apps")?1:2;
         float direction=after>=before?1:-1;
-        // Animate real element bounds rather than blending two full-screen textures.
-        // This preserves the soft page entrance within a small TV chip's fill-rate budget.
+        // Full-screen cross-fades exceed the TV GPU fill-rate budget.
         ArrayList<View> entering=new ArrayList<>();
         for(int i=0;i<content.getChildCount();i++)if(!(content.getChildAt(i) instanceof ScrollView)&&!"scroll-frame".equals(content.getChildAt(i).getTag()))entering.add(content.getChildAt(i));
         if(page.equals("settings")) {
@@ -494,12 +480,8 @@ public final class MainActivity extends Activity {
         for (Tile tile:tiles) if (tile.app.pkg.equals(selectedPackage)) { tile.requestFocus(); return; }
         if (!tiles.isEmpty()) tiles.get(0).requestFocus();
     }
-    /** Under the greeting: today's date, quietly. */
     private String greetingLine(){return today();}
-    /** "Hello, <name>" with the name saved in Settings, else the build's greeting: "Hello", or LUMA_GREETING /
-     *  .local/greeting.txt (see build.sh). */
     private String welcome(){if(!profiles.allows(Profiles.Content.PERSONAL))return greeting();String name=prefs.getString("name","").trim();return name.isEmpty()?getString(R.string.greeting):"Hello, "+name;}
-    /** Settings → Your name: typed with the TV keyboard and kept only in this app's storage on the TV. */
     private void nameEditor(){
         FrameLayout o=openOverlay(0xA6000000);
         FrameLayout panel=new FrameLayout(this);panel.setBackground(shape(0xF51C1C1E,24));panel.setElevation(px(24));
@@ -540,7 +522,6 @@ public final class MainActivity extends Activity {
         if(best!=null){lastDirectionY=1;lastDirectionX=0;}
         return best;
     }
-    /** What the Home widgets need from the launcher: sizes, colours, sounds, the hero line and app details. */
     private final WidgetBoard.Host boardHost=new WidgetBoard.Host(){
         public float unit(){return unit;}
         public boolean light(){return light;}
@@ -566,7 +547,6 @@ public final class MainActivity extends Activity {
         public SharedPreferences prefs(){return prefs;}
         public Activity activity(){return MainActivity.this;}
     };
-    /** The Smart Home page slides in or out with the widget pages; it polls House Control only while shown. */
     private void showHouse(boolean show,int direction){
         if(houseWidgets==null)return;final HouseWidgets h=houseWidgets;h.animate().cancel();
         if(show){
@@ -580,7 +560,6 @@ public final class MainActivity extends Activity {
             if(motion())h.animate().translationX(-direction*px(56)).alpha(0).setDuration(240).setInterpolator(ease).withLayer().withEndAction(hide).start();else hide.run();
         }
     }
-    /** Apps opened from Luma, newest first: Up Next falls back to them without usage access. */
     private void remember(String pkg){
         ArrayList<String> list=new ArrayList<>();list.add(pkg+":"+System.currentTimeMillis());
         for(String e:prefs.getString("recent","").split(","))if(!e.isEmpty()&&!e.startsWith(pkg+":")&&list.size()<12)list.add(e);
@@ -596,7 +575,6 @@ public final class MainActivity extends Activity {
         if(heroTitle==null || !page.equals("home"))return;
         setHero("@greeting",welcome(),greetingLine());
     }
-    /** Cross-fades the hero to a new title and line. */
     private void setHero(String key,String title,String detail){
         if(heroTitle==null)return;
         if(key.equals(heroKey)&&Objects.equals(title,requestedHeroTitle)&&Objects.equals(detail,requestedHeroDetail))return;
@@ -635,12 +613,10 @@ public final class MainActivity extends Activity {
 
     private String sceneApp(String scene){try{JSONObject saved=new JSONObject(prefs.getString("scene_app_packages","{}"));if(saved.has(scene))return saved.optString(scene);}catch(Exception ignored){}return scene.equals("movie")?"com.plexapp.android":"";}
     private String appLabel(String pkg){if(pkg.isEmpty())return "None";for(App app:apps)if(app.pkg.equals(pkg))return app.label;return pkg;}
-    /* ---------- overlays: menus, notices and the wallpaper picker (no stock dialogs) ---------- */
     private View nav(){return (View)tabs.get(0).getParent().getParent();}
     private View tabIndicator;private GradientDrawable tabIndicatorShape;private ValueAnimator tabMove;private int tabColor=0x24FFFFFF;
     private int focusedTab(){for(int i=0;i<tabs.size();i++)if(tabs.get(i).hasFocus())return i;return -1;}
     private int pageTab(){return page.equals("apps")?1:page.equals("settings")?2:0;}
-    /** Slides the tab pill under the focused tab (white), or the current page's tab (glass) when focus is elsewhere. */
     private void moveTabIndicator(boolean animate){
         if(tabIndicator==null||tabs.isEmpty())return;
         int focused=focusedTab(),index=focused>=0?focused:pageTab();View target=tabs.get(index),row=(View)target.getParent();
@@ -654,7 +630,7 @@ public final class MainActivity extends Activity {
         ValueAnimator.AnimatorUpdateListener step=a->{float f=(float)a.getAnimatedValue();
             tabIndicator.setTranslationX(fromX+(toX-fromX)*f);ViewGroup.LayoutParams lp=tabIndicator.getLayoutParams();lp.width=Math.round(fromW+(toW-fromW)*f);tabIndicator.setLayoutParams(lp);
             tabColor=(int)argb.evaluate(f,fromColor,toColor);tabIndicatorShape.setColor(tabColor);
-            float t=Math.max(0,Math.min(1,(f-.12f)/.3f)); // text flips quickly, so it never matches the pill mid-way
+            float t=Math.max(0,Math.min(1,(f-.12f)/.3f));
             for(int i=0;i<tabs.size();i++)((TextView)tabs.get(i)).setTextColor((int)argb.evaluate(t,fromText[i],toText[i]));};
         tabMove=ValueAnimator.ofFloat(0,1);tabMove.addUpdateListener(step);
         if(!animate||!motion()||fromW==0){tabMove.setDuration(0);}else{tabMove.setDuration(280);tabMove.setInterpolator(ease);}
@@ -672,9 +648,9 @@ public final class MainActivity extends Activity {
     }
     private void trapFocus(boolean on){int mode=on?ViewGroup.FOCUS_BLOCK_DESCENDANTS:ViewGroup.FOCUS_BEFORE_DESCENDANTS;content.setDescendantFocusability(mode);((ViewGroup)nav()).setDescendantFocusability(mode);}
     private FrameLayout openOverlay(int scrim){
-        // One overlay replacing another (About → Support) keeps the original place to return to.
+        // A nested overlay returns focus to the page control that opened the first one.
         View back=overlay!=null?overlayReturn:getCurrentFocus();overlayReturn=null;closeOverlay(false);overlayReturn=back;
-        trapFocus(true); // the page and tabs behind a dialog take no focus while it is open
+        trapFocus(true);
         overlay=new FrameLayout(this);overlay.setBackgroundColor(scrim);overlay.setClipChildren(false);overlay.setTranslationZ(px(120));
         root.addView(overlay,new FrameLayout.LayoutParams(-1,-1));
         if(motion()){overlay.setAlpha(0);overlay.animate().alpha(1).setDuration(220).setInterpolator(ease).start();}
@@ -690,7 +666,6 @@ public final class MainActivity extends Activity {
         row.setOnClickListener(v->{sound();action.run();});
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,px(42));lp.bottomMargin=px(4);list.addView(row,lp);return row;
     }
-    /** A centred glass menu. pick receives the chosen index. */
     private void menu(String title,String[] items,int checked,java.util.function.IntConsumer pick){
         FrameLayout o=openOverlay(0xA6000000);
         FrameLayout panel=new FrameLayout(this);panel.setBackground(shape(0xF51C1C1E,24));panel.setElevation(px(24));
@@ -714,7 +689,6 @@ public final class MainActivity extends Activity {
         LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);panel.addView(list,pos(140,42,286,200));
         View done=menuRow(list,"Done",false,()->closeOverlay(false));((TextView)done).setGravity(Gravity.CENTER);root.post(done::requestFocus);
     }
-    /** Full-screen wallpaper picker: moving between thumbnails previews each wallpaper live. */
     private void wallpaperPicker(){
         if(homeLayout()!=null){notice("Wallpaper",lockedLine());return;}
         final int saved=wallpaperStyle();
@@ -744,7 +718,6 @@ public final class MainActivity extends Activity {
         root.post(()->cells.get(saved).requestFocus());
     }
 
-    /** Non-comment lines of a res/raw text file, split on "|". */
     private ArrayList<String[]> rawLines(int id){
         ArrayList<String[]> out=new ArrayList<>();
         try(java.io.BufferedReader r=new java.io.BufferedReader(new java.io.InputStreamReader(getResources().openRawResource(id),java.nio.charset.StandardCharsets.UTF_8))){
@@ -756,7 +729,6 @@ public final class MainActivity extends Activity {
     private String version(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(PackageManager.NameNotFoundException e){return "";}}
     private ImageView qr(String name){ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.FIT_CENTER);img.setBackground(shape(Color.WHITE,12));img.setPadding(px(5),px(5),px(5),px(5));
         int id=getResources().getIdentifier(name,"drawable",getPackageName());if(id!=0)img.setImageResource(id);return img;}
-    /** Credits, links and a QR code to the source. */
     private void aboutScreen(){
         FrameLayout o=openOverlay(0xA6000000);
         FrameLayout panel=new FrameLayout(this);panel.setBackground(shape(0xF51C1C1E,24));panel.setElevation(px(24));
@@ -775,7 +747,6 @@ public final class MainActivity extends Activity {
         menuRow(a,"Support the author",false,this::supportScreen);View done=menuRow(b,"Done",false,()->closeOverlay(false));((TextView)done).setGravity(Gravity.CENTER);
         root.post(done::requestFocus);
     }
-    /** Crypto tips: a QR code per coin from res/raw/support.txt (drawn by tools/support-qr.sh). */
     private void supportScreen(){
         FrameLayout o=openOverlay(0xF20B0B0D);
         TextView title=text("Support the author",30,Color.WHITE,"sans-serif-medium");title.setLetterSpacing(-.02f);o.addView(title,pos(700,40,48,38));
@@ -792,7 +763,6 @@ public final class MainActivity extends Activity {
         LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);o.addView(list,pos(140,42,410,482));
         View done=menuRow(list,"Done",false,()->closeOverlay(false));((TextView)done).setGravity(Gravity.CENTER);root.post(done::requestFocus);
     }
-    // Stock launchers that luma.sh may have switched off to let Luma be the home screen.
     static final String[] STOCK_HOMES={"com.google.android.tvlauncher","com.google.android.apps.tv.launcherx","com.google.android.leanbacklauncher"};
     private Intent homeIntent(){return new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);}
     private boolean lumaIsHome(){ResolveInfo r=getPackageManager().resolveActivity(homeIntent(),PackageManager.MATCH_DEFAULT_ONLY);return r!=null&&r.activityInfo!=null&&getPackageName().equals(r.activityInfo.packageName);}
@@ -848,7 +818,6 @@ public final class MainActivity extends Activity {
     }
     private void appInfo(App app){startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:"+app.pkg)));}
 
-    /* ---------- Settings ---------- */
     private ImageView previewImage;private TextView previewTitle,previewBody;
     private void preview(int thumb,String title,String body){
         if(previewImage==null)return;
@@ -868,7 +837,6 @@ public final class MainActivity extends Activity {
         LinearLayout list=new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL); list.setPadding(px(22),px(12),px(22),px(48)); list.setClipChildren(false); list.setClipToPadding(false);
         sv.addView(list);settingsScroll=sv;
         FrameLayout frame=new FrameLayout(this); frame.setTag("scroll-frame"); frame.addView(sv,new FrameLayout.LayoutParams(-1,-1)); content.addView(frame,pos(520,400,26,138));
-        // live preview on the right
         FrameLayout card=new FrameLayout(this);card.setBackground(shape(glass(),22));card.setClipToOutline(true);
         previewImage=new ImageView(this);previewImage.setScaleType(ImageView.ScaleType.CENTER_CROP);card.addView(previewImage,pos(352,198,0,0));
         previewTitle=text("",19,ink(0xFF),"sans-serif-medium");card.addView(previewTitle,pos(320,26,18,214));
@@ -911,8 +879,6 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,px(20));lp.topMargin=px(first?0:12);lp.bottomMargin=px(6);list.addView(c,lp);
     }
     private ScrollView settingsScroll;private ValueAnimator settingsGlide;private int widgetsRow;
-    /** Scrolls the settings list so the focused row, with room for its lift and shadow (and its group's caption
-     *  above the first row of a group), clears the faded edges. */
     private void reveal(View row){
         ScrollView sv=settingsScroll;if(sv==null||row.getParent()==null||row.getParent().getParent()!=sv)return;
         ViewGroup list=(ViewGroup)row.getParent();int i=list.indexOfChild(row),top=row.getTop(),bottom=row.getBottom();
@@ -935,8 +901,6 @@ public final class MainActivity extends Activity {
             prefs.edit().putString("temp_unit",new String[]{"auto","c","f"}[choice]).apply();showPage("settings",false);controlsFocus(widgetsRow+1);});
     }
     private void widgetEditor(){if(homeLayout()!=null){notice("Home widgets",lockedLine());return;}new WidgetEditor();}
-    /** Settings → Home widgets. OK turns a widget on or off; Hold OK picks it up, Up and Down move it, OK or Back
-     *  puts it down. On the right, miniature pages show how the widgets fill Home, updated with every change. */
     private final class WidgetEditor {
         final ArrayList<String> order=WidgetBoard.order(prefs);
         final HashSet<String> off=new HashSet<>();
@@ -950,7 +914,7 @@ public final class MainActivity extends Activity {
             FrameLayout o=openOverlay(0xB3000000);
             overlayCancel=()->root.post(()->{showPage("settings",false);controlsFocus(widgetsRow);});
             FrameLayout panel=new FrameLayout(MainActivity.this);panel.setBackground(shape(0xF51C1C1E,26));panel.setElevation(px(24));panel.setClipChildren(false);
-            float h=Math.max(440,98+order.size()*61+20); // grows with the number of widgets
+            float h=Math.max(440,98+order.size()*61+20);
             FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(px(760),px(h));lp.gravity=Gravity.CENTER;o.addView(panel,lp);
             panel.addView(text("Home widgets",24,Color.WHITE,"sans-serif-medium"),pos(420,32,28,26));
             hint=text("",13,0xB3FFFFFF,"sans-serif");hint.setSingleLine(true);panel.addView(hint,pos(420,18,29,64));setHint();
@@ -1009,8 +973,6 @@ public final class MainActivity extends Activity {
             if(motion())row.animate().scaleX(s).scaleY(s).setDuration(300).setInterpolator(spring).start();else{row.setScaleX(s);row.setScaleY(s);}
             row.setElevation(px(m?22:f?10:0));row.setTranslationZ(px(m?10:0));
         }
-        /** Swaps the picked-up row with its neighbour. The neighbour moves in the list (the focused row stays
-         *  attached, so it keeps focus) and both glide from their old places. */
         void move(View row,String id,int d){
             int i=order.indexOf(id),j=i+d;if(j<0||j>=order.size())return;
             View other=list.getChildAt(j);int rowTop=row.getTop(),otherTop=other.getTop();
@@ -1022,7 +984,6 @@ public final class MainActivity extends Activity {
         }
         void drop(View row){moving=null;sound();setHint();for(Runnable r:paints.values())r.run();lift(row,true);save();}
         void save(){WidgetBoard.save(prefs,order,off);}
-        /** Miniature Home pages: the greeting, the widgets of each page, and the apps that stay underneath. */
         void drawPages(){
             pages.removeAllViews();
             pages.addView(text("Your Home",13,0x99FFFFFF,"sans-serif-medium"),pos(240,16,2,0));
@@ -1053,7 +1014,7 @@ public final class MainActivity extends Activity {
     }
     private final class CapabilityTv implements Capabilities.Tv {
         final SharedPreferences.Editor edit=prefs.edit();
-        /** The panel and its pane as this was built. runAction builds one as the action starts, so a late result knows whether the panel still shows that action. */
+        // A late reply belongs to the pane that requested it.
         final CapabilityCenter center=capabilityOverlay;
         final int pane=center==null?0:center.paneChanges;
         public boolean clockShown(){return prefs.getBoolean("clock",true);}
@@ -1238,7 +1199,7 @@ public final class MainActivity extends Activity {
         void pane(String title,String body,String state){paneChanges++;paneTitle.setText(title);paneBody.setText(body);status.setText(state);}
         boolean shows(int pane){return capabilityOverlay==this&&paneChanges==pane&&primary.hasFocus();}
         void showAction(Capabilities.Action action){pane(action.name,action.available()?action.preview:action.unavailable,action.available()?"Asks before it runs.":"Unavailable");}
-        /** A Scenes row keeps the action it was built with. With reread, a refused one reads House Control again and asks with the scene as it is now. */
+        // A refused scene can become available while its row still has focus.
         void choose(Capabilities.Action action,View from,boolean reread){
             String refused=action.available()?Capabilities.refusal(action,new CapabilityTv()):action.unavailable;
             if(refused!=null&&reread){wanted=action.id;chosenRow.requestFocus();loadScenes();return;}
@@ -1398,7 +1359,6 @@ public final class MainActivity extends Activity {
         int id(View v){if(v.getId()==View.NO_ID)v.setId(View.generateViewId());return v.getId();}
     }
     @SuppressWarnings("unchecked") private void controlsFocus(int i) { root.post(()-> { Object tag=content.getTag(); if(tag instanceof ArrayList) ((ArrayList<View>)tag).get(i).requestFocus(); }); }
-    /** A settings row: either a value with a chevron, or an Apple-style switch bound to a preference. */
     private View option(LinearLayout parent,String title,java.util.function.Supplier<String> value,String toggle,Runnable action,Runnable onFocus) {
         FrameLayout row=new FrameLayout(this);row.setFocusable(true);row.setFocusableInTouchMode(true);row.setSoundEffectsEnabled(false);
         TextView name=text(title,15,Color.WHITE,"sans-serif-medium");row.addView(name,pos(180,20,18,12));
@@ -1462,7 +1422,6 @@ public final class MainActivity extends Activity {
                 }
             });
             setOnClickListener(v->launch(app));
-            // App menus are settings: outside Normal, holding OK just opens the app.
             setOnLongClickListener(v->{if(!profiles.allows(Profiles.Content.SETTINGS))return false;sound();appMenu(app);return true;});
             setOnKeyListener((v,key,e)-> {
                 if(key==KeyEvent.KEYCODE_DPAD_CENTER || key==KeyEvent.KEYCODE_ENTER) {
@@ -1487,7 +1446,6 @@ public final class MainActivity extends Activity {
         @Override protected void onDetachedFromWindow(){movement.stop();super.onDetachedFromWindow();}
     }
 
-    /** Native property animations keep the static card artwork cached on the GPU. */
     private final class TileMotion {
         final Tile tile;
         boolean focused,pressed;
@@ -1579,7 +1537,6 @@ public final class MainActivity extends Activity {
         private void drawIcon(Canvas c,Bitmap icon,float size) {float s=px(size);bounds.set((getWidth()-s)/2,(getHeight()-s)/2,(getWidth()+s)/2,(getHeight()+s)/2);p.setAlpha(255);c.drawBitmap(icon,null,bounds,p);}
     }
 
-    /** A separate compositor layer keeps the icon display list static during focus. */
     private final class Shine extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         Shine(){super(MainActivity.this);}
@@ -1590,7 +1547,6 @@ public final class MainActivity extends Activity {
         @Override protected void onDraw(Canvas canvas){canvas.drawRect(0,0,getWidth(),getHeight(),paint);}
     }
 
-    /** Independent compositor surfaces: distant clouds drift behind the cut-out landscape. */
     private final class Wallpaper extends FrameLayout {
         final HandlerThread surfaceThread=new HandlerThread("Luma scenery",android.os.Process.THREAD_PRIORITY_BACKGROUND);
         final Handler surfaceHandler;
@@ -1661,9 +1617,6 @@ public final class MainActivity extends Activity {
             Canvas c=new Canvas(result);Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
             if(!foreground || style==2)c.drawColor(base(style));
             if(source!=null && style!=2) {
-                // Shared destination bounds keep the horizon registered; only the terrain has alpha.
-                // Normalize almost-opaque generated terrain pixels, preserving antialiased skyline edges.
-                // Otherwise a moving sky faintly shines through the mountain interiors.
                 if(foreground)paint.setColorFilter(new ColorMatrixColorFilter(new float[]{1,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0, 0,0,0,1.04f,0}));
                 c.drawBitmap(source,null,new RectF(0,0,width,height),paint);paint.setColorFilter(null);
                 if(foreground)paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP));
@@ -1671,11 +1624,9 @@ public final class MainActivity extends Activity {
             }
             if(foreground)paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP));
             if(pale(style)) {
-                // A white veil behind the greeting and the favourites keeps dark text crisp on the pale silk.
                 paint.setShader(new LinearGradient(0,0,width*.75f,0,new int[]{0x8CF6F6F8,0x33F6F6F8,0x00F6F6F8},new float[]{0,.5f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,width,height,paint);
                 paint.setShader(new LinearGradient(0,0,0,height,new int[]{0x00F2F2F5,0x00F2F2F5,0x59F2F2F5},new float[]{0,.55f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,width,height,paint);
             } else {
-                // Silver's night picture is neutral graphite: its shading is black, not the blue of the older scenes.
                 int tint=style>=SILVER?0x000000:0x080D18;
                 paint.setShader(new LinearGradient(0,0,width*.88f,0,new int[]{0xA0000000|tint,0x30000000|tint,tint},new float[]{0,.5f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,width,height,paint);
                 paint.setShader(new LinearGradient(0,0,0,height,new int[]{0x40000000|tint,0x08000000|tint,0x88000000|tint,(style>=SILVER?0xC8000000:0xE8000000)|tint},new float[]{0,.3f,.68f,1},Shader.TileMode.CLAMP));c.drawRect(0,0,width,height,paint);
@@ -1683,9 +1634,7 @@ public final class MainActivity extends Activity {
             return result;
         }
         void update(){show(wallpaperStyle());}
-        /** Fill under the picture: pale silver, graphite, or the night blue of the original scenes. */
         int base(int style){return pale(style)?0xFFE4E5E8:style>=SILVER?0xFF0B0B0D:0xFF080C14;}
-        /** Shows a wallpaper without saving it (the picker previews live). Silver resolves to its day or night picture. */
         void show(final int choice) {
             final int style=variant(choice);
             if(requestedStyle==style)return;
@@ -1695,7 +1644,6 @@ public final class MainActivity extends Activity {
             loader.execute(()-> {
                 Bitmap back,front;
                 if(style>=3) {
-                    // Photographic and rendered wallpapers: one full-height layer, no cut-out terrain.
                     BitmapFactory.Options full=new BitmapFactory.Options();full.inPreferredConfig=Bitmap.Config.ARGB_8888;
                     Bitmap photo=BitmapFactory.decodeResource(getResources(),PHOTOS[Math.min(PHOTOS.length-1,style-3)],full);
                     back=compose(photo,style,false,width,height);photo.recycle();
@@ -1754,7 +1702,6 @@ public final class MainActivity extends Activity {
                     c=getHolder().lockHardwareCanvas();if(c==null)return;
                     c.drawColor(foreground && scene!=null?Color.TRANSPARENT:base(requestedStyle),PorterDuff.Mode.SRC);
                     if(!foreground)c.translate(cloudX,cloudY);
-                    // Sky uses a shallow surface, but the same virtual full-scene crop as terrain.
                     bounds.set(0,0,c.getWidth(),getResources().getDisplayMetrics().heightPixels+px(60));
                     if(previous!=null && blend<1) {
                         paint.setAlpha(Math.round(255*(1-blend)));c.drawBitmap(previous,null,bounds,paint);
@@ -1775,7 +1722,6 @@ public final class MainActivity extends Activity {
         }
     }
     static final String[] WALLPAPERS={"Fjord","Dusk","Graphite","Milky Way","Calm Sea","Dawn","Silk","Silver"};
-    /** Silver is one choice with two pictures: SILVER by day, SILVER_NIGHT after sunset (see variant()). */
     static final int SILVER=7,SILVER_NIGHT=8;
     static final int[] PHOTOS={R.drawable.wp_milkyway,R.drawable.wp_sea,R.drawable.wp_dawn,R.drawable.wp_silk,R.drawable.wp_silver_day,R.drawable.wp_silver_night};
     static final int[] THUMBS={R.drawable.thumb_0,R.drawable.thumb_1,R.drawable.thumb_2,R.drawable.thumb_3,R.drawable.thumb_4,R.drawable.thumb_5,R.drawable.thumb_6,R.drawable.thumb_7};

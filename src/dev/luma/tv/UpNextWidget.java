@@ -18,20 +18,15 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.*;
 
-/** Up Next: what you were watching, from Android TV's Watch Next list (the "Continue watching" row that apps such
- *  as YouTube and Plex fill in), then the apps you used most recently. OK resumes the programme in its app.
- *  Reading Watch Next needs the TV listings permission; recent apps
- *  come from usage access when granted, else from the apps opened from Luma. Nothing leaves the TV except poster
- *  pictures loaded from the apps' own links. */
+/** Watch Next requires TV listings access. Reading recent apps outside Luma requires usage access.
+ *  The widget keeps viewing history on the TV and loads posters from the links supplied by apps. */
 final class UpNextWidget extends Widget {
     static final Uri WATCH_NEXT=Uri.parse("content://android.media.tv/watch_next_program");
     static final String LISTINGS="android.permission.READ_TV_LISTINGS";
     static final String PLEX="com.plexapp.android";
     static final int SLOTS=3;
     static final float PAD=18,GAP_X=12,CARD_Y=38;
-    /** Posters already decoded, by link: Home rebuilds often (every return from an app), posters rarely change. */
     static final LinkedHashMap<String,Bitmap> posters=new LinkedHashMap<String,Bitmap>(16,.75f,true){@Override protected boolean removeEldestEntry(Map.Entry<String,Bitmap> e){return size()>12;}};
-    /** media is set for programmes (Watch Next or demo), null for recent apps and the Allow access card. */
     static final class Item{String key,title,line,detail,pkg,art;Intent intent;MediaContext media;boolean app,allow;}
 
     final float cardW=(w-PAD*2-GAP_X*(SLOTS-1))/SLOTS,cardH=cardW*9/16;
@@ -73,7 +68,6 @@ final class UpNextWidget extends Widget {
         if(!listings&&exists){Item i=new Item();i.allow=true;i.key="allow";i.title="Continue watching";i.line="Allow access";i.detail="Allow Luma to read the Continue watching list that your apps share with Android TV.";items.add(i);}
         return items;
     }
-    /** Android TV's Watch Next programmes, most recently watched first. */
     private ArrayList<Item> watchNext(Context context){
         ArrayList<Item> out=new ArrayList<>();
         String[] columns={"_id","package_name","title","episode_title","season_display_number","episode_display_number","poster_art_uri","thumbnail_uri","intent_uri","last_playback_position_millis","duration_millis","last_engagement_time_utc_millis","watch_next_type","browsable","short_description"};
@@ -98,11 +92,10 @@ final class UpNextWidget extends Widget {
                 i.detail=i.media.summaryText();
                 out.add(i);
             }
-        }catch(RuntimeException ignored){/* the provider can refuse a query; Up Next then shows recent apps */}
+        }catch(RuntimeException ignored){/* Recent apps remain available when the provider refuses a query. */}
         return out;
     }
     final HashMap<String,Long> lastUsed=new HashMap<>();
-    /** Recently used apps: usage access when granted, else Luma's own record of the apps it opened. */
     private ArrayList<String> recent(Context context){
         ArrayList<String> out=new ArrayList<>();lastUsed.clear();long now=System.currentTimeMillis();
         try{
@@ -199,7 +192,6 @@ final class UpNextWidget extends Widget {
             item=next;
             if(changed&&cell.hasFocus())host.hero("upnext:"+next.key,next.title,next.detail);
         }
-        /** Loads a poster off the main thread (content:, android.resource: or https: links), scaled to the card. */
         private void loadPoster(String link,long request){
             Bitmap cached=posters.get(link);if(cached!=null){poster.setImageBitmap(cached);if(art!=null)art.setVisibility(INVISIBLE);return;}
             final Context context=getContext().getApplicationContext();final int width=px(cardW)*2;

@@ -9,15 +9,9 @@ import android.widget.*;
 import java.util.*;
 import java.util.concurrent.*;
 
-/** Home pages. The widgets chosen in Settings flow, in order, into pages of one row each (864 design units wide);
- *  the Smart Home widget (House Control's scenes and 3D home) is a page of its own, drawn by HouseWidgets beneath
- *  this board. The favourites stay below every page. Left and Right past the last control of a page turn the page;
- *  focus moves inside a page with the platform's FocusFinder, limited to that page. */
 final class WidgetBoard extends FrameLayout {
     static final float W=960,H=392,X=48,ROW_Y=190,ROW_H=186,ROW_W=864,GAP=16,DOTS_Y=380;
-    /** Every widget, in the default order. */
     static final String[] IDS={"house","upnext","weather","inputs","control","music"};
-    /** Widgets do their network and disk work here, away from the launcher's own loader (wallpapers, apps). */
     static final ExecutorService IO=Executors.newFixedThreadPool(2,r->{Thread t=new Thread(r,"Luma widgets");t.setDaemon(true);t.setPriority(Thread.MIN_PRIORITY+1);return t;});
 
     interface Host {
@@ -44,8 +38,7 @@ final class WidgetBoard extends FrameLayout {
         default:return "Wi-Fi, picture and sound, accessories and settings in one place.";}}
     static float width(String id){switch(id){case "upnext":return 560;case "weather":return 288;case "inputs":return InputsWidget.widthFor(InputsWidget.count);default:return 424;}}
 
-    /** All widgets in the saved order, and which of them are on. A widget added in a later version goes in after
-     *  the one it follows in IDS. */
+    /** A new widget follows its predecessor in IDS when reading a saved layout. */
     static ArrayList<String> order(SharedPreferences prefs){
         ArrayList<String> ids=new ArrayList<>();if(Promo.on){ids.addAll(Arrays.asList(Promo.ORDER));return ids;}
         for(String id:prefs.getString("widget_order","").split(","))if(Arrays.asList(IDS).contains(id)&&!ids.contains(id))ids.add(id);
@@ -55,11 +48,8 @@ final class WidgetBoard extends FrameLayout {
     static boolean on(SharedPreferences prefs,String id){return !Arrays.asList(prefs.getString("widget_off","").split(",")).contains(id);}
     static ArrayList<String> enabled(SharedPreferences prefs){ArrayList<String> ids=new ArrayList<>();for(String id:order(prefs))if(on(prefs,id))ids.add(id);return ids;}
     static void save(SharedPreferences prefs,List<String> order,Set<String> off){
-        if(Promo.on){prefs.edit().putString("widget_off",String.join(",",off)).apply();return;} // the promo order is not the user's
+        if(Promo.on){prefs.edit().putString("widget_off",String.join(",",off)).apply();return;}
         prefs.edit().putString("widget_order",String.join(",",order)).putString("widget_off",String.join(",",off)).apply();}
-    /** Pages of the given widget ids, in order: the house alone, the others packed left to right into rows of ROW_W.
-     *  Smart Home needs House Control TV and Inputs a TV with inputs; without them, and for an id this version does
-     *  not know, they are skipped. */
     static ArrayList<ArrayList<String>> pages(List<String> ids,boolean house,boolean inputs){
         ArrayList<ArrayList<String>> pages=new ArrayList<>();ArrayList<String> row=null;float used=0;
         for(String id:ids){
@@ -121,7 +111,6 @@ final class WidgetBoard extends FrameLayout {
     void refresh(){for(Widget w:widgets.get(index))w.refresh();}
     @Override protected void onDetachedFromWindow(){setActive(false);super.onDetachedFromWindow();}
 
-    /** The current page's dot is a short pill; the others are small, quiet dots. */
     private void paintDots(boolean animate){
         int on=host.light()?0xD91D1D1F:0xE6FFFFFF,off=host.light()?0x401D1D1F:0x47FFFFFF;
         for(int i=0;i<dots.getChildCount();i++){
@@ -134,7 +123,6 @@ final class WidgetBoard extends FrameLayout {
         }
     }
 
-    /** Focus stays inside the current page; past its edges it turns the page, goes up to the tabs or down to the apps. */
     @Override public View focusSearch(View focused,int direction){
         if(focused==null||index>=pageViews.size()||!isDescendant(pageViews.get(index),focused))return super.focusSearch(focused,direction);
         View next=FocusFinder.getInstance().findNextFocus(pageViews.get(index),focused,direction);
@@ -151,8 +139,6 @@ final class WidgetBoard extends FrameLayout {
     static float centerX(View v){int[] l=new int[2];v.getLocationOnScreen(l);return l[0]+v.getWidth()/2f;}
     static float centerY(View v){int[] l=new int[2];v.getLocationOnScreen(l);return l[1]+v.getHeight()/2f;}
 
-    /** Turns to the next (+1) or previous (-1) page and returns the control to focus there: the one nearest the
-     *  edge it was entered from, at about the same height. At the first or last page the row nudges and stays. */
     View flip(int direction,View from){
         int next=index+direction;
         if(next<0||next>=layout.size()){nudge(direction);return from;}
@@ -161,7 +147,6 @@ final class WidgetBoard extends FrameLayout {
         if(onHouse())return host.houseEntry(direction);
         View target=edge(direction>0,y);return target!=null?target:from;
     }
-    /** Switches pages with a short slide; the outgoing page stops taking focus at once. */
     void show(int next,int direction){
         if(next==index)return;
         FrameLayout out=pageViews.get(index),in=pageViews.get(next);
@@ -174,12 +159,11 @@ final class WidgetBoard extends FrameLayout {
             out.animate().translationX(-direction*px(56)).alpha(0).setDuration(240).setInterpolator(ease).withLayer().withEndAction(()->{if(pageViews.indexOf(out)!=index){out.setVisibility(INVISIBLE);out.setTranslationX(0);out.setAlpha(1);}}).start();
             in.setTranslationX(direction*px(72));in.setAlpha(0);in.animate().translationX(0).alpha(1).setDuration(460).setStartDelay(40).setInterpolator(ease).withLayer().start();
         } else {out.setVisibility(INVISIBLE);in.setTranslationX(0);in.setAlpha(1);}
-        // Widgets start their work once the page has landed, so binder calls and decoding stay out of the slide.
+        // Binder calls and decoding compete with the page transition on a TV.
         final int shown=index;postDelayed(()->{if(index==shown)for(Widget w:widgets.get(shown))w.setActive(active);},host.motion()?480:0);
         paintDots(true);
         host.pageChanged(onHouse(),direction);
     }
-    /** Jumps to a page (Back from a later page returns to the first one). */
     void showPage(int page){if(page!=index&&page>=0&&page<layout.size())show(page,page>index?1:-1);}
     private void nudge(int direction){
         if(onHouse()){host.nudgeHouse(direction);return;}
@@ -187,14 +171,12 @@ final class WidgetBoard extends FrameLayout {
         page.animate().translationX(direction*px(10)).setDuration(110).setInterpolator(ease).withEndAction(()->page.animate().translationX(0).setDuration(380).setInterpolator(new android.view.animation.OvershootInterpolator(1.4f)).start()).start();
     }
     private ArrayList<View> focusables(){ArrayList<View> list=new ArrayList<>();if(index<pageViews.size())pageViews.get(index).addFocusables(list,FOCUS_FORWARD);return list;}
-    /** The leftmost (or rightmost) control of the page, preferring the row nearest y. */
     View edge(boolean leftmost,float y){
         View best=null;float score=Float.MAX_VALUE;
         for(View v:focusables()){float x=centerX(v),s=(leftmost?x:-x)+Math.abs(centerY(v)-y)*.6f;if(s<score){score=s;best=v;}}
         return best;
     }
     View first(){if(onHouse())return host.houseEntry(1);ArrayList<View> list=focusables();View best=null;for(View v:list)if(best==null||centerY(v)<centerY(best)-2||Math.abs(centerY(v)-centerY(best))<=2&&centerX(v)<centerX(best))best=v;return best;}
-    /** Up from a favourite: the lowest control nearest above it. */
     View nearest(float x){
         View best=null;float score=Float.MAX_VALUE;
         for(View v:focusables()){float s=Math.abs(centerX(v)-x)-centerY(v)*.35f;if(s<score){score=s;best=v;}}

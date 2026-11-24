@@ -1,4 +1,3 @@
-# reproject.py pano.jpg yaw pitch hfov out.jpg [w h] — a rectilinear camera view of an equirectangular panorama
 import sys, numpy as np, cv2
 cv2.setNumThreads(8)
 src, yaw, pitch, hfov, out = sys.argv[1], *map(float, sys.argv[2:5]), sys.argv[5]
