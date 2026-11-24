@@ -22,7 +22,7 @@ git show 11f1b1b:src/dev/luma/tv/UpNextWidget.java > /tmp/UpNextWidget.old.java
 java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --source /tmp/UpNextWidget.old.java
 ```
 
-At 11f1b1b the three bounded ordering properties fail. CI requires all three historical counterexamples. It also replays f6e4375, where the ordering checks pass but a pending read waits behind uncached posters.
+At 11f1b1b the three bounded ordering properties fail. CI requires all three historical counterexamples. It also replays a6b6568, where the ordering checks pass but a pending read waits behind uncached posters.
 
 ## How it works
 
@@ -88,8 +88,8 @@ If a later change renames these lines, update the mutant text in `scripts/UpNext
 ## Bounds and limits
 
 - The default bound is 3 refresh requests, up to 2 Watch Next writes, 2 IO workers, and 30 steps per replay. `--refreshes` accepts 1 through 4. `--writes` accepts 0 through 3. The two-poster replay uses its own fixed bounds and is outside the schedule count. Use the default bounds for `--self-check`.
-- With the refresh code at 7291c42, the checker passes 710 schedules at the default bound (longest 15 steps). At 4 refreshes and up to 3 writes, it passes 18,865 schedules (longest 20 steps).
-- At the default bound, the checker explores 246,884 schedules for 11f1b1b and 710 for f6e4375. Both historical replays produce counterexamples.
+- With the refresh code at 23534f0, the checker passes 710 schedules at the default bound (longest 15 steps). At 4 refreshes and up to 3 writes, it passes 18,865 schedules (longest 20 steps).
+- At the default bound, the checker explores 246,884 schedules for 11f1b1b and 710 for a6b6568. Both historical replays produce counterexamples.
 - The fakes assume Android's `View.post()` runs posted work on the UI thread in the order posted. The model starts tasks in queue order on a fixed pool of 2 workers, the size of `WidgetBoard.IO` in `WidgetBoard.java`.
 - The checker schedules at the listed pause points. It cannot see races that require a switch inside a step, such as a flag that changes and changes back before `load()`. The worker handoffs synchronize memory and assume the widget starts each replay with no shared mutable state from a prior replay.
 - `load()` and `show()` are fakes. The check does not cover what `load()` reads, focus handling in `show()`, Promo mode, or the recent-app fallback.
@@ -103,7 +103,7 @@ If a later change renames these lines, update the mutant text in `scripts/UpNext
 | `loading`, `stale`, `refresh()` | `src/dev/luma/tv/UpNextWidget.java`, between the constructor and `load()` |
 | `WidgetBoard.IO` pool size and order | `src/dev/luma/tv/WidgetBoard.java` |
 
-Sync commit: `7291c42` (complete a failed read on the UI thread). The cut text hash at that commit is `3bd76a7a186477fa`, printed on the `region` line of every run.
+Sync commit: `23534f0` (complete a failed read on the UI thread). The cut text hash at that commit is `3bd76a7a186477fa`, printed on the `region` line of every run.
 
 When the hash changes, read the new cut text and confirm the fakes still match how Android and `WidgetBoard.IO` behave. Then run the check. Move the sync commit and hash forward only after that review. Never weaken a property, lower the bound, or drop a mutant to get a pass. For an intended change in behavior, use `/t3-pstack:maintain-formal-verification-skill`.
 

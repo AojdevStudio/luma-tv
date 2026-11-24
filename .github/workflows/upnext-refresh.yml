@@ -68,7 +68,7 @@ jobs:
             grep -Eq "^FAIL +${property}:" "$RUNNER_TEMP/refresh-history.log" || { echo "Restore the historical counterexample for $property"; exit 1; }
           done
 
-          git show f6e4375d66d86ec01e67973058ec2da172139c2d:src/dev/luma/tv/UpNextWidget.java > "$RUNNER_TEMP/UpNextWidget.java"
+          git show a6b656837af66c6d8cd1a0b778adbbf426e58efc:src/dev/luma/tv/UpNextWidget.java > "$RUNNER_TEMP/UpNextWidget.java"
           status=0
           java .agents/skills/verify-upnext-refresh/scripts/UpNextRefreshCheck.java --source "$RUNNER_TEMP/UpNextWidget.java" > "$RUNNER_TEMP/poster-queue.log" || status=$?
           cat "$RUNNER_TEMP/poster-queue.log"
