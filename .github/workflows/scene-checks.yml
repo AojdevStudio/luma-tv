@@ -1,0 +1,28 @@
+name: scene-checks
+
+# Runs the House Control scene checks: the plain-Java unit checks and the TLC model of scene dispatch.
+# It runs PR code with read-only permissions and no secrets.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  scenes:
+    name: Scene dispatch and preview
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Unit checks
+        run: bash .agents/skills/verify-scene-dispatch/scripts/units.sh
+      - name: Model check
+        run: bash .agents/skills/verify-scene-dispatch/scripts/check.sh

@@ -9,7 +9,9 @@
 ## Verification
 
 - For source builds and TCL app checks, use `.agents/skills/verify-luma/SKILL.md`.
-- For `luma.sh` state and journal changes, use `.agents/skills/verify-luma-state/SKILL.md`. Report counterexamples and UNKNOWN results without relabeling them as passes.
+- For `luma.sh` state and journal changes, use `.agents/skills/verify-luma-state/SKILL.md`.
+- For scene dispatch and scene results, use `.agents/skills/verify-scene-dispatch/SKILL.md`.
+- Report counterexamples and UNKNOWN results from either formal check without relabeling them as passes.
 
 ## Agent skills
 
