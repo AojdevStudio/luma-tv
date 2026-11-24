@@ -1,0 +1,6 @@
+<!-- Test-only instrumentation. It runs inside Luma's process and drives Up Next against the real TV provider. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.luma.tv.e2e" android:versionCode="1" android:versionName="1">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <instrumentation android:name="dev.luma.tv.MediaE2E" android:targetPackage="dev.luma.tv.e2e.target" android:label="Luma media E2E" />
+    <application android:label="Luma media E2E" android:hasCode="true" />
+</manifest>

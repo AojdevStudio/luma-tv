@@ -1,0 +1,15 @@
+<!-- Test-only app. It owns one Android TV Watch Next row so the media E2E test can drive Up Next through the real
+     TV provider. It is never shipped. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.luma.tv.fixture" android:versionCode="1" android:versionName="1">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <application android:label="Fixture" android:allowBackup="false">
+        <activity android:name=".Main" android:exported="true" android:label="Fixture">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent-filter>
+        </activity>
+        <activity android:name=".Player" android:exported="true" android:label="Fixture player" />
+        <activity android:name=".PlayerNext" android:exported="true" android:label="Fixture next player" />
+        <activity android:name=".Hidden" android:exported="false" android:label="Fixture hidden" />
+    </application>
+</manifest>
