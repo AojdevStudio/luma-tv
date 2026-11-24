@@ -155,7 +155,7 @@ public final class MediaE2E extends Instrumentation {
         test("A provider link Android refuses falls back to the provider app", () -> {
             seed("Fixture-Refused", 30_000, HIDDEN, "Fixture-Refused", 30_000, HIDDEN);
             Activity luma = launchLuma(null);
-            press(card(luma, "Fixture-Refused"));
+            press(expectCard(luma, "Fixture-Refused · 1 m left · Fixture", .5f));
             waitResumed(APP);
         });
         Bundle result = new Bundle();
