@@ -35,7 +35,8 @@ final class HouseWidgets extends FrameLayout {
     static final Bitmap[] lastPicture=new Bitmap[2];
     volatile String snapshot="{}";
     volatile boolean daylight;
-    IBinder binder;boolean bound=false,attached=false,active=true,loaded=false,fetching=false,shown=false,live=false;
+    IBinder binder;boolean attached=false,active=true,loaded=false,fetching=false,shown=false,live=false;
+    private boolean bindRequested;
     String revision="",title="Your home",pictured="";
     final Callbacks callbacks;
     final List<String> shortcuts;
@@ -160,8 +161,37 @@ final class HouseWidgets extends FrameLayout {
         }
     }
 
-    @Override protected void onAttachedToWindow(){super.onAttachedToWindow();attached=true;Intent intent=new Intent().setComponent(new ComponentName("dev.housecontrol.tv","dev.housecontrol.tv.HomeService"));try{bound=activity.bindService(intent,connection,Context.BIND_AUTO_CREATE);}catch(Exception ignored){}handler.post(refresh);}
-    @Override protected void onDetachedFromWindow(){attached=false;handler.removeCallbacksAndMessages(null);if(bound){try{activity.unbindService(connection);}catch(Exception ignored){}bound=false;}binder=null;model.removeJavascriptInterface("HouseWidget");model.destroy();worker.shutdownNow();super.onDetachedFromWindow();}
+    @Override protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        attached = true;
+        Intent intent = new Intent().setComponent(new ComponentName("dev.housecontrol.tv", "dev.housecontrol.tv.HomeService"));
+        // Android can register the connection even when bindService returns false or throws SecurityException.
+        bindRequested = true;
+        try {
+            activity.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+        } catch (SecurityException refused) {
+            // Leave the widget disconnected. Detach still releases the request.
+        }
+        handler.post(refresh);
+    }
+
+    @Override protected void onDetachedFromWindow() {
+        attached = false;
+        handler.removeCallbacksAndMessages(null);
+        if (bindRequested) {
+            bindRequested = false;
+            try {
+                activity.unbindService(connection);
+            } catch (IllegalArgumentException notRegistered) {
+                // Android has no connection to release.
+            }
+        }
+        binder = null;
+        model.removeJavascriptInterface("HouseWidget");
+        model.destroy();
+        worker.shutdownNow();
+        super.onDetachedFromWindow();
+    }
     void setActive(boolean value){active=value;setRemoteActive(value);handler.removeCallbacks(refresh);if(value&&attached){model.onResume();model.evaluateJavascript("window.widgetRunning && window.widgetRunning(true)",null);handler.post(refresh);}else{model.evaluateJavascript("window.widgetRunning && window.widgetRunning(false)",null);model.onPause();}}
     void setRemoteActive(boolean value){if(binder==null||worker.isShutdown())return;worker.execute(()->{IBinder target=binder;if(target==null)return;Parcel in=Parcel.obtain(),out=Parcel.obtain();try{in.writeInt(value?1:0);target.transact(3,in,out,0);out.readException();}catch(Exception ignored){}finally{in.recycle();out.recycle();}});}
     JSONObject transact(int code)throws Exception{
