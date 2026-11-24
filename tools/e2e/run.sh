@@ -29,6 +29,7 @@ sign() {
 }
 
 target=dev.luma.tv.e2e.target
+extras=(1 2 3 4 5 6 7)
 build_apks() {
     bash build.sh
     rm -rf "$OUT"
@@ -53,6 +54,13 @@ PY
         --rename-manifest-package "$target" --auto-add-overlay build/resources.zip -R build/overlay.zip
     (cd build/dex && zip -q ../e2e/target/unsigned.apk classes*.dex)
     sign target
+    # Seven code-free apps, so Home has more apps than the six it shows.
+    for n in "${extras[@]}"; do
+        mkdir -p "$OUT/app$n"
+        sed "s/LABEL/Extra $n/g" tools/e2e/apps/AndroidManifest.xml > "$OUT/app$n/AndroidManifest.xml"
+        "$BT/aapt2" link -o "$OUT/app$n/unsigned.apk" -I "$JAR" --manifest "$OUT/app$n/AndroidManifest.xml" --rename-manifest-package "dev.luma.tv.e2e.app$n"
+        sign "app$n"
+    done
 }
 
 install_and_test() {
@@ -99,13 +107,68 @@ PY
         "${adb[@]}" install -r "$OUT/$name.apk"
     done
     "${adb[@]}" shell pm grant "$target" android.permission.READ_TV_LISTINGS
-    "${adb[@]}" shell am instrument -w -r dev.luma.tv.e2e/dev.luma.tv.MediaE2E | tee "$OUT/result.txt"
-    grep -q '^E2E PASS$' "$OUT/result.txt"
+    : > "$OUT/result.txt"
+    local suite
+    for suite in "${suites[@]}"; do
+        if [[ $suite == JourneysE2E ]]; then
+            run_journeys
+        else
+            run_phase "$suite" "" ""
+        fi
+    done
 }
 
-case "${1:-all}" in
+run_phase() {
+    local suite=$1 step=$2 expected_next=$3
+    local args=(shell am instrument -w -r)
+    [[ -z $step ]] || args+=(-e step "$step")
+    "${adb[@]}" "${args[@]}" "dev.luma.tv.e2e/dev.luma.tv.$suite" | tee "$OUT/run.txt"
+    cat "$OUT/run.txt" >> "$OUT/result.txt"
+    local next
+    next=$(sed -n 's/^E2E NEXT //p' "$OUT/run.txt")
+    if ! grep -Fxq 'INSTRUMENTATION_CODE: -1' "$OUT/run.txt" ||
+       ! grep -Fxq 'E2E PASS' "$OUT/run.txt" ||
+       grep -q '^E2E FAIL' "$OUT/run.txt" || [[ $next != "$expected_next" ]]; then
+        echo "Failed instrumentation result for $suite step ${step:-first}" >&2
+        return 1
+    fi
+    if [[ $suite == JourneysE2E ]] && ! grep -Eq "^INSTRUMENTATION_RESULT: stream=step ${step:-first} pid [1-9][0-9]*$" "$OUT/run.txt"; then
+        echo "Missing journey result for step ${step:-first}" >&2
+        return 1
+    fi
+}
+
+run_journeys() (
+    local existing n package status=0 pkg=""
+    local installed=()
+    existing=$("${adb[@]}" shell pm list packages)
+    trap '
+        status=$?
+        if (( ${#installed[@]} )); then
+            for pkg in "${installed[@]}"; do
+                "${adb[@]}" uninstall "$pkg" || status=1
+            done
+        fi
+        exit "$status"
+    ' EXIT
+    for n in "${extras[@]}"; do
+        package="dev.luma.tv.e2e.app$n"
+        if grep -Fxq "package:$package" <<< "$existing"; then continue; fi
+        "${adb[@]}" install "$OUT/app$n.apk"
+        installed+=("$package")
+    done
+    run_phase JourneysE2E "" sports-restarted
+    run_phase JourneysE2E sports-restarted default-restarted
+    run_phase JourneysE2E default-restarted guest-restarted
+    run_phase JourneysE2E guest-restarted ""
+)
+
+mode=${1:-all}
+suites=("${@:2}")
+(( ${#suites[@]} )) || suites=(MediaE2E JourneysE2E)
+case "$mode" in
     all) build_apks; install_and_test ;;
     build) build_apks ;;
     test) install_and_test ;;
-    *) echo "Usage: $0 [all|build|test]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [all|build|test] [suite...]" >&2; exit 2 ;;
 esac
