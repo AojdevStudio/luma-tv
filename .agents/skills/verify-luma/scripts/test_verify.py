@@ -1,13 +1,19 @@
+from concurrent.futures import ThreadPoolExecutor
 import contextlib
+import errno
+import fcntl
 import io
 import json
 import os
 from pathlib import Path
+import select
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -26,7 +32,21 @@ DEVICE = {
                  "  ResumedActivity: ActivityRecord{9d0a u0 dev.luma.tv/.MainActivity t12}"),
     "model": "BeyondTV5", "android": "9", "serial": "ABC123", "power": "  mWakefulness=Awake",
 }
+SERVER = ["fork-server", "server", "--reply-fd"]
+REAL_POPEN = subprocess.Popen
+HAS_PIDFD = hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal")
 JOURNAL = b"original=com.gathin.tvhome/.MainActivity\ndisabled=com.google.android.tvlauncher\n"
+
+
+def free_port():
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def stop_child(child):
+    child.kill()
+    child.wait(10)
 
 
 class FakeTools:
@@ -37,14 +57,19 @@ class FakeTools:
         self.calls, self.envs = [], []
         self.before, self.after = dict(DEVICE), {}
         self.pressed = False
-        self.state, self.timeout = b"device\n", None
+        self.state, self.timeout, self.interrupt = b"device\n", None, None
         self.on_home = None
 
-    def __call__(self, argv, cwd, env, capture_output, timeout):
+    def popen(self, argv, **kwargs):
         self.calls.append(argv)
-        self.envs.append(env)
+        self.envs.append(kwargs["env"])
+        if "pass_fds" in kwargs:
+            os.write(kwargs["pass_fds"][0], b"OK\n")
+            return FakeServer(self.calls, argv)
         if argv[-1] == self.timeout:
-            raise subprocess.TimeoutExpired(argv, timeout, output=b"partial")
+            return FakeCommand(b"partial", None)
+        if argv[-1] == self.interrupt:
+            return InterruptedCommand()
         out, code = b"", 0
         if argv[:3] == ["bash", "luma.sh", "build"]:
             (self.root / "dist").mkdir(exist_ok=True)
@@ -52,8 +77,8 @@ class FakeTools:
         elif argv[0].endswith("apksigner"):
             out = b"Verifies\nSigner #1 certificate SHA-256 digest: abc123\n"
         elif argv[0].endswith("adb"):
-            out, code = self.adb(argv[argv.index("-P") + 2:])
-        return subprocess.CompletedProcess(argv, code, out, b"")
+            out, code = self.adb(argv[argv.index("-L") + 2:])
+        return FakeCommand(out, code)
 
     def adb(self, args):
         if args[0] == "connect":
@@ -77,6 +102,76 @@ class FakeTools:
 
     def adb_calls(self):
         return [call for call in self.calls if call[0].endswith("adb")]
+
+
+class FakeCommand:
+    """A command that has finished, or one that times out (code None). A timeout gets a real `true` process in its
+    own group, because the verifier kills the group of a command that timed out."""
+
+    def __init__(self, out, code):
+        self.out, self.code, self.returncode = out, code, None
+        if code is None:
+            self.group = REAL_POPEN(["true"], start_new_session=True)
+            self.pid = self.group.pid
+
+    def communicate(self, timeout=None):
+        if self.code is None and self.returncode is None:
+            raise subprocess.TimeoutExpired("fake", timeout)
+        self.wait()
+        return self.out, b""
+
+    def wait(self, timeout=None):
+        self.returncode = -signal.SIGKILL if self.code is None else self.code
+        if self.code is None:
+            self.group.wait()
+        return self.returncode
+
+
+class InterruptedCommand:
+    """A command whose group holds a real sleep, and which receives SIGTERM while the verifier waits for it."""
+
+    def __init__(self):
+        self.group = REAL_POPEN(["sleep", "300"], start_new_session=True)
+        self.pid, self.returncode = self.group.pid, None
+
+    def communicate(self, timeout=None):
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(5)
+        raise AssertionError("SIGTERM did not interrupt the command.")
+
+    def wait(self, timeout=None):
+        self.returncode = self.group.wait(timeout)
+        return self.returncode
+
+
+# A replacement is a child of the test, outside the verifier's own server handle.
+HOST_KILL = """
+import socket, sys, time
+with socket.socket(socket.AF_UNIX) as server:
+    server.settimeout(30)
+    server.bind(sys.argv[1])
+    server.listen()
+    print("ready", flush=True)
+    connection, _ = server.accept()
+    with connection, connection.makefile("rb") as request:
+        connection.settimeout(5)
+        assert request.read(13) == b"0009host:kill"
+        connection.sendall(b"OKAY")
+        if sys.argv[2] == "hang":
+            time.sleep(30)
+"""
+
+
+class FakeServer:
+    def __init__(self, calls, args):
+        self.calls, self.args, self.pid, self.returncode = calls, args, 4242, None
+
+    def terminate(self):
+        self.calls.append(["terminate", self.args[2]])
+
+    def wait(self, timeout=None):
+        self.returncode = -15
+        return self.returncode
 
 
 class OfflineDiscoveryTest(unittest.TestCase):
@@ -115,15 +210,13 @@ class VerifyTest(unittest.TestCase):
             (self.root / name).write_bytes(data)
         for suite in (verify.ROOT / "tools").glob("*Test.java"):
             (self.root / "tools" / suite.name).touch()
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
         self.tools = FakeTools(self.root)
-        for name, value in {"ROOT": self.root, "KEYDIR": self.keys, "PORT": port, "SETTLE": 0}.items():
+        for name, value in {"ROOT": self.root, "KEYDIR": self.keys, "STATE": base / "state",
+                            "LEGACY_PORT": free_port(), "SETTLE": 0}.items():
             patcher = mock.patch.object(verify, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        patcher = mock.patch.object(verify.subprocess, "run", self.tools)
+        patcher = mock.patch.object(verify.subprocess, "Popen", self.tools.popen)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -133,9 +226,60 @@ class VerifyTest(unittest.TestCase):
         return code, json.loads((self.evidence / "summary.json").read_text())
 
     def assert_cleaned_up_once(self):
-        stops = [call for call in self.tools.calls if call[-1] == "kill-server"]
-        self.assertEqual(stops, [[str(verify.adb_bin()), "-P", str(verify.PORT), "kill-server"]])
-        self.assertEqual(self.tools.calls[-1][-1], "kill-server")
+        starts = [call for call in self.tools.calls if call[3:6] == SERVER]
+        stops = [call for call in self.tools.calls if call[0] == "terminate"]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(stops, [["terminate", starts[0][2]]])
+        after = self.tools.calls[self.tools.calls.index(stops[0]) + 1:]
+        self.assertEqual(after, [])
+        self.assertEqual(list((verify.STATE / "run").glob("*-*")), [])
+        self.assert_lock_free()
+
+    def assert_lock_free(self):
+        with (verify.STATE / "tcl.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def assert_left_running(self, listener):
+        listener.setblocking(False)
+        with self.assertRaises(BlockingIOError):
+            listener.accept()
+        with socket.create_connection(listener.getsockname()[:2]):
+            pass
+
+    def test_reaping_an_abandoned_run_preserves_evidence_with_a_server_prefix(self):
+        evidence = verify.STATE / "adb-doctor"
+        run = verify.Run(evidence)
+        saved = b'{"status":"PASS"}'
+        (evidence / "summary.json").write_bytes(saved)
+        unmarked = verify.STATE / "run" / "old-saved"
+        unmarked.mkdir(parents=True)
+        (unmarked / "summary.json").write_bytes(saved)
+        run.start_server()
+        abandoned = run.server
+        run.server = None  # Leave the directory behind, as after an interrupted verifier.
+        run.close()
+        code, summary = self.run_verify("doctor")
+        self.assertEqual(code, 0, summary)
+        self.assertFalse(abandoned.exists())
+        self.assertEqual((evidence / "summary.json").read_bytes(), saved)
+        self.assertEqual((unmarked / "summary.json").read_bytes(), saved)
+
+    def test_first_run_keeps_evidence_disjoint_from_the_runtime_and_lock(self):
+        paths = [".", "state", "state/run", "state/run/report", "state/tcl.lock", "state/tcl.lock/report"]
+        if sys.platform == "darwin":
+            paths.extend(["STATE", "state/RUN/report", "state/TCL.LOCK/report"])
+        for index, relative in enumerate(paths):
+            parent = self.root.parent / str(index)
+            state = parent / "state"
+            with self.subTest(relative), mock.patch.object(verify, "STATE", state):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as refused:
+                    verify.main(["offline", "--evidence", str(parent / relative)])
+                self.assertEqual(refused.exception.code, 2)
+                self.assertFalse(parent.exists())
+
+        self.evidence = verify.STATE / "adb-doctor"
+        code, summary = self.run_verify("doctor")
+        self.assertEqual(code, 0, summary)
 
     def test_safe_run_passes_with_launcher_suite(self):
         (self.root / "tools/test_luma.py").write_bytes(b"")
@@ -179,24 +323,34 @@ class VerifyTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"LUMA_DEVICE": "10.69.3.99:5555", "SECRET_TOKEN": "sentinel-value"}):
             code, summary = self.run_verify("doctor")
         self.assertEqual(summary["status"], "PASS", summary)
+        server = self.tools.adb_calls()[0][:3]
+        self.assertRegex(server[2], "^localfilesystem:" + str(verify.STATE / "run") + "/adb-[^/]+/adb.sock$")
         for call in self.tools.adb_calls():
-            self.assertTrue(call[3:] in (["start-server"], ["connect", verify.TARGET], ["kill-server"])
+            self.assertEqual(call[:3], server)
+            self.assertTrue(call[3:6] == SERVER or call[3:] == ["connect", verify.TARGET]
                             or call[3:5] == ["-s", verify.TARGET], call)
-        allowed = {"PATH", "JAVA_HOME", "LUMA_JDK", "ANDROID_SDK_ROOT", "LUMA_KEYSTORE", "ANDROID_USER_HOME",
-                   "ADB_VENDOR_KEYS", "ADB_MDNS_AUTO_CONNECT", "ADB_SERVER_SOCKET", "PYTHONDONTWRITEBYTECODE"}
+        allowed = {"PATH", "JAVA_HOME", "LUMA_JDK", "ANDROID_SDK_ROOT", "LUMA_KEYSTORE", "HOME",
+                   "ADB_MDNS_AUTO_CONNECT", "ADB_SERVER_SOCKET", "PYTHONDONTWRITEBYTECODE",
+                   "TMPDIR", "ADB_MDNS", "ADB_USB", "ADB_EMU"}
         for env in self.tools.envs:
             self.assertLessEqual(set(env), allowed)
-        self.assertEqual(self.tools.envs[-1]["ADB_VENDOR_KEYS"], str(self.keys / "adbkey"))
+        self.assertEqual(self.tools.envs[-1]["HOME"], str(Path(server[2].split(":", 1)[1]).parent / "home"))
+        self.assertEqual(self.tools.envs[-1]["ADB_SERVER_SOCKET"], server[2])
+        self.assertEqual({self.tools.envs[-1][name] for name in ["ADB_MDNS", "ADB_USB", "ADB_EMU"]}, {"0"})
         evidence = b"".join(path.read_bytes() for path in self.evidence.rglob("*") if path.is_file())
         self.assertNotIn(b"sentinel-value", evidence)
 
-    def test_missing_adb_key_refuses_before_any_adb(self):
+    def test_missing_or_unreadable_adb_key_refuses_before_any_adb(self):
         (self.keys / "adbkey").unlink()
-        code, summary = self.run_verify("doctor")
-        self.assertEqual(summary["status"], "FAIL")
-        self.assertIn("No key was created", summary["error"])
-        self.assertEqual(self.tools.adb_calls(), [])
-        self.assertFalse((self.keys / "adbkey").exists())
+        for label, make in {"missing": lambda: None, "unreadable": (self.keys / "adbkey").mkdir}.items():
+            with self.subTest(label):
+                make()
+                self.evidence = self.evidence.with_name("evidence-" + label)
+                code, summary = self.run_verify("doctor")
+                self.assertEqual(summary["status"], "FAIL")
+                self.assertIn("No key was created", summary["error"])
+                self.assertEqual(self.tools.adb_calls(), [])
+                self.assertFalse((self.keys / "adbkey").is_file())
 
     def test_missing_signing_key_refuses_build(self):
         (self.root / ".signing/local.keystore").unlink()
@@ -206,14 +360,137 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual(self.tools.calls, [])
         self.assertFalse((self.root / ".signing/local.keystore").exists())
 
-    def test_busy_port_leaves_foreign_server_alone(self):
+    def test_consecutive_runs_pass_and_a_recently_closed_connection_asks_for_a_retry(self):
+        for name in ["first", "second"]:
+            self.evidence = self.evidence.with_name(name)
+            self.assertEqual(self.run_verify("doctor"), (0, mock.ANY))
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", verify.LEGACY_PORT))
+            listener.listen()
+        self.evidence = self.evidence.with_name("after-idle-listener")
+        self.assertEqual(self.run_verify("doctor"), (0, mock.ANY))
+        # An older verifier's server closes its side first, which leaves the port in TIME_WAIT for up to a minute.
+        # A bind that does not share the port cannot tell that apart from an owner that has bound but not listened.
+        with socket.socket() as listener:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("127.0.0.1", verify.LEGACY_PORT))
+            listener.listen()
+            with socket.create_connection(listener.getsockname()) as client:
+                connection, _ = listener.accept()
+                connection.close()
+                self.assertEqual(client.recv(1), b"")
+        self.evidence = self.evidence.with_name("after-time-wait")
+        code, summary = self.run_verify("doctor")
+        self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
+        self.assertIn("retry after about a minute", summary["error"])
+        self.assertEqual(sum(call[3:6] == SERVER for call in self.tools.adb_calls()), 3)
+        self.assertEqual(list((verify.STATE / "run").glob("*-*")), [])
+        self.assert_lock_free()
+
+    def test_missing_ipv6_loopback_holds_ipv4_only(self):
+        real = socket.socket
+        for number in (errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL):
+            def no_ipv6(family=socket.AF_INET, *args):
+                if family == socket.AF_INET6:
+                    raise OSError(number, os.strerror(number))
+                return real(family, *args)
+            with self.subTest(errno.errorcode[number]), mock.patch.object(verify.socket, "socket", no_ipv6):
+                self.evidence = self.evidence.with_name("evidence-" + str(number))
+                run = verify.Run(self.evidence)
+                try:
+                    run.start_server()
+                    with real() as old, self.assertRaises(OSError) as refused:
+                        old.bind(("127.0.0.1", verify.LEGACY_PORT))
+                    self.assertEqual(refused.exception.errno, errno.EADDRINUSE)
+                finally:
+                    run.close()
+                self.assert_lock_free()
+
+    def test_old_verifier_listener_on_ipv4_or_ipv6_loopback_is_left_running(self):
+        for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+            with self.subTest(host), socket.socket(family) as foreign:
+                self.evidence = self.evidence.with_name("evidence-" + str(family))
+                if family == socket.AF_INET6:
+                    foreign.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                foreign.bind((host, verify.LEGACY_PORT))
+                foreign.listen()
+                code, summary = self.run_verify("doctor")
+                self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
+                self.assertIn("in use on " + host, summary["error"])
+                self.assertIn("left running", summary["error"])
+                self.assertEqual(self.tools.adb_calls(), [])
+                self.assert_left_running(foreign)
+                self.assert_lock_free()
+
+    def test_wildcard_listener_refuses_the_run_and_is_never_contacted(self):
+        for family, host, v6only, refused_on in ((socket.AF_INET, "0.0.0.0", None, "127.0.0.1"),
+                                                 (socket.AF_INET6, "::", 0, "127.0.0.1"),
+                                                 (socket.AF_INET6, "::", 1, "::1")):
+            with self.subTest(host=host, v6only=v6only), socket.socket(family) as foreign:
+                self.evidence = self.evidence.with_name("evidence-" + host + str(v6only))
+                foreign.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if v6only is not None:
+                    foreign.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, v6only)
+                foreign.bind((host, verify.LEGACY_PORT))
+                foreign.listen()
+                code, summary = self.run_verify("doctor")
+                self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
+                self.assertIn("in use on " + refused_on, summary["error"])
+                self.assertEqual(self.tools.adb_calls(), [])
+                self.assert_left_running(foreign)
+                self.assert_lock_free()
+
+    def test_foreign_bound_port_is_in_use_before_adb_starts(self):
         with socket.socket() as foreign:
-            foreign.bind(("127.0.0.1", verify.PORT))
-            foreign.listen()
+            foreign.bind(("127.0.0.1", verify.LEGACY_PORT))
             code, summary = self.run_verify("doctor")
-        self.assertEqual(summary["status"], "FAIL")
-        self.assertIn("left running", summary["error"])
-        self.assertEqual(self.tools.adb_calls(), [])
+            self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
+            self.assertIn("in use", summary["error"])
+            self.assertEqual(self.tools.adb_calls(), [])
+
+    def test_owner_that_has_bound_but_not_listened_keeps_the_port(self):
+        for reuse in (0, 1):
+            with self.subTest(reuse=reuse), socket.socket() as foreign:
+                foreign.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, reuse)
+                foreign.bind(("127.0.0.1", verify.LEGACY_PORT))
+                run = verify.Run(self.evidence.with_name("evidence-" + str(reuse)))
+                try:
+                    with self.assertRaisesRegex(RuntimeError, "in use on 127.0.0.1"):
+                        run.start_server()
+                finally:
+                    run.close()
+                foreign.listen()
+                self.assert_left_running(foreign)
+                self.assertEqual(self.tools.adb_calls(), [])
+
+    def test_older_verifier_checks_refuse_while_a_run_holds_the_port(self):
+        run = verify.Run(self.evidence)
+        try:
+            run.start_server()
+            for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+                with self.assertRaises(ConnectionRefusedError):
+                    socket.create_connection((host, verify.LEGACY_PORT), timeout=5).close()
+                for reuse in (0, 1):
+                    with self.subTest(host=host, reuse=reuse), socket.socket(family) as old:
+                        old.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, reuse)
+                        with self.assertRaises(OSError) as refused:
+                            old.bind((host, verify.LEGACY_PORT))
+                        self.assertEqual(refused.exception.errno, errno.EADDRINUSE)
+        finally:
+            run.close()
+
+    def test_second_verifier_refuses_and_leaves_the_first_server_running(self):
+        first = verify.Run(self.evidence.with_name("first"))
+        try:
+            first.start_server()
+            code, summary = self.run_verify("doctor")
+            self.assertEqual((code, summary["status"]), (1, "FAIL"), summary)
+            self.assertIn("Another verifier", summary["error"])
+            self.assertEqual([call[3:6] for call in self.tools.adb_calls()], [SERVER])
+            self.assertTrue(first.server.is_dir())
+        finally:
+            first.close()
+        self.assert_lock_free()
 
     def test_unauthorized_key_stops_without_retry_and_cleans_up(self):
         self.tools.state = b""
@@ -267,6 +544,68 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual((self.evidence / "before-activity.stdout").read_bytes(), b"partial")
         self.assert_cleaned_up_once()
 
+    def test_second_signal_during_command_cleanup_still_stops_its_group(self):
+        self.tools.interrupt = verify.SNAPSHOT["model"]
+        real_killpg, groups = os.killpg, []
+
+        def killpg(pid, number):
+            if number == signal.SIGKILL and not groups:
+                groups.append(pid)
+                os.kill(os.getpid(), signal.SIGTERM)
+            real_killpg(pid, number)
+
+        with mock.patch.object(verify.os, "killpg", killpg):
+            code, summary = self.run_verify("doctor")
+        self.assertEqual((code, summary["status"], summary["error"]), (1, "FAIL", "The run was interrupted."), summary)
+        self.assertNotIn("cleanup_error", summary)
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(groups[0], 0)
+        log = [json.loads(line) for line in (self.evidence / "commands.jsonl").read_text().splitlines()]
+        self.assertIn({"name": "before-model", "exit": "interrupted"}, [{k: e[k] for k in ("name", "exit")} for e in log])
+        self.assert_cleaned_up_once()
+
+    def test_replacement_server_exits_or_keeps_its_directory_without_a_pidfd(self):
+        for mode, pidfd in (("exit", False), ("hang", True), ("hang", False)):
+            with self.subTest(mode=mode, pidfd=pidfd), mock.patch.dict(os.__dict__):
+                if pidfd and not HAS_PIDFD:
+                    self.skipTest("Killing an unowned process safely requires a pidfd.")
+                if not pidfd:
+                    os.__dict__.pop("pidfd_open", None)
+                self.evidence = self.evidence.with_name("evidence-" + mode + str(pidfd))
+                run = verify.Run(self.evidence)
+                self.addCleanup(run.close)
+                run.start_server()
+                old = run.server.with_name("old-" + run.server.name[4:])
+                child = REAL_POPEN([sys.executable, "-c", HOST_KILL, run.server / "adb.sock", mode],
+                                   stdout=subprocess.PIPE)
+                self.addCleanup(child.stdout.close)
+                self.addCleanup(stop_child, child)
+                self.assertTrue(select.select([child.stdout], [], [], 10)[0], "Peer did not report ready.")
+                self.assertEqual(child.stdout.readline(), b"ready\n")
+                if mode == "hang" and not pidfd:
+                    with self.assertRaisesRegex(RuntimeError, "No stable process handle"):
+                        run.close()
+                    self.assertIsNone(child.poll())
+                    self.assertTrue((old / "adb.sock").is_socket())
+                    expected = [("host:kill", "hung")]
+                elif mode == "exit":
+                    # The fixture owns this child. Reap it as its parent would after a real restart.
+                    with ThreadPoolExecutor(max_workers=1) as reaper:
+                        exited = reaper.submit(child.wait, 20)
+                        run.close()
+                        self.assertEqual(exited.result(), 0)
+                    self.assertFalse(old.exists())
+                    expected = [("host:kill", 0)]
+                else:
+                    run.close()
+                    self.assertEqual(child.wait(10), -signal.SIGKILL)
+                    self.assertFalse(old.exists())
+                    expected = [("host:kill", "hung"), ("kill", 0)]
+                log = [json.loads(line) for line in (self.evidence / "commands.jsonl").read_text().splitlines()]
+                sweep = [(entry["argv"][0], entry["exit"]) for entry in log if entry["name"] == "adb-sweep"]
+                self.assertEqual(sweep, expected)
+                self.assert_lock_free()
+
     def test_install_needs_flag_and_cleanyourtv_journal(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as refused:
             verify.main(["install", "--evidence", str(self.evidence)])
@@ -277,6 +616,366 @@ class VerifyTest(unittest.TestCase):
         self.assertIn("CleanYourTV", summary["error"])
         self.assertFalse(any("install" in call[3:] or call[-1] == "home" for call in self.tools.calls))
         self.assert_cleaned_up_once()
+
+
+def find_adb():
+    named = os.environ.get("LUMA_TEST_ADB")
+    if named:
+        return Path(named)
+    found = verify.adb_bin() if verify.adb_bin().is_file() else shutil.which("adb")
+    return Path(found) if found else None
+
+
+ADB = find_adb()
+OPERATOR = """
+import json, sys
+from pathlib import Path
+config = json.loads(sys.argv[1])
+sys.path.insert(0, config["scripts"])
+import verify
+verify.adb_bin = lambda: Path(config["adb"])
+verify.KEYDIR, verify.STATE, verify.LEGACY_PORT = Path(config["keys"]), Path(config["state"]), config["port"]
+run = verify.Run(Path(config["evidence"]))
+sys.stdin.readline()
+try:
+    run.start_server()
+    print("started", run.server, run.process.pid, flush=True)
+    sys.stdin.readline()
+except RuntimeError as error:
+    print("refused", error, flush=True)
+finally:
+    run.close()
+"""
+# Runs main() as an operator would, with a fixture launcher command in place of the TCL steps.
+INTERRUPTED = """
+import json, sys
+from pathlib import Path
+config = json.loads(sys.argv[1])
+sys.path.insert(0, config["scripts"])
+import verify
+verify.adb_bin = lambda: Path(config["adb"])
+verify.KEYDIR, verify.STATE, verify.LEGACY_PORT = Path(config["keys"]), Path(config["state"]), config["port"]
+def live(run, action):
+    run.start_server()
+    run.command("select-home", ["bash", config["launcher"], config["pids"]], 120)
+verify.Run.live = live
+sys.exit(verify.main(["doctor", "--evidence", config["evidence"]]))
+"""
+LAUNCHER = """sleep 300 &
+echo "$$ $!" > "$1.part"
+mv "$1.part" "$1"
+wait
+"""
+
+
+@unittest.skipUnless(ADB, "No adb found. Set LUMA_TEST_ADB to run the real ADB server checks.")
+class RealAdbServerTest(unittest.TestCase):
+    """Runs real ADB servers on private sockets with scratch keys and device discovery off. Contacts no device."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="luma-adb-")
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.keys, self.state, self.port = self.base / "keys", self.base / "state", free_port()
+        self.keys.mkdir()
+        self.isolated = {"PATH": "/usr/bin:/bin", "HOME": str(self.base), "TMPDIR": str(self.base),
+                         "ANDROID_USER_HOME": str(self.keys), "ADB_VENDOR_KEYS": str(self.keys / "adbkey"),
+                         "ADB_MDNS": "0", "ADB_USB": "0", "ADB_EMU": "0", "ADB_MDNS_AUTO_CONNECT": "0"}
+        subprocess.run([ADB, "keygen", self.keys / "adbkey"], env=self.isolated, capture_output=True, check=True)
+        for name, value in {"KEYDIR": self.keys, "STATE": self.state, "LEGACY_PORT": self.port}.items():
+            patcher = mock.patch.object(verify, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(verify, "adb_bin", lambda: ADB)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def start_adb(self, spec, env=None, *, bind_conflict=False):
+        read, write = os.pipe()
+        with contextlib.ExitStack() as cleanup, os.fdopen(read, "rb") as reply:
+            try:
+                child = subprocess.Popen([ADB, "-L", spec, *SERVER, str(write)], pass_fds=[write],
+                                         env=self.isolated if env is None else env, stdin=subprocess.DEVNULL,
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            finally:
+                os.close(write)
+            cleanup.callback(stop_child, child)
+            self.assertTrue(select.select([reply], [], [], 10)[0], "ADB did not report ready.")
+            if bind_conflict:
+                self.assertEqual(reply.read(3), b"")
+                self.assertNotEqual(child.wait(10), 0)
+            else:
+                self.assertEqual(reply.read(3), b"OK\n")
+                self.addCleanup(cleanup.pop_all().close)
+        return child
+
+    def listener(self, path):
+        with socket.socket(socket.AF_UNIX) as client:
+            client.connect(str(path))
+            return verify.peer(client, path)
+
+    def alive(self, pid):
+        state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        return bool(state) and not state.startswith("Z")
+
+    def answers(self, family, address):
+        try:
+            with socket.socket(family) as client:
+                client.settimeout(5)
+                client.connect(address)
+                client.sendall(b"000chost:version")
+                return client.recv(4) == b"OKAY"
+        except OSError:
+            return False
+
+    def operator(self, name):
+        config = {"scripts": str(Path(__file__).resolve().parent), "adb": str(ADB), "keys": str(self.keys),
+                  "state": str(self.state), "port": self.port, "evidence": str(self.base / name)}
+        child = subprocess.Popen([sys.executable, "-c", OPERATOR, json.dumps(config)], stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, text=True)
+        for cleanup in (child.stdout.close, lambda: child.wait(45), child.stdin.close):
+            self.addCleanup(cleanup)
+        child.stdin.write("\n")
+        child.stdin.flush()
+        return child
+
+    def report(self, child):
+        self.assertTrue(select.select([child.stdout], [], [], 40)[0], "Operator did not report a result.")
+        word, *rest = child.stdout.readline().split()
+        return word, rest
+
+    def test_closing_a_run_stops_only_its_own_server(self):
+        foreign = self.base / "foreign"
+        foreign.mkdir()
+        self.start_adb("localfilesystem:" + str(foreign / "adb.sock"))
+        tcp_port = free_port()
+        while tcp_port == self.port:
+            tcp_port = free_port()
+        self.start_adb("tcp:localhost:" + str(tcp_port))
+        run = verify.Run(self.base / "evidence")
+        try:
+            run.start_server()
+            own, process = run.server / "adb.sock", run.process
+            self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
+        finally:
+            run.close()
+        process.wait(10)
+        self.assertFalse(own.parent.exists())
+        self.assertTrue(self.answers(socket.AF_UNIX, str(foreign / "adb.sock")))
+        self.assertTrue(self.answers(socket.AF_INET, ("127.0.0.1", tcp_port)))
+
+    def close_with_replacement(self, run, child, evidence_lost=False):
+        original = run.server
+        retired = original.with_name("old-" + original.name[4:])
+        socket_stat = (original / "adb.sock").stat()
+        failure = ""
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            closing = worker.submit(run.close)
+            # The fixture is the replacement's parent. Reap it while cleanup waits for its PID to disappear.
+            while not closing.done() and child.poll() is None:
+                time.sleep(0.05)
+            try:
+                closing.result()
+            except RuntimeError as error:
+                failure = str(error)
+        self.assertFalse(original.exists())
+        if evidence_lost:
+            failure, separator, detail = failure.partition("Could not write commands.jsonl: ")
+            self.assertTrue(separator, failure)
+            self.assertIn(str(run.evidence / "commands.jsonl"), detail)
+        if failure.strip():
+            self.assertFalse(HAS_PIDFD, failure)
+            self.assertEqual(failure.strip(), "ADB did not close its socket after host:kill. No stable "
+                             "process handle is available. The server directory was retained: " + str(retired))
+            self.assertIsNone(child.poll())
+            self.assertTrue(os.path.samestat(socket_stat, (retired / "adb.sock").stat()))
+            stop_child(child)
+        else:
+            child.wait(10)
+            self.assertFalse(retired.exists())
+
+    def test_restarted_adb_is_stopped_or_retained_if_it_hangs_without_a_pidfd(self):
+        for lost in (False, True):
+            with self.subTest(evidence_lost=lost):
+                evidence = self.base / ("evidence-" + str(lost))
+                run = verify.Run(evidence)
+                with contextlib.ExitStack() as cleanup:
+                    cleanup.callback(run.close)
+                    run.start_server()
+                    own = run.server / "adb.sock"
+                    run.process.kill()
+                    run.process.wait()
+                    restarted = self.start_adb("localfilesystem:" + str(own), run.env)
+                    self.assertEqual(self.listener(own), restarted.pid)
+                    self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
+                    if lost:
+                        shutil.rmtree(evidence)
+                    cleanup.pop_all()
+                self.close_with_replacement(run, restarted, evidence_lost=lost)
+                if not lost:
+                    log = [json.loads(line) for line in (evidence / "commands.jsonl").read_text().splitlines()]
+                    sweep = [entry for entry in log if entry["name"] == "adb-sweep"]
+                    self.assertEqual(sweep[0]["argv"], ["host:kill", str(own).replace("/adb-", "/old-")])
+                    self.assertEqual(sweep[0]["pid"], restarted.pid)
+                    if len(sweep) == 2:
+                        self.assertEqual(sweep[1]["argv"], ["kill", "-KILL", str(restarted.pid)])
+                    outcomes = [entry["exit"] for entry in sweep]
+                    self.assertIn(outcomes, [[0], ["hung", 0] if HAS_PIDFD else ["hung"]])
+
+    def test_server_reads_only_a_private_copy_of_the_selected_key(self):
+        keys = {name: (self.keys / name).read_bytes() for name in ["adbkey", "adbkey.pub"]}
+        run = verify.Run(self.base / "evidence")
+        with contextlib.ExitStack() as cleanup:
+            cleanup.callback(run.close)
+            run.start_server()
+            home = Path(run.env["HOME"])
+            self.assertEqual(home, run.server / "home")
+            copies = {str(path.relative_to(home)): path for path in home.rglob("*") if not path.is_dir()}
+            self.assertEqual(sorted(copies), [".android/adbkey", ".android/adbkey.pub"])
+            for name, path in copies.items():
+                self.assertFalse(path.is_symlink(), name)
+                self.assertEqual((path.read_bytes(), path.stat().st_mode & 0o777), (keys[Path(name).name], 0o600))
+            self.assertEqual({path.stat().st_mode & 0o777 for path in (home, home / ".android")}, {0o700})
+            self.assertEqual(self.listener(run.server / "adb.sock"), run.process.pid)
+            # If the trusted files disappear and a restarted server finds no key, nothing is created in their place.
+            for name in keys:
+                (self.keys / name).unlink()
+            run.process.kill()
+            run.process.wait()
+            own = run.server / "adb.sock"
+            restarted = self.start_adb("localfilesystem:" + str(own), run.env)
+            self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
+            cleanup.pop_all()
+        self.close_with_replacement(run, restarted)
+        self.assertEqual(list(self.keys.iterdir()), [])
+
+    def test_failed_start_reports_the_daemon_reason(self):
+        verify.STATE = self.state = self.base / ("s" * 100)
+        run = verify.Run(self.base / "evidence")
+        try:
+            with self.assertRaisesRegex(RuntimeError, "exited with signal SIGABRT before it was ready: could not "
+                                        "install \\*smartsocket\\* listener"):
+                run.start_server()
+        finally:
+            run.close()
+        self.assertEqual(list((self.state / "run").glob("*-*")), [])
+
+    def test_reserved_port_refuses_an_old_adb_server_and_its_clients(self):
+        run = verify.Run(self.base / "evidence")
+        try:
+            run.start_server()
+            with self.assertRaises(ConnectionRefusedError):
+                socket.create_connection(("127.0.0.1", self.port), timeout=5).close()
+            self.start_adb("tcp:localhost:" + str(self.port), bind_conflict=True)
+            self.assertFalse(self.answers(socket.AF_INET, ("127.0.0.1", self.port)))
+            self.assertFalse(self.answers(socket.AF_INET6, ("::1", self.port)))
+        finally:
+            run.close()
+
+    def test_old_verifier_server_on_the_fixed_port_is_left_running(self):
+        spec = "tcp:localhost:" + str(self.port)
+        owner = self.start_adb(spec)
+        self.start_adb(spec, bind_conflict=True)
+        self.assertIsNone(owner.poll())
+        run = verify.Run(self.base / "evidence")
+        with self.assertRaisesRegex(RuntimeError, "in use .* left running"):
+            try:
+                run.start_server()
+            finally:
+                run.close()
+        self.assertFalse((run.evidence / "commands.jsonl").exists())
+        self.assertIsNone(owner.poll())
+        self.assertTrue(self.answers(socket.AF_INET, ("127.0.0.1", self.port)))
+
+    def test_simultaneous_starts_admit_one_operator(self):
+        children = [self.operator("first"), self.operator("second")]
+        reports = [self.report(child) for child in children]
+        self.assertEqual(sorted(word for word, _ in reports), ["refused", "started"], reports)
+        winner = [word for word, _ in reports].index("started")
+        loser = 1 - winner
+        self.assertIn("Another verifier", " ".join(reports[loser][1]))
+        self.assertEqual(children[loser].wait(10), 0)
+        own = Path(reports[winner][1][0]) / "adb.sock"
+        self.assertTrue(self.answers(socket.AF_UNIX, str(own)))
+        children[winner].stdin.write("\n")
+        children[winner].stdin.flush()
+        self.assertEqual(children[winner].wait(10), 0)
+        self.assertFalse(self.alive(int(reports[winner][1][1])))
+        self.assertFalse(own.parent.exists())
+
+    @unittest.skipUnless(HAS_PIDFD, "Keeping a safe handle to an orphaned ADB server requires a pidfd.")
+    def test_killed_run_releases_the_lock_and_the_next_run_stops_its_server(self):
+        foreign = self.base / "foreign"
+        foreign.mkdir()
+        self.start_adb("localfilesystem:" + str(foreign / "adb.sock"))
+        child = self.operator("killed")
+        word, (server, pid) = self.report(child)
+        self.assertEqual(word, "started")
+        # The operator still owns the server and is waiting for our input.
+        handle = os.pidfd_open(int(pid))
+        self.addCleanup(os.close, handle)
+
+        def stop_orphan():
+            with contextlib.suppress(ProcessLookupError):
+                signal.pidfd_send_signal(handle, signal.SIGKILL)
+            self.assertTrue(select.select([handle], [], [], 10)[0])
+
+        self.addCleanup(stop_orphan)
+        child.send_signal(signal.SIGKILL)
+        child.wait(10)
+        orphan = Path(server)
+        self.assertTrue(self.answers(socket.AF_UNIX, str(orphan / "adb.sock")))
+        run = verify.Run(self.base / "evidence")
+        try:
+            run.start_server()
+            self.assertTrue(select.select([handle], [], [], 10)[0], "Orphaned ADB stayed alive.")
+            self.assertFalse(orphan.exists())
+            self.assertTrue(self.answers(socket.AF_UNIX, str(run.server / "adb.sock")))
+            self.assertTrue(self.answers(socket.AF_UNIX, str(foreign / "adb.sock")))
+        finally:
+            run.close()
+
+    def test_interrupted_launcher_command_stops_before_the_lock_is_released(self):
+        launcher = self.base / "launcher.sh"
+        launcher.write_text(LAUNCHER)
+        for number in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal.Signals(number).name):
+                evidence, pids = self.base / ("evidence-" + str(number)), self.base / ("pids-" + str(number))
+                config = {"scripts": str(Path(__file__).resolve().parent), "adb": str(ADB), "keys": str(self.keys),
+                          "state": str(self.state), "port": self.port, "evidence": str(evidence),
+                          "launcher": str(launcher), "pids": str(pids)}
+                child = subprocess.Popen([sys.executable, "-c", INTERRUPTED, json.dumps(config)], stdout=subprocess.PIPE)
+                self.addCleanup(child.stdout.close)
+                self.addCleanup(child.wait, 45)
+                self.addCleanup(child.terminate)
+                for _ in range(600):
+                    if pids.exists() or child.poll() is not None:
+                        break
+                    time.sleep(0.05)
+                shell, sleeper = map(int, pids.read_text().split())
+                start = next(json.loads(line) for line in (evidence / "commands.jsonl").read_text().splitlines()
+                             if json.loads(line)["name"] == "adb-start")
+                for pid in (shell, sleeper, start["pid"]):
+                    self.assertTrue(self.alive(pid))
+                child.send_signal(number)
+                with (self.state / "tcl.lock").open("a") as lock:
+                    for _ in range(600):
+                        try:
+                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            break
+                        except BlockingIOError:
+                            time.sleep(0.01)
+                    else:
+                        self.fail("The interrupted run kept the lock.")
+                    self.assertEqual([pid for pid in (shell, sleeper, start["pid"]) if self.alive(pid)], [])
+                    self.assertEqual(list((self.state / "run").glob("*-*")), [])
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                self.assertEqual(child.wait(10), 1)
+                summary = json.loads((evidence / "summary.json").read_text())
+                self.assertEqual((summary["status"], summary["error"]), ("FAIL", "The run was interrupted."), summary)
+                self.assertNotIn("cleanup_error", summary)
+                log = [json.loads(line)["name"] for line in (evidence / "commands.jsonl").read_text().splitlines()]
+                self.assertEqual(log, ["adb-start", "select-home", "adb-stop"])
 
 
 if __name__ == "__main__":
