@@ -15,7 +15,7 @@ python3 .agents/skills/verify-luma-state/scripts/verify.py --self-check --output
 
 The standard-library Python checker executes the real shell script over generated Android outcomes. It observes shell commands, journal changes, and ADB entry and return boundaries. It replays every outcome without instrumentation and requires the same output, exit code, Android state, and journal bytes. It audits the choice tree for omitted outcomes.
 
-This is an explicit-state model checker, not a hand-written replacement for the journal logic. No theorem prover or unbounded shell proof is claimed. The confirmed toolchain was Python 3.14.7 and the mini's `/bin/bash`. Each report records the exact runtime versions and tooling hashes.
+This is an explicit-state model checker, not a hand-written replacement for the journal logic. No theorem prover or unbounded shell proof is claimed. The first confirmed toolchain was Python 3.14.7 with the mini's `/bin/bash`. Later runs confirmed Python 3.14 with Bash 5.3 on Linux, and Python 3.12 with Bash 5.2 on the Ubuntu 24.04 CI image. Each report records the exact runtime versions and tooling hashes.
 
 ## Properties
 
@@ -26,8 +26,12 @@ This is an explicit-state model checker, not a hand-written replacement for the 
 | restore_returns_original | A restore that returns success selects the recorded original and enables the recorded launcher. |
 | restore_failure_not_success | A failed Android restore command returns an error and retains the journal. |
 | baseline_immutable | Home and install preserve the first recorded original until restore. |
+| original_predates_luma | When the prior Home is known, the saved original matches it. |
+| disabled_recorded_once | The journal records each switched-off launcher once. |
 
-An incorrect baseline can strand the user in the wrong launcher. A discarded journal removes the information needed to retry restore.
+An incorrect baseline can strand the user in the wrong launcher. A discarded journal removes the information needed to retry restore. A repeated journal line grows the journal on every retry, so no fixed point exists.
+
+`original_predates_luma` needs history the TV does not keep. The search carries a prior Home beside each state. A seed's prior is its Home, or unknown when the seed already opens Luma. A restore that exits zero and leaves no journal sets the prior to the Home it ends on. While the prior is unknown, the checker cannot establish which original Home was correct. The shell never reads the prior.
 
 ## Read the result
 
@@ -41,6 +45,12 @@ A counterexample lists the shortest sequence by operator-action count. It is not
 
 `--self-check` also changes real scratch copies of `luma.sh` to break each property. Each mutant must fail and its paired scratch control must pass that property. These checks test the checker. The scratch control is not the product and is not a proof that the checkout passes.
 
+`--self-check` then replays every past buggy `luma.sh` in [model/history.json](model/history.json). Each file in `history/` is the exact source at a past commit. The checker must reject each one for every property in its `must_fail` list. Its search continues past earlier counterexamples until all of them fail. A source it no longer rejects exits 2. Add an entry, never remove one, when a fix closes a new launcher bug.
+
+## Continuous integration
+
+`.github/workflows/launcher-state.yml` runs `tools/test_luma.py` and `verify.py --self-check` on each pull request and main push that touches `luma.sh`, its tests, or this skill. It uploads the artifact directory. A `luma.sh` change without a matching coverage record fails there, so update the record in the same pull request.
+
 ## Scope and assumptions
 
 Read [model/domain.json](model/domain.json) before interpreting a proof. The domain has stock, Luma, chooser, and empty HOME values, one stock launcher, and every declared adaptive Android write outcome. There is one operator. Reads and local file operations succeed. Crashes, power loss, other writers, additional stock launchers, and physical remote behavior are excluded.
@@ -51,7 +61,7 @@ The full shell invocation is not modeled as one atomic write. The observer recor
 
 ## Keep source and coverage synchronized
 
-[model/coverage.json](model/coverage.json) is the source of truth for the checked source SHA, function spans, and property lines. Its sync commit is `14b526d2104c47c0ead57ee54a6b851e6aa9e8c8`, the restore-fix branch before this skills change.
+[model/coverage.json](model/coverage.json) is the source of truth for the checked source SHA, function spans, and property lines. Its sync commit is the commit that last changed `luma.sh`. A squash merge can drop that commit from `main`, so the source hash is the identity that counts.
 
 When the source hash changes, inspect the new code, fake Android semantics, finite domain, and mutation anchors. Update that record only after the correspondence is confirmed. Then rerun the command. Move the sync commit only after the review. Do not update a hash merely to silence the guard, remove outcomes, cap away a counterexample, or weaken a property to obtain PASS.
 
@@ -61,7 +71,7 @@ For an intended behavior change, use `/t3-pstack:maintain-formal-verification-sk
 
 The output directory contains the exact checked source, source and tooling hashes, runtime versions, domain, coverage record, graph, boundary traces, summary, and scratch mutation patches. These are synthetic offline artifacts and contain no live TV state. Output survives automatic fixture cleanup.
 
-The helper removes only its temporary fixtures. It does not edit the product, a live journal, or any key. The schema for report, graph, trace, and mutation files is [model/artifacts.schema.json](model/artifacts.schema.json).
+The helper removes only its temporary fixtures. It does not edit the product, a live journal, or any key. Version 2 covers reports, graphs, traces, mutation checks and historical replays. [Current schema](model/artifacts.v2.schema.json) · [Version 1 schema for older runs](model/artifacts.schema.json)
 
 ## Helpers
 

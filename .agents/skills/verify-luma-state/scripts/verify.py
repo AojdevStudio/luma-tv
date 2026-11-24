@@ -16,6 +16,7 @@ import difflib
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -24,6 +25,7 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 MODEL = HERE.parent / "model"
+ARTIFACT_VERSION = 2
 LUMA = "dev.luma.tv/.MainActivity"
 STOCK = "com.google.android.tvlauncher/.Home"
 CHOOSER = "android/.ResolverActivity"
@@ -34,7 +36,10 @@ PROPERTY_TEXT = {
     "restore_returns_original": "A restore that exits zero returns to the recorded original Home and enables recorded launchers.",
     "restore_failure_not_success": "A failed Android restore command is reported by a nonzero exit and retains the journal for retry.",
     "baseline_immutable": "Home and install keep the first recorded original unchanged until restore.",
+    "original_predates_luma": "When the prior Home is known, the saved original matches it.",
+    "disabled_recorded_once": "The journal records each switched-off launcher once.",
 }
+ACTIONS = ("home", "install", "restore")
 
 
 class VerificationError(Exception):
@@ -59,6 +64,16 @@ class State:
     def data(self) -> dict[str, object]:
         return {"home": COMPONENTS[self.home], "luma_installed": self.installed,
                 "stock_enabled": self.stock_enabled, "journal": self.journal}
+
+
+@dataclass(frozen=True)
+class Node:
+    """A quiescent search state. Prior is the Home before luma.sh changed the TV, or None when unknown."""
+    state: State
+    prior: str | None
+
+    def data(self) -> dict[str, object]:
+        return {**self.state.data(), "prior_home": None if self.prior is None else COMPONENTS[self.prior]}
 
 
 @dataclass(frozen=True)
@@ -296,7 +311,7 @@ class Executor:
         return runs
 
 
-def violations(run: Run) -> dict[str, Event]:
+def violations(run: Run, prior: str | None) -> dict[str, Event]:
     result: dict[str, Event] = {}
     baseline = original(run.start.journal)
     for event in run.events:
@@ -305,11 +320,19 @@ def violations(run: Run) -> dict[str, Event]:
             result.setdefault("no_luma_original", event)
         if saved == "":
             result.setdefault("no_empty_original", event)
+        if saved is not None and prior is not None and saved != COMPONENTS[prior]:
+            result.setdefault("original_predates_luma", event)
+        disabled = [line for line in (event.state.journal or "").splitlines() if line.startswith("disabled=")]
+        if len(disabled) != len(set(disabled)):
+            result.setdefault("disabled_recorded_once", event)
         if run.action != "restore":
             if baseline is not None and saved != baseline:
                 result.setdefault("baseline_immutable", event)
             if baseline is None and saved is not None:
                 baseline = saved
+    if run.action == "home" and any(c.operation == "disable" and c.selected == "accept" for c in run.choices):
+        if "disabled=com.google.android.tvlauncher" not in (run.end.journal or "").splitlines():
+            result.setdefault("disabled_recorded_once", run.events[-1])
     if run.action == "restore":
         saved = original(run.start.journal)
         disabled = run.start.journal is not None and "disabled=com.google.android.tvlauncher\n" in run.start.journal
@@ -323,13 +346,26 @@ def violations(run: Run) -> dict[str, Event]:
     return result
 
 
-def seeds() -> list[State]:
-    return sorted(State(home, installed, True, None) for home in COMPONENTS
-                  for installed in (False, True) if home != "L" or installed)
+def seeds() -> list[Node]:
+    """A TV that already opens Luma with no journal has an unknown prior Home."""
+    return sorted((Node(State(home, installed, True, None), None if home == "L" else home)
+                   for home in COMPONENTS for installed in (False, True) if home != "L" or installed),
+                  key=node_key)
+
+
+def successor(node: Node, run: Run) -> Node:
+    """A restore that succeeds and drops the journal ends the Luma session. Its Home is the next prior."""
+    if run.action == "restore" and run.exit_code == 0 and run.end.journal is None:
+        return Node(run.end, None if run.end.home == "L" else run.end.home)
+    return Node(run.end, node.prior)
 
 
 def state_key(state: State) -> tuple[str, bool, bool, str]:
     return (state.home, state.installed, state.stock_enabled, state.journal or "")
+
+
+def node_key(node: Node) -> tuple[tuple[str, bool, bool, str], str]:
+    return (state_key(node.state), "?" if node.prior is None else node.prior)
 
 
 def story(run: Run) -> str:
@@ -373,71 +409,78 @@ def story(run: Run) -> str:
     return " ".join(words)
 
 
-def check(source: str, output: Path, workers: int) -> dict[str, object]:
+def check(source: str, output: Path, workers: int, until: frozenset[str] | None = None) -> dict[str, object]:
+    """Search breadth-first. Stop after the first layer with a counterexample, or, with until, once all of until failed."""
     executor = Executor(source)
     initial = seeds()
-    paths: dict[State, tuple[int, ...]] = {state: () for state in initial}
+    paths: dict[Node, tuple[int, ...]] = {node: () for node in initial}
     frontier = initial
     first: dict[str, dict[str, object]] = {}
     all_edges: list[dict[str, object]] = []
     boundary_states: set[State] = set()
     boundary_steps = 0
-    shell_runs = 0
-    expanded: set[tuple[State, str]] = set()
+    expanded: set[tuple[Node, str]] = set()
+    # Android outcomes depend only on the TV and journal, so nodes that differ in prior share one execution.
+    outcomes: dict[tuple[State, str], list[Run]] = {}
     depth = 0
     with (output / "traces.jsonl").open("w") as traces, ThreadPoolExecutor(max_workers=workers) as pool:
         while frontier:
-            tasks = [(state, action) for state in sorted(frontier, key=state_key)
-                     for action in ("home", "install", "restore")]
-            next_frontier: set[State] = set()
+            tasks = [(node, action) for node in frontier for action in ACTIONS]
+            pending = list(dict.fromkeys((node.state, action) for node, action in tasks
+                                         if (node.state, action) not in outcomes))
             # map preserves deterministic breadth-first order despite parallel execution.
-            for (state, action), runs in zip(tasks, pool.map(lambda task: executor.outcomes(*task), tasks), strict=True):
+            for key, runs in zip(pending, pool.map(lambda task: executor.outcomes(*task), pending), strict=True):
                 audit_outcome_tree(runs)
-                if (state, action) in expanded:
+                outcomes[key] = runs
+            next_frontier: set[Node] = set()
+            for node, action in tasks:
+                if (node, action) in expanded:
                     raise VerificationError("A state and action was expanded twice.")
-                expanded.add((state, action))
-                for run in runs:
+                expanded.add((node, action))
+                for run in outcomes[(node.state, action)]:
                     edge_id = len(all_edges)
-                    chain = paths[state] + (edge_id,)
-                    found = violations(run)
+                    chain = paths[node] + (edge_id,)
+                    found = violations(run, node.prior)
+                    end = successor(node, run)
                     record = run.data()
-                    record["schema_version"] = 1
+                    record["schema_version"] = ARTIFACT_VERSION
                     record["edge_id"] = edge_id
+                    record["prior_home"] = node.data()["prior_home"]
                     record["violations"] = sorted(found)
                     traces.write(json.dumps(record, sort_keys=True) + "\n")
                     all_edges.append({"edge_id": edge_id, "action": run.action,
-                                      "start": state.data(), "end": run.end.data(), "exit_code": run.exit_code,
+                                      "start": node.data(), "end": end.data(), "exit_code": run.exit_code,
                                       "outcomes": [f"{c.operation}={c.selected}" for c in run.choices],
                                       "words": story(run)})
                     boundary_states.update(event.state for event in run.events)
                     boundary_steps += max(0, len(run.events) - 1)
-                    shell_runs += 1
                     for prop, event in found.items():
                         if prop not in first:
                             first[prop] = {"edge_ids": list(chain), "operator_actions": len(chain),
                                            "first_boundary": event.data(),
                                            "words": [str(all_edges[index]["words"]) for index in chain]}
-                    if run.end not in paths:
-                        paths[run.end] = chain
-                        next_frontier.add(run.end)
+                    if end not in paths:
+                        paths[end] = chain
+                        next_frontier.add(end)
                         if len(paths) > 2048:
                             raise VerificationError("More than 2048 quiescent states. No fixed-point claim.")
-            frontier = sorted(next_frontier, key=state_key)
+            frontier = sorted(next_frontier, key=node_key)
             depth += 1
-            print(f"Explored operator distance {depth - 1}. States {len(paths)}. Outcome traces {shell_runs}.", flush=True)
-            if first:
+            print(f"Explored operator distance {depth - 1}. States {len(paths)}. Outcome traces {len(all_edges)}.", flush=True)
+            if first and (until is None or until <= first.keys()):
                 break
     fixed_point = not frontier
-    if fixed_point and expanded != {(state, action) for state in paths for action in ("home", "install", "restore")}:
+    if fixed_point and expanded != {(node, action) for node in paths for action in ACTIONS}:
         raise VerificationError("A reachable state and action was not expanded. No fixed-point result.")
-    write_json(output / "graph.json", {"schema_version": 1,
-               "complete": fixed_point, "initial_states": [state.data() for state in initial],
-               "states": [state.data() for state in sorted(paths, key=state_key)], "edges": all_edges})
+    write_json(output / "graph.json", {"schema_version": ARTIFACT_VERSION,
+               "complete": fixed_point, "initial_states": [node.data() for node in initial],
+               "states": [node.data() for node in sorted(paths, key=node_key)], "edges": all_edges})
+    execution_pairs = sum(len(runs) for runs in outcomes.values())
     return {"fixed_point": fixed_point, "terminated_on_counterexample": bool(first), "initial_states": len(initial), "quiescent_states": len(paths),
             "operation_transitions": len(all_edges), "boundary_snapshot_states": len(boundary_states),
             "boundary_transition_occurrences": boundary_steps,
-            "instrumented_source_executions": shell_runs, "normal_source_executions": shell_runs,
-            "source_executions": shell_runs * 2, "observer_equivalence": "pass_for_every_outcome_trace",
+            "instrumented_source_executions": execution_pairs, "normal_source_executions": execution_pairs,
+            "source_executions": execution_pairs * 2, "observer_equivalence": "pass_for_every_outcome_trace",
             "choice_tree_audit": "pass_for_every_expanded_state_action", "expanded_state_actions": len(expanded),
             "maximum_shortest_operator_distance": max(map(len, paths.values())),
             "properties": {prop: {"statement": text, "status": "fail" if prop in first else "pass" if fixed_point else "unknown",
@@ -465,41 +508,53 @@ def self_check(source: str, output: Path) -> dict[str, object]:
     (output / "scratch-control.patch").write_text("".join(difflib.unified_diff(
         source.splitlines(keepends=True), control.splitlines(keepends=True),
         fromfile="checked-luma.sh", tofile="scratch-control-luma.sh")))
-    mutations: dict[str, tuple[str, State, tuple[str, ...]]] = {
+    stock, stock_absent = Node(State("S", True, True, None), "S"), Node(State("S", False, True, None), "S")
+    record = '            grep -qxF "disabled=$pkg" "$state" || printf \'disabled=%s\\n\' "$pkg" >> "$state"'
+    select = '            tv cmd package set-home-activity --user 0 "$LUMA" >/dev/null'
+    mutations: dict[str, tuple[str, Node, tuple[str, ...]]] = {
         "no_luma_original": (replace_once(control, guard, ''),
-                             State("L", True, True, None), ("home",)),
+                             Node(State("L", True, True, None), None), ("home",)),
         "no_empty_original": (replace_once(control, '        [ -n "$original" ] || die "could not read the TV\'s home screen"\n', ''),
-                              State("E", True, True, None), ("home",)),
+                              Node(State("E", True, True, None), "E"), ("home",)),
         "restore_returns_original": (replace_once(control, '        [ "$(home_now)" = "$original" ] || die "the TV did not select $original; restore journal kept"\n', ''),
-                                     State("S", True, True, None), ("home", "restore")),
+                                     stock, ("home", "restore")),
         "restore_failure_not_success": (replace_once(control,
             'tv cmd package set-home-activity --user 0 "$original" >/dev/null || die "could not restore $original; restore journal kept"',
             'tv cmd package set-home-activity --user 0 "$original" >/dev/null || true'),
-            State("S", True, True, None), ("home", "restore")),
+            stock, ("home", "restore")),
         "baseline_immutable": (replace_once(control, 'if [ ! -s "$state" ]; then\n', 'if true; then\n'),
-                               State("S", True, True, None), ("home", "install", "home")),
+                               stock, ("home", "install", "home")),
+        # Issue 1. Install resets Home to the chooser before home records it.
+        "original_predates_luma": (replace_once(control, '    remember_home "$(state_file)"\n', ''),
+                                   stock_absent, ("install", "home")),
+        "disabled_recorded_once": (replace_once(control,
+            'grep -qxF "disabled=$pkg" "$state" || printf', 'printf'),
+            stock, ("home", "restore", "install", "home")),
     }
     results: dict[str, object] = {}
-    for prop, (mutant, initial, actions) in mutations.items():
-        (output / f"mutation-{prop}.patch").write_text("".join(difflib.unified_diff(
+    cases = [(prop, prop, mutation) for prop, mutation in mutations.items()]
+    late_record = replace_once(control, f"{record}\n{select} ;;", f"{select}\n{record} ;;")
+    cases.append(("missing_disable_entry", "disabled_recorded_once", (late_record, stock, ("home",))))
+    for case, prop, (mutant, initial, actions) in cases:
+        (output / f"mutation-{case}.patch").write_text("".join(difflib.unified_diff(
             control.splitlines(keepends=True), mutant.splitlines(keepends=True),
-            fromfile="scratch-control-luma.sh", tofile=f"scratch-mutant-{prop}-luma.sh")))
+            fromfile="scratch-control-luma.sh", tofile=f"scratch-mutant-{case}-luma.sh")))
         counts: dict[str, int] = {}
         witnesses: dict[str, object] = {}
         for label, text in (("control", control), ("mutant", mutant)):
             executor = Executor(text)
-            frontier: dict[State, tuple[Run, ...]] = {initial: ()}
+            frontier: dict[Node, tuple[Run, ...]] = {initial: ()}
             count = 0
             witness: tuple[Run, ...] | None = None
             for action in actions:
-                following: dict[State, tuple[Run, ...]] = {}
-                for state, path in sorted(frontier.items(), key=lambda item: state_key(item[0])):
-                    for run in executor.outcomes(state, action):
+                following: dict[Node, tuple[Run, ...]] = {}
+                for node, path in sorted(frontier.items(), key=lambda item: node_key(item[0])):
+                    for run in executor.outcomes(node.state, action):
                         count += 1
                         chain = path + (run,)
-                        if prop in violations(run) and witness is None:
+                        if prop in violations(run, node.prior) and witness is None:
                             witness = chain
-                        following.setdefault(run.end, chain)
+                        following.setdefault(successor(node, run), chain)
                 frontier = following
             counts[label] = count
             if label == "control" and witness is not None:
@@ -508,14 +563,53 @@ def self_check(source: str, output: Path) -> dict[str, object]:
                 raise VerificationError(f"Actual-source mutation was not detected: {prop}.")
             if witness is not None:
                 witnesses[label] = [run.data() for run in witness]
-        results[prop] = {"status": "pass", "control_sha256": digest(control.encode()),
+        results[case] = {"status": "pass", "control_sha256": digest(control.encode()),
                          "mutant_sha256": digest(mutant.encode()), "outcome_traces": counts,
                          "source_executions": {label: count * 2 for label, count in counts.items()},
                          "operator_sequence": list(actions), "witness": witnesses.get("mutant")}
-        print(f"Mutation caught. {prop}.", flush=True)
-    write_json(output / "mutations.json", {"schema_version": 1, "checks": results})
-    return {"status": "pass", "properties_caught": sorted(results),
+        print(f"Mutation caught. {case} ({prop}).", flush=True)
+    write_json(output / "mutations.json", {"schema_version": ARTIFACT_VERSION, "checks": results})
+    return {"status": "pass", "properties_caught": sorted(mutations),
             "method": "Differential actual-source scratch mutations. Exhaustive outcomes within each stated witness sequence. Not a full fixed-point proof of the scratch control."}
+
+
+def history_check(output: Path, workers: int) -> dict[str, object]:
+    """Replay each luma.sh that shipped a launcher recovery bug. The checker must still reject it.
+
+    Each source is the exact file at a past commit. Its must_fail properties are the bugs the next fix
+    closed. The search continues past earlier counterexamples until every one of them fails.
+    """
+    manifest = read_object(MODEL / "history.json")
+    sources = manifest.get("sources")
+    if manifest.get("schema_version") != 1 or not isinstance(sources, list) or not sources:
+        raise VerificationError("model/history.json must list past sources.")
+    rejected: list[dict[str, object]] = []
+    for entry in sources:
+        if not isinstance(entry, dict):
+            raise VerificationError("A history entry must be an object.")
+        commit, path, sha, must_fail, bug = (entry.get(key) for key in ("commit", "source", "source_sha256", "must_fail", "bug"))
+        if not (isinstance(commit, str) and isinstance(path, str) and isinstance(sha, str) and isinstance(bug, str)
+                and isinstance(must_fail, list) and must_fail and set(must_fail) <= PROPERTY_TEXT.keys()):
+            raise VerificationError("A history entry has invalid fields.")
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise VerificationError("Set commit in model/history.json to the full 40-character lowercase Git SHA.")
+        source = (HERE.parent / path).read_bytes()
+        if digest(source) != sha:
+            raise VerificationError(f"History source {path} differs from its recorded hash.")
+        directory = output / "history" / commit[:12]
+        directory.mkdir(parents=True)
+        print(f"History {commit[:12]}. Expect {', '.join(must_fail)}.", flush=True)
+        result = check(source.decode(), directory, workers, until=frozenset(must_fail))
+        properties = result["properties"]
+        if not isinstance(properties, dict):
+            raise VerificationError("Internal result schema error.")
+        missed = [name for name in must_fail if properties[name]["status"] != "fail"]
+        if missed:
+            raise VerificationError(f"The checker no longer rejects {commit[:12]} for {', '.join(missed)}.")
+        rejected.append({"commit": commit, "bug": bug, "must_fail": must_fail,
+                         "counterexamples": {name: properties[name]["counterexample"] for name in must_fail}})
+    write_json(output / "history.json", {"schema_version": ARTIFACT_VERSION, "rejected": rejected})
+    return {"status": "pass", "sources_rejected": [str(entry["commit"]) for entry in rejected]}
 
 
 def read_object(path: Path) -> dict[str, object]:
@@ -530,7 +624,7 @@ def main() -> int:
     parser.add_argument("--source", type=Path, default=HERE.parents[3] / "luma.sh")
     parser.add_argument("--output", type=Path, help="New persistent directory. Default: private /tmp/luma-state-results-*.")
     parser.add_argument("--workers", type=int, default=4, choices=range(1, 9), metavar="1..8")
-    parser.add_argument("--self-check", action="store_true", help="Also catch five mutations in real source copies.")
+    parser.add_argument("--self-check", action="store_true", help="Also catch a mutation per property in real source copies and reject every past buggy source.")
     args = parser.parse_args()
     try:
         if args.output:
@@ -554,15 +648,18 @@ def main() -> int:
             raise VerificationError("Declared enumeration caps disagree with the checker.")
         write_json(output / "domain.json", domain)
         write_json(output / "coverage.json", coverage)
-        tooling_paths = sorted([HERE / "verify.py", HERE / "observe.bash", HERE / "fake-adb.bash", *MODEL.glob("*.json")])
+        tooling_paths = sorted([HERE / "verify.py", HERE / "observe.bash", HERE / "fake-adb.bash", *MODEL.glob("*.json"),
+                               *(HERE.parent / "history").glob("*.sh")])
         tooling_hashes = {str(path.relative_to(HERE.parent)): digest(path.read_bytes()) for path in tooling_paths}
         # Preserve the exact checked source, independent of later branch changes.
         (output / "luma.sh.checked").write_bytes(source_bytes)
         source = source_bytes.decode()
         result = check(source, output, args.workers)
         mutation_result: dict[str, object] = {"status": "not_requested"}
+        history_result: dict[str, object] = {"status": "not_requested"}
         if args.self_check:
             mutation_result = self_check(source, output)
+            history_result = history_check(output, args.workers)
         if args.source.read_bytes() != source_bytes:
             raise VerificationError("Product source changed during verification. Rerun on a stable checkout.")
         if tooling_hashes != {str(path.relative_to(HERE.parent)): digest(path.read_bytes()) for path in tooling_paths}:
@@ -572,18 +669,19 @@ def main() -> int:
             raise VerificationError("Internal result schema error.")
         failed = [name for name, value in properties.items() if isinstance(value, dict) and value.get("status") == "fail"]
         exit_code = 1 if failed else 0
-        report = {"schema_version": 1, "status": "fail" if failed else "pass", "exit_code": exit_code,
+        report = {"schema_version": ARTIFACT_VERSION, "status": "fail" if failed else "pass", "exit_code": exit_code,
                   "method": "actual-source finite explicit-state fixed-point model checking",
                   "source_sha256": digest(source_bytes), "coverage": coverage, "domain": domain,
                   "toolchain": {"python": sys.version.split()[0], "bash": subprocess.run(
                       ["/bin/bash", "--version"], capture_output=True, text=True, check=True).stdout.splitlines()[0]},
                   "tooling_sha256": tooling_hashes,
-                  "verification": result, "mutation_self_check": mutation_result}
+                  "verification": result, "mutation_self_check": mutation_result,
+                  "history_self_check": history_result}
         write_json(output / "report.json", report)
         search_result = "Fixed point reached." if result["fixed_point"] else "Stopped on a counterexample. Remaining properties are unproven."
         lines = [f"Overall {'FAIL' if failed else 'PASS'}. Exit {exit_code}.",
-                 f"{search_result} Discovered {result['quiescent_states']} quiescent states. Executed {result['operation_transitions']} operation outcomes.",
-                 f"Observed {result['boundary_transition_occurrences']} internal boundary transitions."]
+                 f"{search_result} Discovered {result['quiescent_states']} quiescent states. Explored {result['operation_transitions']} operation outcomes in {result['source_executions']} shell invocations.",
+                 f"Graph-edge boundary-transition occurrences: {result['boundary_transition_occurrences']}."]
         for name, value in properties.items():
             if not isinstance(value, dict):
                 raise VerificationError("Invalid property result.")
@@ -598,12 +696,15 @@ def main() -> int:
                 if isinstance(event, dict):
                     lines.append(f"  Evidence. Source line {event['source_line']}. Caller lines {event.get('caller_lines', [])}. {event['command']}.")
         lines.append(f"Mutation self-check. {mutation_result['status']}.")
+        rejected = history_result.get("sources_rejected", [])
+        lines.append(f"History self-check. {history_result['status']}."
+                     + (f" Rejected {len(rejected)} past buggy sources." if isinstance(rejected, list) and rejected else ""))
         (output / "summary.txt").write_text("\n".join(lines) + "\n")
         print("\n".join(lines), flush=True)
         print(f"Artifacts: {output}", flush=True)
         return exit_code
     except (OSError, ValueError, TypeError, KeyError, VerificationError, subprocess.SubprocessError, KeyboardInterrupt) as error:
-        write_json(output / "report.json", {"schema_version": 1, "status": "error", "exit_code": 2,
+        write_json(output / "report.json", {"schema_version": ARTIFACT_VERSION, "status": "error", "exit_code": 2,
                                            "error": str(error), "fixed_point": False})
         print(f"ERROR. Verification incomplete. {error}", file=sys.stderr, flush=True)
         return 2

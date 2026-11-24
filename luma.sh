@@ -1,7 +1,4 @@
 #!/bin/bash
-# Luma on your TV, from this computer: build, install, make it the home screen, and undo that.
-#   ./luma.sh [-s DEVICE] build | install | home | widgets | restore | status
-# DEVICE is the TV's adb address (192.168.1.50:5555) or serial. Default: $LUMA_DEVICE, else the only device adb sees.
 set -euo pipefail
 cd "$(dirname "$0")"
 DEVICE="${LUMA_DEVICE:-}"
@@ -37,7 +34,7 @@ remember_home() {
     fi
 }
 installed() { tv pm list packages "$1" | grep -qx "package:$1"; }
-show_home() { tv dumpsys power | grep -q 'mWakefulness=Awake' && tv input keyevent KEYCODE_HOME || true; } # never wakes a sleeping TV
+show_home() { tv dumpsys power | grep -q 'mWakefulness=Awake' && tv input keyevent KEYCODE_HOME || true; }
 
 case "$ACTION" in
 build)
@@ -70,7 +67,6 @@ home)
     show_home
     echo "Luma is the home screen. Undo at any time: ./luma.sh restore" ;;
 widgets)
-    # The Home widgets work without this; it switches on what a TV remote makes tedious to allow by hand.
     pick_device
     installed dev.luma.tv || die "Luma is not installed yet: ./luma.sh install"
     tv pm grant dev.luma.tv android.permission.READ_TV_LISTINGS && echo "Up Next: Continue watching from your apps."
@@ -82,7 +78,7 @@ restore)
     state="$(state_file)"
     if [ -s "$state" ]; then
         disabled="$(sed -n 's/^disabled=//p' "$state")"; original="$(sed -n 's/^original=//p' "$state" | head -n 1)"
-    else # set up by hand or on another computer: switch every known launcher back on
+    else
         disabled=""; original=""
         for pkg in $KNOWN; do installed "$pkg" && tv pm list packages -d "$pkg" | grep -qx "package:$pkg" && disabled="$disabled $pkg"; done
     fi
