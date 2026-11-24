@@ -224,10 +224,8 @@ final class UpNextWidget extends Widget {
             else host.start(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+a.getPackageName())));
             return;
         }
-        if(item.intent!=null){
-            try{item.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);host.start(item.intent);return;}catch(RuntimeException ignored){}
-        }
-        host.launch(item.pkg);
+        if(item.intent==null){host.launch(item.pkg);return;}
+        host.start(new Intent(item.intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), () -> host.launch(item.pkg));
     }
     private static byte[] read(Context context,String link)throws Exception{
         InputStream in;

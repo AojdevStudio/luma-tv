@@ -104,11 +104,11 @@ public final class MediaE2E extends Instrumentation {
             waitFor("Child mode chip", () -> find(luma, v -> "Child mode".equals(text(v))) != null);
             if (find(luma, v -> "Up Next".equals(text(v))) != null) throw new AssertionError("Child mode shows Up Next");
             if (find(luma, v -> description(v).startsWith("Fixture-Child")) != null) throw new AssertionError("Child mode shows the owner's Watch Next row");
-            Object host = field(luma, "boardHost");
-            runOnMainSync(() -> {
-                try { host.getClass().getMethod("start", Intent.class).invoke(host, new Intent().setComponent(ComponentName.unflattenFromString(PLAYER)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
-                catch (ReflectiveOperationException error) { throw new IllegalStateException(error); }
-            });
+            WidgetBoard.Host host = (WidgetBoard.Host) field(luma, "boardHost");
+            java.util.concurrent.atomic.AtomicBoolean fallback = new java.util.concurrent.atomic.AtomicBoolean();
+            runOnMainSync(() -> host.start(new Intent().setComponent(ComponentName.unflattenFromString(PLAYER))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), () -> { fallback.set(true); host.launch(FIXTURE); }));
+            if (fallback.get()) throw new AssertionError("Mode refusal attempted the provider app fallback");
             SystemClock.sleep(3_000);
             if (!resumed().equals(LUMA)) throw new AssertionError("Child mode opened an unapproved provider link: " + resumed());
         });
@@ -151,6 +151,12 @@ public final class MediaE2E extends Instrumentation {
             settle();
             press(expectCard(luma, "Fixture-Relink · 1 m left · Fixture", .5f));
             waitResumed(PLAYER_NEXT);
+        });
+        test("A provider link Android refuses falls back to the provider app", () -> {
+            seed("Fixture-Refused", 30_000, HIDDEN, "Fixture-Refused", 30_000, HIDDEN);
+            Activity luma = launchLuma(null);
+            press(expectCard(luma, "Fixture-Refused · 1 m left · Fixture", .5f));
+            waitResumed(APP);
         });
         Bundle result = new Bundle();
         report.append(failures == 0 ? "E2E PASS\n" : "E2E FAIL " + failures + "\n");
