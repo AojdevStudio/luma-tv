@@ -2,7 +2,7 @@
   "schema_version": 1,
   "source": "luma.sh",
   "source_sha256": "b083f77055693ea22fd41a6e22385dcc0af003717de03915e40a4ab9b93083af",
-  "sync_commit": "0daecb6677508d5357e92449190a582f7323f0f0",
+  "sync_commit": "28b72b603b6066e176ec9abdbda3536fa24fbdcc",
   "instrumentation": "Unchanged luma.sh copied into a private fixture. A Bash wrapper loads the observer and sources luma.sh with its own path as $0 and the normal arguments. DEBUG and EXIT traps record the actual source. No journal function or shell branch is mocked. Only the adb executable is replaced.",
   "source_spans": {
     "tv_transport": [
