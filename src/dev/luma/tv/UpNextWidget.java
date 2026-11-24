@@ -41,9 +41,29 @@ final class UpNextWidget extends Widget {
         empty=text("Shows and videos you start will appear here.",13,ink(0x99),"sans-serif");empty.setGravity(Gravity.CENTER);empty.setVisibility(GONE);addView(empty,pos(w-PAD*2,20,PAD,88));
         refresh();
     }
+    /** One read at a time, both flags touched only on the UI thread. A refresh asked for during a read runs again
+     *  before this draw queues poster loads on the same pool. Both draws still run in order on the UI thread. */
+    private boolean loading,stale;
     @Override void refresh(){
+        if(loading){stale=true;return;}
+        loading=true;
         final Context app=getContext().getApplicationContext();
-        WidgetBoard.IO.execute(()->{ArrayList<Item> items=load(app);post(()->show(items));});
+        WidgetBoard.IO.execute(()->{
+            Runnable completion;
+            try {
+                ArrayList<Item> items=load(app);
+                completion=()->{finishRead();show(items);};
+            } catch(RuntimeException unavailable) {
+                // Keep the last rows if Android cannot complete this read.
+                completion=this::finishRead;
+            }
+            post(completion);
+        });
+    }
+
+    private void finishRead(){
+        loading=false;
+        if(stale){stale=false;refresh();}
     }
 
     private ArrayList<Item> load(Context context){
@@ -58,7 +78,8 @@ final class UpNextWidget extends Widget {
         if(listings)for(Item i:watchNext(context))if(items.size()<SLOTS&&seen.add(i.key)){items.add(i);}
         HashSet<String> withPrograms=new HashSet<>();for(Item i:items)withPrograms.add(i.pkg);
         int room=SLOTS-items.size()-(listings||!exists?0:1);
-        for(String pkg:recent(context)){
+        HashMap<String,Long> lastUsed=new HashMap<>();
+        for(String pkg:recent(context,lastUsed)){
             if(room<=0)break;if(withPrograms.contains(pkg))continue;
             MainActivity.App a=host.app(pkg);if(a==null)continue;
             Item i=new Item();i.app=true;i.pkg=pkg;i.key="app:"+pkg;i.title=a.label;
@@ -95,9 +116,10 @@ final class UpNextWidget extends Widget {
         }catch(RuntimeException ignored){/* Recent apps remain available when the provider refuses a query. */}
         return out;
     }
-    final HashMap<String,Long> lastUsed=new HashMap<>();
-    private ArrayList<String> recent(Context context){
-        ArrayList<String> out=new ArrayList<>();lastUsed.clear();long now=System.currentTimeMillis();
+    /** Recently used apps: usage access when granted, else Luma's own record of the apps it opened. Fills lastUsed
+     *  with each app's last use, for this read only. */
+    private ArrayList<String> recent(Context context,HashMap<String,Long> lastUsed){
+        ArrayList<String> out=new ArrayList<>();long now=System.currentTimeMillis();
         try{
             AppOpsManager ops=(AppOpsManager)context.getSystemService(Context.APP_OPS_SERVICE);
             if(ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,Process.myUid(),context.getPackageName())==AppOpsManager.MODE_ALLOWED){
